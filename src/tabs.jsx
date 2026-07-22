@@ -6,7 +6,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, X, Check,
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
-  ChevronRight, ArrowLeft, AlertCircle,
+  ChevronRight, ArrowLeft, AlertCircle, MessageCircle,
 } from "lucide-react";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
@@ -878,6 +878,14 @@ function Row({ label, value, tone }) {
 }
 
 /* ======================= SETTINGS ======================= */
+/* Sister shops / suppliers. `wa` = full intl number, digits only (no + or leading 0),
+   used for both tel: and wa.me links. `display` is what staff see. */
+const SHOPS = [
+  { name: "Jaspare Auto — Main Shop", tag: "Head office", location: "Main shop", wa: "254729695400", display: "0724 450 852 · +254 729 695 400" },
+  { name: "Jeyden Auto Spares", tag: "Branch", location: "South B", wa: "254798718321", display: "+254 798 718 321" },
+  { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
+];
+
 export function SettingsTab({ categories, user, email }) {
   return (
     <div className="bp-fade-up">
@@ -893,6 +901,40 @@ export function SettingsTab({ categories, user, email }) {
           Each staff member has their own account. Add more from the login screen (“Create an account”)
           or in the Supabase dashboard → Authentication → Users.
         </p>
+      </div>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <div className="text-sm font-bold uppercase tracking-wide mb-3">Shops &amp; Contacts</div>
+        <div className="space-y-2">
+          {SHOPS.map((s) => (
+            <div key={s.name} className="flex items-center gap-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-sm truncate">{s.name}</div>
+                <div className="text-xs text-[#5A6472] flex items-center gap-1.5 flex-wrap">
+                  {s.tag && <span className="text-[10px] font-bold uppercase text-[#2563EB] bg-[#2563EB22] rounded px-1.5 py-0.5">{s.tag}</span>}
+                  {s.location && <span>{s.location}</span>}
+                </div>
+                <div className="text-xs text-[#5A6472] mt-0.5 font-mono">{s.display}</div>
+              </div>
+              <a
+                href={`tel:+${s.wa}`}
+                className="p-2 rounded-md bg-[#2563EB22] text-[#2563EB] hover:bg-[#2563EB] hover:text-white transition-colors shrink-0"
+                title={`Call ${s.name}`}
+              >
+                <Phone size={16} />
+              </a>
+              <a
+                href={`https://wa.me/${s.wa}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-md bg-[#15926A22] text-[#15926A] hover:bg-[#15926A] hover:text-white transition-colors shrink-0"
+                title={`WhatsApp ${s.name}`}
+              >
+                <MessageCircle size={16} />
+              </a>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
