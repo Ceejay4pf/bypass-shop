@@ -88,6 +88,33 @@ export async function insertItem(item, byName) {
   return rowToItem(data);
 }
 
+// Edit a part's details (not quantity — that stays with Add Stock / Sell).
+// Whitelists editable fields so a save can never clobber code/qty by accident.
+export async function updateItem(code, patch, byName) {
+  const allowed = [
+    "cat", "brand", "model", "series", "yearFrom", "yearTo", "condition",
+    "side", "variant", "color", "name", "price", "min", "location",
+    "supplier", "notes", "images", "status",
+  ];
+  const full = itemToRow({ code, ...patch });
+  const row = {};
+  const map = { yearFrom: "year_from", yearTo: "year_to", min: "min_qty" };
+  for (const k of allowed) {
+    const col = map[k] || k;
+    if (col in full) row[col] = full[col];
+  }
+  const { data, error } = await supabase
+    .from("inventory")
+    .update(row)
+    .eq("code", code)
+    .select()
+    .single();
+  if (error) throw error;
+  await addNotification({ type: "adjust", code, name: patch.name, by_name: byName });
+  await addMovement({ code, type: "adjust", by_name: byName, reason: "Edited part details" });
+  return rowToItem(data);
+}
+
 export async function deleteItem(code, byName) {
   const { error } = await supabase.from("inventory").delete().eq("code", code);
   if (error) throw error;

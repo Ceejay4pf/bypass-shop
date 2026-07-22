@@ -596,6 +596,233 @@ export function AddStockTab({ items, categories, onAddStock }) {
   );
 }
 
+/* ======================= EDIT PARTS (admin) ======================= */
+// Admin-only: browse the list, pick a part, edit its details & price.
+// Quantity is intentionally NOT editable here — that stays with Add Stock / Sell.
+export function EditPartsTab({ items, categories, onSave }) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(null);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? items.filter((i) => matchesQuery(i, categories.find((c) => c.key === i.cat), q))
+      : items;
+    return list.slice(0, 20);
+  }, [items, categories, query]);
+
+  if (selected) {
+    return (
+      <EditPartForm
+        key={selected.code}
+        item={selected}
+        categories={categories}
+        onCancel={() => setSelected(null)}
+        onSave={async (patch) => {
+          const ok = await onSave(selected.code, patch);
+          if (ok !== false) setSelected(null);
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Admin · manage parts" title="Edit Parts" />
+      <div className="text-[#5A6472] text-xs mb-3">
+        Pick a part to edit its details and price. To change quantity, use Add New Stock or Sell Item.
+      </div>
+      <div className="relative mb-4">
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find a part by code, name, vehicle…"
+          className="w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-md pl-10 pr-9 py-3 text-[#1B2430] placeholder-[#5A6472] outline-none focus:border-[#2563EB]"
+        />
+        {query && (
+          <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6472]">
+            <X size={16} />
+          </button>
+        )}
+      </div>
+      <div className="space-y-2">
+        {matches.map((it) => (
+          <button key={it.code} onClick={() => setSelected(it)} className="w-full text-left">
+            <ItemCard item={it} categories={categories} />
+          </button>
+        ))}
+        {matches.length === 0 && (
+          <div className="text-[#5A6472] text-sm py-8 text-center">No part matches that search.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EditPartForm({ item, categories, onCancel, onSave }) {
+  const [cat, setCat] = useState(item.cat || categories[0]?.key || "");
+  const [brand, setBrand] = useState(item.brand || "");
+  const [model, setModel] = useState(item.model || "");
+  const [series, setSeries] = useState(item.series || "");
+  const [yearFrom, setYearFrom] = useState(item.yearFrom || "");
+  const [yearTo, setYearTo] = useState(item.yearTo || "");
+  const [condition, setCondition] = useState(item.condition || CONDITIONS[0]);
+  const [side, setSide] = useState(item.side || SIDES[0]);
+  const [color, setColor] = useState(item.color || "");
+  const [name, setName] = useState(item.name || "");
+  const [price, setPrice] = useState(item.price ?? "");
+  const [min, setMin] = useState(item.min ?? 3);
+  const [location, setLocation] = useState(item.location || "");
+  const [supplier, setSupplier] = useState(item.supplier || "");
+  const [notes, setNotes] = useState(item.notes || "");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const brandModels = BRANDS.find((b) => b.name.toLowerCase() === brand.toLowerCase())?.models || [];
+
+  const submit = async () => {
+    if (!brand.trim() || !model.trim() || price === "") {
+      setErr("Brand, model and price are required.");
+      return;
+    }
+    setErr("");
+    setSaving(true);
+    try {
+      await onSave({
+        cat,
+        brand: brand.trim(),
+        model: model.trim(),
+        series: series.trim(),
+        yearFrom: Number(yearFrom) || item.yearFrom,
+        yearTo: Number(yearTo) || Number(yearFrom) || item.yearTo,
+        condition,
+        side,
+        color: color.trim(),
+        name: name.trim(),
+        price: Number(price),
+        min: Number(min) || LOW_STOCK_THRESHOLD,
+        location: location.trim(),
+        supplier: supplier.trim(),
+        notes: notes.trim(),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle
+        eyebrow="Admin · editing"
+        title="Edit Part"
+        right={
+          <button onClick={onCancel} className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm rounded-md px-2 py-1 hover:bg-[#EEF2F6]">
+            <ArrowLeft size={16} /> Back to list
+          </button>
+        }
+      />
+
+      <div className="text-xs text-[#5A6472] mb-3 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+        Code: <span className="font-mono text-[#2563EB]">{item.code}</span>
+        <span className="mx-2">·</span>
+        In stock: <span className="font-semibold text-[#1B2430]">{item.qty}</span>
+        <span className="text-[#5A6472]"> (change via Add Stock / Sell)</span>
+      </div>
+
+      <Field label="Category / section">
+        <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
+          {categories.map((c) => (
+            <option key={c.key} value={c.key}>{c.label}</option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Field label="Vehicle brand">
+            <input value={brand} onChange={(e) => setBrand(e.target.value)} list="edit-brand-list" className={inputCls} />
+            <datalist id="edit-brand-list">{BRANDS.map((b) => <option key={b.name} value={b.name} />)}</datalist>
+          </Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Model">
+            <input value={model} onChange={(e) => setModel(e.target.value)} list="edit-model-list" className={inputCls} />
+            <datalist id="edit-model-list">{brandModels.map((m) => <option key={m} value={m} />)}</datalist>
+          </Field>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Field label="Series (optional)"><input value={series} onChange={(e) => setSeries(e.target.value)} className={inputCls} /></Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Year from"><input type="number" value={yearFrom} onChange={(e) => setYearFrom(e.target.value)} className={inputCls} /></Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Year to"><input type="number" value={yearTo} onChange={(e) => setYearTo(e.target.value)} className={inputCls} /></Field>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Field label="Condition">
+            <select value={condition} onChange={(e) => setCondition(e.target.value)} className={inputCls}>
+              {CONDITIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Side">
+            <select value={side} onChange={(e) => setSide(e.target.value)} className={inputCls}>
+              {SIDES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Color"><input value={color} onChange={(e) => setColor(e.target.value)} className={inputCls} /></Field>
+        </div>
+      </div>
+
+      <Field label="Display name"><input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} /></Field>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Field label="Price (KES)"><input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} /></Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Low-stock at"><input type="number" value={min} onChange={(e) => setMin(e.target.value)} className={inputCls} /></Field>
+        </div>
+      </div>
+
+      <Field label="Location"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="A / Rack 03 / Shelf 02 / Bin 05" className={inputCls} /></Field>
+      <Field label="Supplier"><input value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputCls} /></Field>
+      <Field label="Notes"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputCls} /></Field>
+
+      {err && (
+        <div className="text-[#DC3B2E] text-sm mb-3 flex items-center gap-1.5">
+          <AlertTriangle size={14} /> {err}
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button onClick={onCancel} className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472]">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={saving}
+          className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-60"
+        >
+          <Check size={18} /> {saving ? "Saving…" : "Save changes"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ======================= SELL ======================= */
 export function SellTab({ items, categories, onSell }) {
   const [query, setQuery] = useState("");

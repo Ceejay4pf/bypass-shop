@@ -3,7 +3,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
-  FileText, HelpCircle,
+  FileText, HelpCircle, Pencil,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
@@ -15,7 +15,7 @@ import * as api from "./lib/api.js";
 import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
-  SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab,
+  SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
@@ -27,6 +27,7 @@ const NAV = [
   { id: "inventory", label: "Inventory", icon: Boxes },
   { id: "ledger", label: "Inventory Ledger", icon: History },
   { id: "add", label: "Add New Item", icon: Plus, admin: true },
+  { id: "edit", label: "Edit Parts", icon: Pencil, admin: true },
   { id: "stock", label: "Add New Stock", icon: PackagePlus, admin: true },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   { id: "quote", label: "Quotation", icon: FileText },
@@ -147,6 +148,11 @@ function BypassShop({ session }) {
     run(() => api.adjustQty(code, newQty, reason, user), `Adjusted ${code} → ${newQty}`);
   const handleDelete = (code) =>
     run(() => api.deleteItem(code, user), `Deleted ${code}`, "warn");
+  const handleEditItem = async (code, patch) => {
+    let ok = false;
+    await run(async () => { await api.updateItem(code, patch, user); ok = true; }, `Updated ${code}`);
+    return ok;
+  };
 
   const handleQuick = (t) => {
     if (t.kind === "new") handleAddItem(t.item);
@@ -286,6 +292,7 @@ function BypassShop({ session }) {
           {tab === "inventory" && <InventoryTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} onOpenLedger={openLedger} canEdit={admin} />}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={admin ? handleDelete : undefined} />}
           {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
+          {tab === "edit" && admin && <EditPartsTab items={items} categories={CATEGORIES} onSave={handleEditItem} />}
           {tab === "stock" && admin && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
           {tab === "quote" && <QuotationTab items={items} user={user} />}
