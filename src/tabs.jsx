@@ -150,7 +150,7 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
 }
 
 /* ======================= SEARCH ======================= */
-export function SearchTab({ items, categories }) {
+export function SearchTab({ items, categories, onDelete }) {
   const [query, setQuery] = useState("");
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -181,7 +181,7 @@ export function SearchTab({ items, categories }) {
       </div>
       <div className="space-y-2">
         {results.map((it) => (
-          <ItemCard key={it.code} item={it} categories={categories} />
+          <ItemCard key={it.code} item={it} categories={categories} onDelete={onDelete} />
         ))}
         {results.length === 0 && (
           <div className="text-[#5A6472] text-sm py-8 text-center">No part matches that search.</div>

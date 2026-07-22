@@ -334,7 +334,7 @@ const MOVE_META = {
   return: { label: "Returned", sign: "+", color: "#15926A" },
 };
 
-export function LedgerTab({ items, categories, initialCode, onBack }) {
+export function LedgerTab({ items, categories, initialCode, onBack, onDelete }) {
   const [query, setQuery] = useState(initialCode || "");
   const item = useMemo(() => {
     if (!query.trim()) return null;
@@ -381,7 +381,7 @@ export function LedgerTab({ items, categories, initialCode, onBack }) {
 
       {item && (
         <>
-          <div className="mb-4"><ItemCard item={item} categories={categories} /></div>
+          <div className="mb-4"><ItemCard item={item} categories={categories} onDelete={onDelete} /></div>
           {item.supplier ? (
             <div className="text-xs text-[#5A6472] mb-3 flex items-center gap-1.5">
               <MapPin size={12} /> Supplier: <span className="text-[#1B2430]">{item.supplier}</span>

@@ -282,9 +282,9 @@ function BypassShop({ session }) {
           {tab === "quick" && admin && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
           )}
-          {tab === "search" && <SearchTab items={items} categories={CATEGORIES} />}
+          {tab === "search" && <SearchTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} />}
           {tab === "inventory" && <InventoryTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} onOpenLedger={openLedger} canEdit={admin} />}
-          {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} />}
+          {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={admin ? handleDelete : undefined} />}
           {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
           {tab === "stock" && admin && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}

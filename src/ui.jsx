@@ -2,7 +2,7 @@
    BYPASS SHOP — shared UI primitives & helpers
 --------------------------------------------------------- */
 import React from "react";
-import { MapPin } from "lucide-react";
+import { MapPin, Trash2 } from "lucide-react";
 import { condColor, LOW_STOCK_THRESHOLD } from "./data.js";
 
 export const inputCls =
@@ -50,17 +50,30 @@ export function StockBadge({ item }) {
 }
 
 /* Compact item card used across search / stock / sell. */
-export function ItemCard({ item, categories }) {
+export function ItemCard({ item, categories, onDelete }) {
   const cat = categories.find((c) => c.key === item.cat) || categories[0] || {};
   return (
-    <div className="flex items-stretch bg-[#FFFFFF] border border-[#DEE3E9] rounded-md overflow-hidden hover:border-[#C2CAD3] transition-colors">
+    <div className="group flex items-stretch bg-[#FFFFFF] border border-[#DEE3E9] rounded-md overflow-hidden hover:border-[#C2CAD3] transition-colors">
       <div className="w-2 shrink-0" style={{ backgroundColor: cat.color || "#6B7480" }} />
       <div className="flex-1 p-3 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <span className="font-mono text-xs sm:text-sm tracking-wider text-[#1B2430] bg-[#EEF2F6] border border-[#DEE3E9] px-2 py-0.5 rounded">
             {item.code}
           </span>
-          <StockBadge item={item} />
+          <div className="flex items-center gap-1.5">
+            <StockBadge item={item} />
+            {onDelete && (
+              <button
+                onClick={() => {
+                  if (confirm(`Delete ${item.code} — ${item.name}? This cannot be undone.`)) onDelete(item.code);
+                }}
+                className="p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] transition-colors"
+                title="Delete item"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-[#1B2430] font-medium mt-1.5 truncate">
           {item.name || `${item.brand} ${item.model}`}
