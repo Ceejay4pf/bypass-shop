@@ -6,6 +6,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, X, Check,
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
+  ChevronRight, ArrowLeft, AlertCircle,
 } from "lucide-react";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
@@ -185,6 +186,9 @@ export function SearchTab({ items, categories }) {
 
 /* ======================= INVENTORY ======================= */
 export function InventoryTab({ items, categories, onDelete, onOpenLedger }) {
+  // Two-level view: pick a category first, then see that section's list.
+  const [openCat, setOpenCat] = useState(null);
+
   const grouped = useMemo(() => {
     const map = {};
     for (const c of categories) map[c.key] = [];
@@ -192,41 +196,88 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger }) {
     return map;
   }, [items, categories]);
 
+  const lowCount = (list) =>
+    list.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD)).length;
+
+  /* ---------- Level 2: a single category's item list ---------- */
+  if (openCat) {
+    const cat = categories.find((c) => c.key === openCat) || {};
+    const list = grouped[openCat] || [];
+    return (
+      <div className="bp-fade-up">
+        <SectionTitle eyebrow="Inventory · section" title={cat.label || "Section"} />
+        <button
+          onClick={() => setOpenCat(null)}
+          className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm mb-4 hover:underline"
+        >
+          <ArrowLeft size={16} /> All categories
+        </button>
+
+        <div className="flex items-center gap-2 mb-3 text-[#5A6472] text-xs">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
+          <span>Shelf {cat.shelf}</span>
+          <span>· {list.length} item(s)</span>
+          {lowCount(list) > 0 && (
+            <span className="text-[#DC3B2E] font-semibold">· {lowCount(list)} low</span>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          {list.length === 0 && (
+            <div className="text-[#5A6472] text-sm italic pl-1">No items yet in this section.</div>
+          )}
+          {list.map((it) => (
+            <div key={it.code} className="relative group">
+              <button onClick={() => onOpenLedger?.(it.code)} className="w-full text-left" title="View movement history">
+                <ItemCard item={it} categories={categories} />
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
+                }}
+                className="absolute top-2 right-2 p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Delete item"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- Level 1: the category tiles ---------- */
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Full stock, by section" title="Inventory" />
-      <div className="space-y-6">
-        {categories.map((cat) => (
-          <div key={cat.key}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-              <span className="text-sm font-bold uppercase tracking-wide">{cat.label}</span>
-              <span className="text-[#5A6472] text-xs">· Shelf {cat.shelf}</span>
-              <span className="text-[#5A6472] text-xs">· {(grouped[cat.key] || []).length} item(s)</span>
-            </div>
-            <div className="space-y-2">
-              {(grouped[cat.key] || []).length === 0 && (
-                <div className="text-[#5A6472] text-xs italic pl-1">No items yet in this section.</div>
-              )}
-              {(grouped[cat.key] || []).map((it) => (
-                <div key={it.code} className="relative group">
-                  <button onClick={() => onOpenLedger?.(it.code)} className="w-full text-left" title="View movement history">
-                    <ItemCard item={it} categories={categories} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
-                    }}
-                    className="absolute top-2 right-2 p-1.5 rounded bg-[#1B243099] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete item"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+      <SectionTitle eyebrow="Tap a section to view its parts" title="Inventory" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {categories.map((cat) => {
+          const list = grouped[cat.key] || [];
+          const low = lowCount(list);
+          return (
+            <button
+              key={cat.key}
+              onClick={() => setOpenCat(cat.key)}
+              className="text-left bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 hover:border-[#2563EB] active:scale-[0.99] transition-all flex items-center gap-3"
+            >
+              <span className="w-3 h-10 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+              <div className="flex-1 min-w-0">
+                <div className="font-bold uppercase tracking-wide text-sm truncate">{cat.label}</div>
+                <div className="text-[#5A6472] text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span>Shelf {cat.shelf}</span>
+                  <span>· {list.length} item(s)</span>
+                  {low > 0 && (
+                    <span className="text-[#DC3B2E] font-semibold flex items-center gap-0.5">
+                      <AlertCircle size={11} /> {low} low
+                    </span>
+                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
+              </div>
+              <ChevronRight size={18} className="text-[#5A6472] shrink-0" />
+            </button>
+          );
+        })}
       </div>
     </div>
   );
