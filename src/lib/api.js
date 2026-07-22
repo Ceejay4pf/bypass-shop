@@ -172,6 +172,18 @@ export async function addNotification(n) {
   if (error) console.error("notification insert failed", error);
 }
 
+/* Record a login so the main shop can see who signed in and when.
+   Also triggers the (optional) email alert via a Supabase Edge Function. */
+export async function logLogin(who) {
+  await addNotification({ type: "login", name: who, by_name: who });
+  // Best-effort email alert; ignored if the function isn't deployed.
+  try {
+    await supabase.functions.invoke("notify-login", { body: { who, at: new Date().toISOString() } });
+  } catch {
+    /* Edge Function not set up yet — the in-app log above still works. */
+  }
+}
+
 /* ---- STOCK MOVEMENTS ---- */
 export async function fetchMovements(code) {
   let q = supabase.from("stock_movements").select("*").order("ts", { ascending: false });

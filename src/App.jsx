@@ -3,28 +3,33 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
+  FileText, HelpCircle,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
+import Welcome from "./Welcome.jsx";
 import { supabase, isConfigured } from "./lib/supabase.js";
 import { useInventory, useNotifications, useAuth } from "./lib/hooks.js";
 import { getProfileName, signOut } from "./lib/auth.js";
+import { isAdmin } from "./lib/roles.js";
 import * as api from "./lib/api.js";
 import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
-  SellTab, NotifyTab, ReportsTab, SettingsTab,
+  SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
+// `admin: true` = only shown to / usable by admins (stock-editing screens).
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "quick", label: "Quick Transaction", icon: Zap },
+  { id: "quick", label: "Quick Transaction", icon: Zap, admin: true },
   { id: "search", label: "Search Inventory", icon: Search },
   { id: "inventory", label: "Inventory", icon: Boxes },
   { id: "ledger", label: "Inventory Ledger", icon: History },
-  { id: "add", label: "Add New Item", icon: Plus },
-  { id: "stock", label: "Add New Stock", icon: PackagePlus },
+  { id: "add", label: "Add New Item", icon: Plus, admin: true },
+  { id: "stock", label: "Add New Stock", icon: PackagePlus, admin: true },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
+  { id: "quote", label: "Quotation", icon: FileText },
   { id: "notify", label: "Notifications", icon: Bell },
   { id: "reports", label: "Reports", icon: FileBarChart },
   { id: "settings", label: "Settings", icon: SettingsIcon },
@@ -59,18 +64,38 @@ function useClock() {
 function BypassShop({ session }) {
   const { items, loading: itemsLoading, error } = useInventory();
   const { notifications } = useNotifications();
+  const admin = isAdmin(session);
+  const navItems = NAV.filter((n) => !n.admin || admin);
   const [user, setUser] = useState(session.user.user_metadata?.full_name || "Staff");
   const [tab, setTab] = useState("dashboard");
   const [history, setHistory] = useState([]); // screens visited, for the Back button
   const [toast, setToast] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   const [ledgerCode, setLedgerCode] = useState("");
+  // Show the welcome guide until this device has seen it once.
+  const [showWelcome, setShowWelcome] = useState(
+    () => localStorage.getItem("bp_seen_welcome") !== "1"
+  );
   const now = useClock();
+
+  const dismissWelcome = () => {
+    localStorage.setItem("bp_seen_welcome", "1");
+    setShowWelcome(false);
+  };
 
   // Resolve the staff display name from the profiles table.
   useEffect(() => {
     getProfileName(session.user.id, session.user.email).then((n) => n && setUser(n));
   }, [session.user.id]);
+
+  // Log this login once per session so the main shop sees who signed in.
+  useEffect(() => {
+    const key = `bp_login_logged_${session.user.id}_${session.access_token?.slice(-8)}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    const who = session.user.user_metadata?.full_name || session.user.email || "Staff";
+    api.logLogin(who).catch(() => {});
+  }, [session.access_token]);
 
   // Navigate to a screen, remembering where we came from so Back works.
   const openLedger = (code) => {
@@ -160,7 +185,7 @@ function BypassShop({ session }) {
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
-          {NAV.map((n) => {
+          {navItems.map((n) => {
             const Icon = n.icon;
             const active = tab === n.id;
             return (
@@ -186,6 +211,9 @@ function BypassShop({ session }) {
           <div className="flex items-center gap-1.5 text-[10px] text-[#15926A] px-3 mb-1">
             <Wifi size={11} /> Live sync on
           </div>
+          <button onClick={() => { setShowWelcome(true); setNavOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#2563EB]">
+            <HelpCircle size={17} /> Guide
+          </button>
           <button onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#DC3B2E]">
             <LogOut size={17} /> Logout
           </button>
@@ -227,7 +255,11 @@ function BypassShop({ session }) {
               <div className="flex items-center gap-1.5 text-[#1B2430] text-sm font-semibold">
                 <User size={14} className="text-[#2563EB]" /> {user}
               </div>
-              <div className="text-[10px] text-[#5A6472]">Logged in as</div>
+              <div className="text-[10px]">
+                <span className={`font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${admin ? "bg-[#2563EB22] text-[#2563EB]" : "bg-[#6B748022] text-[#5A6472]"}`}>
+                  {admin ? "Admin" : "Staff"}
+                </span>
+              </div>
             </div>
           </div>
         </header>
@@ -247,20 +279,23 @@ function BypassShop({ session }) {
           {tab === "dashboard" && (
             <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} onOpenLedger={openLedger} />
           )}
-          {tab === "quick" && (
+          {tab === "quick" && admin && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
           )}
           {tab === "search" && <SearchTab items={items} categories={CATEGORIES} />}
-          {tab === "inventory" && <InventoryTab items={items} categories={CATEGORIES} onDelete={handleDelete} onOpenLedger={openLedger} />}
+          {tab === "inventory" && <InventoryTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} onOpenLedger={openLedger} canEdit={admin} />}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} />}
-          {tab === "add" && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
-          {tab === "stock" && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
+          {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
+          {tab === "stock" && admin && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
+          {tab === "quote" && <QuotationTab items={items} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
-          {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} />}
+          {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}
         </main>
       </div>
+
+      {showWelcome && <Welcome user={user} onClose={dismissWelcome} />}
 
       {toast && (
         <div

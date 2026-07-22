@@ -185,7 +185,7 @@ export function SearchTab({ items, categories }) {
 }
 
 /* ======================= INVENTORY ======================= */
-export function InventoryTab({ items, categories, onDelete, onOpenLedger }) {
+export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdit = false }) {
   // Two-level view: pick a category first, then see that section's list.
   const [openCat, setOpenCat] = useState(null);
 
@@ -231,15 +231,17 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger }) {
               <button onClick={() => onOpenLedger?.(it.code)} className="w-full text-left" title="View movement history">
                 <ItemCard item={it} categories={categories} />
               </button>
-              <button
-                onClick={() => {
-                  if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
-                }}
-                className="absolute top-2 right-2 p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Delete item"
-              >
-                <Trash2 size={14} />
-              </button>
+              {canEdit && onDelete && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
+                  }}
+                  className="absolute top-2 right-2 p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Delete item"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -704,7 +706,23 @@ function NotifRow({ n, compact }) {
     new_item: { label: "New item", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
     adjust: { label: "Adjusted", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
     delete: { label: "Deleted", cls: "bg-[#6B748022] text-[#5A6472]" },
+    login: { label: "Login", cls: "bg-[#7C5CD622] text-[#7C5CD6]" },
   }[n.type] || { label: n.type, cls: "bg-[#6B748022] text-[#5A6472]" };
+
+  // Login events have no part code/qty — render a simpler card.
+  if (n.type === "login") {
+    return (
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold">{n.name} signed in</span>
+          <span className="text-[#5A6472] text-xs">{compact ? timeAgo(n.ts) : fmtDateTime(n.ts)}</span>
+        </div>
+        <span className={`inline-block mt-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${typeMeta.cls}`}>
+          {typeMeta.label}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
@@ -872,7 +890,7 @@ function Row({ label, value, tone }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-[#5A6472]">{label}</span>
-      <span className={`font-semibold ${tone === "red" ? "text-[#DC3B2E]" : "text-[#1B2430]"}`}>{value}</span>
+      <span className={`font-semibold ${tone === "red" ? "text-[#DC3B2E]" : tone === "blue" ? "text-[#2563EB]" : "text-[#1B2430]"}`}>{value}</span>
     </div>
   );
 }
@@ -886,7 +904,7 @@ const SHOPS = [
   { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
 ];
 
-export function SettingsTab({ categories, user, email }) {
+export function SettingsTab({ categories, user, email, admin }) {
   return (
     <div className="bp-fade-up">
       <SectionTitle eyebrow="System" title="Settings" />
@@ -896,10 +914,21 @@ export function SettingsTab({ categories, user, email }) {
         <div className="space-y-2 text-sm">
           <Row label="Name" value={user} />
           <Row label="Account" value={email || "—"} />
+          <Row label="Role" value={admin ? "Admin — full access" : "Staff — view, sell & quote"} tone={admin ? "blue" : undefined} />
         </div>
         <p className="text-xs text-[#5A6472] mt-2">
-          Each staff member has their own account. Add more from the login screen (“Create an account”)
-          or in the Supabase dashboard → Authentication → Users.
+          {admin
+            ? "You're an admin: you can add items, add stock, adjust and delete. Regular staff can view stock, sell, and make quotations only."
+            : "You're signed in as staff: you can view stock, sell, and make quotations. Adding, editing or deleting stock is admin-only."}
+        </p>
+      </div>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <div className="text-sm font-bold uppercase tracking-wide mb-3">Login Alerts</div>
+        <p className="text-xs text-[#5A6472] leading-relaxed">
+          Every login is recorded in <span className="font-semibold">Notifications</span> (who + time),
+          and an email alert is sent to the owner at{" "}
+          <span className="font-mono text-[#1B2430]">addamsjmk@gmail.com</span> the moment anyone signs in.
         </p>
       </div>
 
@@ -977,6 +1006,161 @@ export function SettingsTab({ categories, user, email }) {
           Authentication is now real: passwords are hashed by Supabase, sessions are server-issued,
           and every action is attributed to a signed-in account.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ======================= QUOTATION ======================= */
+/* Staff type each line (part + qty + unit price they set manually); the
+   system does the arithmetic — line totals, subtotal, discount and grand
+   total — and can share the finished quote on WhatsApp or print it. */
+export function QuotationTab({ items }) {
+  const [customer, setCustomer] = useState("");
+  const [phone, setPhone] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [lines, setLines] = useState([{ desc: "", qty: "1", price: "" }]);
+
+  const setLine = (idx, patch) =>
+    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const addLine = () => setLines((ls) => [...ls, { desc: "", qty: "1", price: "" }]);
+  const removeLine = (idx) => setLines((ls) => (ls.length > 1 ? ls.filter((_, i) => i !== idx) : ls));
+
+  const lineTotal = (l) => (Number(l.qty) || 0) * (Number(l.price) || 0);
+  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
+  const disc = Math.min(Number(discount) || 0, subtotal);
+  const grand = subtotal - disc;
+
+  const filledLines = lines.filter((l) => l.desc.trim() && lineTotal(l) > 0);
+
+  const printQuote = () => window.print();
+
+  const shareWhatsApp = () => {
+    const rows = filledLines
+      .map((l) => `• ${l.desc} — ${l.qty} × ${Number(l.price).toLocaleString()} = KES ${lineTotal(l).toLocaleString()}`)
+      .join("\n");
+    const msg =
+      `*Bypass Shop — Quotation*\nJaspare Auto · Main Shop\n\n` +
+      (customer ? `Customer: ${customer}\n` : "") +
+      `\n${rows}\n\nSubtotal: KES ${subtotal.toLocaleString()}` +
+      (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
+      `\n*Total: KES ${grand.toLocaleString()}*`;
+    // Clean phone -> intl format for wa.me (drop 0/+, prepend 254 for local numbers).
+    let p = phone.replace(/[^\d]/g, "");
+    if (p.startsWith("0")) p = "254" + p.slice(1);
+    const base = p ? `https://wa.me/${p}` : `https://wa.me/`;
+    window.open(`${base}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  };
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Build a price quote — you set the prices" title="Quotation" />
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Field label="Customer name (optional)">
+            <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="e.g. James / ABC Garage" className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Phone (for WhatsApp)">
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07…" className={inputCls} />
+          </Field>
+        </div>
+      </div>
+
+      <div className="text-[#2563EB] text-[11px] font-bold tracking-[0.2em] uppercase mb-2">Items</div>
+      <div className="space-y-2 mb-3">
+        {lines.map((l, i) => (
+          <div key={i} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+            <div className="flex items-center gap-2">
+              <input
+                value={l.desc}
+                onChange={(e) => setLine(i, { desc: e.target.value })}
+                list="quote-parts"
+                placeholder="Part / description"
+                className={inputCls + " flex-1"}
+              />
+              <button
+                onClick={() => removeLine(i)}
+                className="p-2 rounded text-[#5A6472] hover:text-[#DC3B2E] shrink-0"
+                title="Remove line"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-20">
+                <input
+                  type="number" min="0" value={l.qty}
+                  onChange={(e) => setLine(i, { qty: e.target.value })}
+                  placeholder="Qty" className={inputCls + " text-center"}
+                />
+              </div>
+              <span className="text-[#5A6472] text-sm">×</span>
+              <div className="flex-1">
+                <input
+                  type="number" min="0" value={l.price}
+                  onChange={(e) => setLine(i, { price: e.target.value })}
+                  placeholder="Unit price (KES)" className={inputCls}
+                />
+              </div>
+              <div className="w-28 text-right text-sm font-semibold text-[#1B2430] tabular-nums shrink-0">
+                {lineTotal(l).toLocaleString()}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* datalist: quick-fill from existing inventory names */}
+      <datalist id="quote-parts">
+        {items.slice(0, 300).map((it) => (
+          <option key={it.code} value={it.name || `${it.brand} ${it.model}`} />
+        ))}
+      </datalist>
+
+      <button
+        onClick={addLine}
+        className="w-full border border-dashed border-[#2563EB] text-[#2563EB] rounded-md py-2.5 font-semibold text-sm flex items-center justify-center gap-2 mb-4 hover:bg-[#2563EB11]"
+      >
+        <Plus size={16} /> Add item
+      </button>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-[#5A6472]">Subtotal</span>
+          <span className="font-semibold tabular-nums">KES {subtotal.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-[#5A6472]">Discount (KES)</span>
+          <input
+            type="number" min="0" value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
+            placeholder="0" className={inputCls + " w-28 text-right py-1.5"}
+          />
+        </div>
+        <div className="flex items-center justify-between border-t border-[#DEE3E9] pt-2">
+          <span className="font-bold uppercase tracking-wide text-sm">Total</span>
+          <span className="text-[#2563EB] font-extrabold text-xl tabular-nums">KES {grand.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div className="flex gap-3 mt-4">
+        <button
+          onClick={printQuote}
+          disabled={filledLines.length === 0}
+          className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472] flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          <FileText size={16} /> Print
+        </button>
+        <button
+          onClick={shareWhatsApp}
+          disabled={filledLines.length === 0}
+          className="flex-1 bg-[#15926A] text-white font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform"
+        >
+          <MessageCircle size={16} /> Send on WhatsApp
+        </button>
       </div>
     </div>
   );
