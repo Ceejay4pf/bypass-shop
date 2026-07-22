@@ -33,7 +33,7 @@ const matchesQuery = (i, cat, q) => {
 };
 
 /* ======================= DASHBOARD ======================= */
-export function DashboardTab({ items, notifications, categories, user, onNav }) {
+export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger }) {
   const totalItems = items.length;
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
   const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
@@ -76,12 +76,12 @@ export function DashboardTab({ items, notifications, categories, user, onNav }) 
       <SectionTitle eyebrow={`Welcome, ${user}`} title="Dashboard" />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-        <StatCard icon={Boxes} label="Inventory Items" value={totalItems} tone="gold" />
-        <StatCard icon={Layers} label="Total Stock Qty" value={totalQty} tone="blue" />
-        <StatCard icon={ShoppingCart} label="Items Sold Today" value={soldToday} tone="green" />
-        <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="green" />
-        <StatCard icon={AlertTriangle} label="Low Stock Items" value={lowStock.length} tone="red" />
-        <StatCard icon={Bell} label="Total Activity" value={notifications.length} tone="purple" />
+        <StatCard icon={Boxes} label="Inventory Items" value={totalItems} tone="gold" onClick={() => onNav("inventory")} />
+        <StatCard icon={Layers} label="Total Stock Qty" value={totalQty} tone="blue" onClick={() => onNav("inventory")} />
+        <StatCard icon={ShoppingCart} label="Items Sold Today" value={soldToday} tone="green" onClick={() => onNav("sell")} />
+        <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="green" onClick={() => onNav("reports")} />
+        <StatCard icon={AlertTriangle} label="Low Stock Items" value={lowStock.length} tone="red" onClick={() => onNav("reports")} />
+        <StatCard icon={Bell} label="Total Activity" value={notifications.length} tone="purple" onClick={() => onNav("notify")} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 mb-4">
@@ -106,11 +106,16 @@ export function DashboardTab({ items, notifications, categories, user, onNav }) 
           </div>
           <div className="space-y-1.5">
             {lowStock.slice(0, 6).map((i) => (
-              <div key={i.code} className="flex items-center justify-between text-sm">
+              <button
+                key={i.code}
+                onClick={() => onOpenLedger?.(i.code)}
+                className="w-full flex items-center justify-between text-sm text-left rounded px-1 py-0.5 hover:bg-[#E8483A11] transition-colors"
+                title="View this item's history"
+              >
                 <span className="font-mono text-xs text-[#ECE8E1]">{i.code}</span>
                 <span className="text-[#8B8F94] truncate px-2 flex-1">{i.name}</span>
                 <span className="text-[#E8483A] font-semibold">{i.qty} left</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>

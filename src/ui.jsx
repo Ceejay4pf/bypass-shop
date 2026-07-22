@@ -98,8 +98,8 @@ export function ItemCard({ item, categories }) {
   );
 }
 
-/* Dashboard stat card. */
-export function StatCard({ icon: Icon, label, value, sub, tone = "gold" }) {
+/* Dashboard stat card. Pass onClick to make it a tappable shortcut. */
+export function StatCard({ icon: Icon, label, value, sub, tone = "gold", onClick }) {
   const tones = {
     gold: "#FFC72C",
     green: "#4FA87A",
@@ -108,8 +108,19 @@ export function StatCard({ icon: Icon, label, value, sub, tone = "gold" }) {
     purple: "#C79BF0",
   };
   const c = tones[tone] || tones.gold;
+  const clickable = typeof onClick === "function";
   return (
-    <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4 bp-fade-up">
+    <div
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => (e.key === "Enter" || e.key === " ") && onClick() : undefined}
+      className={`bg-[#1F2226] border border-[#33373C] rounded-lg p-4 bp-fade-up ${
+        clickable
+          ? "cursor-pointer hover:border-[#FFC72C] active:scale-[0.98] transition-all"
+          : ""
+      }`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-[#8B8F94] text-[11px] font-bold uppercase tracking-wide">{label}</span>
         <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ backgroundColor: c + "22" }}>

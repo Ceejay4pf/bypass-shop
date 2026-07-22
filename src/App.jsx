@@ -216,7 +216,7 @@ function BypassShop({ session }) {
           )}
 
           {tab === "dashboard" && (
-            <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} />
+            <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} onOpenLedger={openLedger} />
           )}
           {tab === "quick" && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
