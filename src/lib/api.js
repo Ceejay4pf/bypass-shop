@@ -80,6 +80,11 @@ export async function insertItem(item, byName) {
   if (error) throw error;
   await addNotification({ type: "new_item", code: item.code, name: item.name, qty: item.qty, by_name: byName, remaining: item.qty });
   await addMovement({ code: item.code, type: "new_item", qty: item.qty, by_name: byName, remaining: item.qty, supplier: item.supplier });
+  emailAdmin(
+    `Bypass Shop — new item added: ${item.code}`,
+    `A new item was added to inventory:<br><br><b>${item.code}</b> — ${item.name}<br>Quantity: ${item.qty}`,
+    byName
+  );
   return rowToItem(data);
 }
 
@@ -108,6 +113,12 @@ export async function sellItem({ code, qty, buyer, phone, paid, total }, byName)
   await addNotification({ type: "sale", code, name, qty, by_name: byName, buyer, phone, paid, total, remaining: newQty });
   await addMovement({ code, type: "sale", qty, by_name: byName, buyer, paid, remaining: newQty });
   await supabase.from("sales").insert({ code, name, qty, buyer, phone, paid, total, by_name: byName });
+  emailAdmin(
+    `Bypass Shop — stock sold: ${code}`,
+    `Stock was deducted from a sale:<br><br><b>${code}</b> — ${name}<br>Sold: ${qty} (remaining: ${newQty})<br>` +
+      `Customer: ${buyer || "—"}${phone ? " · " + phone : ""}<br>Total: KES ${Number(total || 0).toLocaleString()} — ${paid ? "Paid" : "Pending"}`,
+    byName
+  );
   return newQty;
 }
 
@@ -184,6 +195,18 @@ export async function logLogin(who) {
   }
 }
 
+/* Best-effort admin email for inventory events (new item, stock sold).
+   Fire-and-forget: never blocks or fails the underlying action. */
+export function emailAdmin(subject, message, who) {
+  try {
+    supabase.functions
+      .invoke("notify-admin", { body: { subject, message, who } })
+      .catch(() => {});
+  } catch {
+    /* function not deployed yet — in-app notifications still record everything */
+  }
+}
+
 /* ---- STOCK MOVEMENTS ---- */
 export async function fetchMovements(code) {
   let q = supabase.from("stock_movements").select("*").order("ts", { ascending: false });
@@ -195,6 +218,66 @@ export async function fetchMovements(code) {
 export async function addMovement(m) {
   const { error } = await supabase.from("stock_movements").insert(m);
   if (error) console.error("movement insert failed", error);
+}
+
+/* ---- QUOTATIONS ---- */
+export function rowToQuote(r) {
+  return {
+    id: r.id,
+    number: r.number,
+    ts: new Date(r.ts).getTime(),
+    customer: r.customer || "",
+    phone: r.phone || "",
+    lines: Array.isArray(r.lines) ? r.lines : [],
+    subtotal: Number(r.subtotal) || 0,
+    discount: Number(r.discount) || 0,
+    total: Number(r.total) || 0,
+    status: r.status || "Draft",
+    by: r.created_by || "",
+  };
+}
+
+// Build the next human-friendly quote number: QT-<year>-<0000>.
+// Uses the DB function (atomic); falls back to a count if it's not deployed.
+async function nextQuoteNumber() {
+  const { data, error } = await supabase.rpc("next_quote_number");
+  if (!error && data) return data;
+  const year = new Date().getFullYear();
+  const { count } = await supabase.from("quotes").select("*", { count: "exact", head: true });
+  return `QT-${year}-${String((count || 0) + 1).padStart(4, "0")}`;
+}
+
+export async function fetchQuotes(limit = 200) {
+  const { data, error } = await supabase
+    .from("quotes")
+    .select("*")
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data.map(rowToQuote);
+}
+
+export async function saveQuote(q, byName) {
+  const number = await nextQuoteNumber();
+  const row = {
+    number,
+    customer: q.customer || null,
+    phone: q.phone || null,
+    lines: q.lines || [],
+    subtotal: q.subtotal || 0,
+    discount: q.discount || 0,
+    total: q.total || 0,
+    status: q.status || "Sent",
+    created_by: byName || null,
+  };
+  const { data, error } = await supabase.from("quotes").insert(row).select().single();
+  if (error) throw error;
+  return rowToQuote(data);
+}
+
+export async function setQuoteStatus(id, status) {
+  const { error } = await supabase.from("quotes").update({ status }).eq("id", id);
+  if (error) throw error;
 }
 
 /* ---- SALES ---- */

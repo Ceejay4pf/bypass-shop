@@ -288,7 +288,7 @@ function BypassShop({ session }) {
           {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
           {tab === "stock" && admin && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
-          {tab === "quote" && <QuotationTab items={items} />}
+          {tab === "quote" && <QuotationTab items={items} user={user} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
           {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}

@@ -1,7 +1,8 @@
 /* ---------------------------------------------------------
    BYPASS SHOP — feature screens
 --------------------------------------------------------- */
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import * as api from "./lib/api.js";
 import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, X, Check,
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
@@ -16,6 +17,12 @@ import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
   timeAgo, fmtDateTime, BarChart, TrendChart,
 } from "./ui.jsx";
+
+// Escape user text before dropping it into the generated PDF HTML.
+const escapeHtml = (s) =>
+  String(s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const matchesQuery = (i, cat, q) => {
   // Include buyers/suppliers pulled from the item's own movement ledger,
@@ -1015,11 +1022,21 @@ export function SettingsTab({ categories, user, email, admin }) {
 /* Staff type each line (part + qty + unit price they set manually); the
    system does the arithmetic — line totals, subtotal, discount and grand
    total — and can share the finished quote on WhatsApp or print it. */
-export function QuotationTab({ items }) {
+export function QuotationTab({ items, user }) {
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
   const [discount, setDiscount] = useState("");
   const [lines, setLines] = useState([{ desc: "", qty: "1", price: "" }]);
+  const [savedNumber, setSavedNumber] = useState(""); // set after a successful save
+  const [saving, setSaving] = useState(false);
+  const [past, setPast] = useState([]);
+  const [showPast, setShowPast] = useState(false);
+
+  // Load saved quotes when the "Past quotes" panel is opened.
+  useEffect(() => {
+    if (!showPast) return;
+    api.fetchQuotes().then(setPast).catch(() => setPast([]));
+  }, [showPast]);
 
   const setLine = (idx, patch) =>
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -1033,18 +1050,114 @@ export function QuotationTab({ items }) {
 
   const filledLines = lines.filter((l) => l.desc.trim() && lineTotal(l) > 0);
 
-  const printQuote = () => window.print();
+  const resetForm = () => {
+    setCustomer(""); setPhone(""); setDiscount("");
+    setLines([{ desc: "", qty: "1", price: "" }]);
+  };
+
+  const saveQuote = async () => {
+    if (filledLines.length === 0 || saving) return;
+    setSaving(true);
+    try {
+      const q = await api.saveQuote(
+        { customer, phone, lines: filledLines, subtotal, discount: disc, total: grand, status: "Sent" },
+        user
+      );
+      setSavedNumber(q.number);
+      openPdf(q.number); // open the PDF straight away with the assigned number
+      if (showPast) api.fetchQuotes().then(setPast).catch(() => {});
+    } catch (e) {
+      alert("Could not save quote: " + (e.message || e) + "\n(Did you run supabase/quotes.sql?)");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Build a proper A4 quote document in a new window and open the print
+  // dialog, where the user picks "Save as PDF" (built into every browser/phone).
+  const openPdf = (number) => {
+    const rows = filledLines
+      .map(
+        (l) => `<tr>
+          <td>${escapeHtml(l.desc)}</td>
+          <td class="c">${l.qty}</td>
+          <td class="r">${Number(l.price).toLocaleString()}</td>
+          <td class="r">${lineTotal(l).toLocaleString()}</td>
+        </tr>`
+      )
+      .join("");
+    const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>Quotation ${number || ""}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:32px; }
+  .wrap { max-width: 720px; margin:0 auto; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563EB; padding-bottom:14px; }
+  .brand { font-size:24px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#1B2430; }
+  .sub { color:#5A6472; font-size:12px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .doc { text-align:right; }
+  .doc .t { font-size:20px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:2px; }
+  .doc .m { color:#5A6472; font-size:13px; margin-top:4px; }
+  .meta { display:flex; justify-content:space-between; margin:20px 0; font-size:14px; }
+  .meta .lbl { color:#5A6472; font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+  th { background:#EEF2F6; text-align:left; padding:10px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#5A6472; }
+  th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
+  td { padding:10px; border-bottom:1px solid #DEE3E9; }
+  .totals { margin-top:16px; margin-left:auto; width:280px; font-size:14px; }
+  .totals div { display:flex; justify-content:space-between; padding:6px 0; }
+  .totals .grand { border-top:2px solid #1B2430; margin-top:6px; padding-top:10px; font-size:18px; font-weight:800; color:#2563EB; }
+  .foot { margin-top:40px; color:#5A6472; font-size:12px; border-top:1px solid #DEE3E9; padding-top:12px; }
+  .sign { margin-top:36px; display:flex; justify-content:space-between; font-size:13px; color:#5A6472; }
+  .sign span { border-top:1px solid #1B2430; padding-top:6px; width:200px; text-align:center; }
+  @media print { body { padding:0; } .wrap { max-width:none; } }
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div>
+      <div class="sub">Jaspare Auto · Main Shop</div>
+      <div class="brand">Bypass Shop</div>
+    </div>
+    <div class="doc">
+      <div class="t">Quotation</div>
+      ${number ? `<div class="m">No. ${number}</div>` : ""}
+      <div class="m">${today}</div>
+    </div>
+  </div>
+  <div class="meta">
+    <div><div class="lbl">Quotation for</div><div><b>${escapeHtml(customer) || "—"}</b></div>${phone ? `<div>${escapeHtml(phone)}</div>` : ""}</div>
+  </div>
+  <table>
+    <thead><tr><th>Item / Description</th><th class="c">Qty</th><th class="r">Unit (KES)</th><th class="r">Amount (KES)</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <div><span>Subtotal</span><span>KES ${subtotal.toLocaleString()}</span></div>
+    ${disc ? `<div><span>Discount</span><span>- KES ${disc.toLocaleString()}</span></div>` : ""}
+    <div class="grand"><span>Total</span><span>KES ${grand.toLocaleString()}</span></div>
+  </div>
+  <div class="sign"><span>Prepared by</span><span>Customer signature</span></div>
+  <div class="foot">Prices valid for 14 days. Thank you for your business — Jaspare Auto · Main Shop.</div>
+</div>
+<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to open the PDF."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
 
   const shareWhatsApp = () => {
     const rows = filledLines
       .map((l) => `• ${l.desc} — ${l.qty} × ${Number(l.price).toLocaleString()} = KES ${lineTotal(l).toLocaleString()}`)
       .join("\n");
     const msg =
-      `*Bypass Shop — Quotation*\nJaspare Auto · Main Shop\n\n` +
+      `*Bypass Shop — Quotation*${savedNumber ? ` (${savedNumber})` : ""}\nJaspare Auto · Main Shop\n\n` +
       (customer ? `Customer: ${customer}\n` : "") +
       `\n${rows}\n\nSubtotal: KES ${subtotal.toLocaleString()}` +
       (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
-      `\n*Total: KES ${grand.toLocaleString()}*`;
+      `\n*Total: KES ${grand.toLocaleString()}*\n\n(A PDF copy can be sent too.)`;
     // Clean phone -> intl format for wa.me (drop 0/+, prepend 254 for local numbers).
     let p = phone.replace(/[^\d]/g, "");
     if (p.startsWith("0")) p = "254" + p.slice(1);
@@ -1054,7 +1167,28 @@ export function QuotationTab({ items }) {
 
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Build a price quote — you set the prices" title="Quotation" />
+      <SectionTitle
+        eyebrow="Build a price quote — you set the prices"
+        title="Quotation"
+        right={
+          <button
+            onClick={() => setShowPast((v) => !v)}
+            className="text-[#2563EB] text-xs font-semibold border border-[#DEE3E9] rounded-md px-3 py-1.5 hover:bg-[#EEF2F6] flex items-center gap-1.5"
+          >
+            <FileText size={13} /> {showPast ? "New quote" : "Past quotes"}
+          </button>
+        }
+      />
+
+      {showPast ? (
+        <PastQuotes past={past} />
+      ) : (
+      <>
+      {savedNumber && (
+        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-center gap-2">
+          <Check size={15} /> Saved as <span className="font-bold font-mono">{savedNumber}</span>. Starting a fresh quote below.
+        </div>
+      )}
 
       <div className="flex gap-3">
         <div className="flex-1">
@@ -1146,13 +1280,21 @@ export function QuotationTab({ items }) {
         </div>
       </div>
 
-      <div className="flex gap-3 mt-4">
+      <button
+        onClick={saveQuote}
+        disabled={filledLines.length === 0 || saving}
+        className="w-full mt-4 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform"
+      >
+        <FileText size={16} /> {saving ? "Saving…" : "Save quote (get number)"}
+      </button>
+
+      <div className="flex gap-3 mt-3">
         <button
-          onClick={printQuote}
+          onClick={() => openPdf(savedNumber)}
           disabled={filledLines.length === 0}
           className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472] flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          <FileText size={16} /> Print
+          <FileText size={16} /> PDF / Print
         </button>
         <button
           onClick={shareWhatsApp}
@@ -1162,6 +1304,44 @@ export function QuotationTab({ items }) {
           <MessageCircle size={16} /> Send on WhatsApp
         </button>
       </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+/* Read-only list of previously saved quotes with their status. */
+function PastQuotes({ past }) {
+  const statusCls = {
+    Sent: "bg-[#2E86DE22] text-[#2E86DE]",
+    Accepted: "bg-[#15926A22] text-[#15926A]",
+    Rejected: "bg-[#DC3B2E22] text-[#DC3B2E]",
+    Converted: "bg-[#15926A22] text-[#15926A]",
+    Draft: "bg-[#6B748022] text-[#5A6472]",
+  };
+  if (past.length === 0) {
+    return <div className="text-[#5A6472] text-sm py-8 text-center">No saved quotes yet.</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {past.map((q) => (
+        <div key={q.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-sm font-bold text-[#2563EB]">{q.number}</span>
+            <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${statusCls[q.status] || statusCls.Draft}`}>
+              {q.status}
+            </span>
+          </div>
+          <div className="flex items-center justify-between mt-1 text-sm">
+            <span className="text-[#1B2430]">{q.customer || "—"}</span>
+            <span className="text-[#2563EB] font-bold tabular-nums">KES {q.total.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center justify-between mt-1 text-xs text-[#5A6472]">
+            <span>{q.lines.length} item(s){q.phone ? ` · ${q.phone}` : ""}</span>
+            <span>{fmtDateTime(q.ts)}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
