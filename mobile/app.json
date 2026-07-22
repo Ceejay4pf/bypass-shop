@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Bypass Shop",
+    "slug": "bypass-shop",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#2563EB"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "co.bypassshop.app"
+    },
+    "android": {
+      "package": "co.bypassshop.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#2563EB"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#2563EB"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M256 120 L392 190 L392 322 L256 392 L120 322 L120 190 Z"/>
+    <path d="M120 190 L256 260 L392 190"/>
+    <path d="M256 260 L256 392"/>
+  </g>
+  <text x="256" y="470" font-family="Arial, sans-serif" font-size="70" font-weight="800" fill="#FFFFFF" text-anchor="middle" letter-spacing="4">BYPASS</text>
+</svg>
