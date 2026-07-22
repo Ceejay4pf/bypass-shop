@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -14,8 +14,8 @@ body,
 
 body {
   margin: 0;
-  background: #16181b;
-  color: #ece8e1;
+  background: #F3F5F8;
+  color: #1B2430;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -23,14 +23,14 @@ body {
 /* thin dark scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #33373c #16181b;
+  scrollbar-color: #DEE3E9 #F3F5F8;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #33373c;
+  background: #DEE3E9;
   border-radius: 8px;
 }
 

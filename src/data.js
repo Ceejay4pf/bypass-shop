@@ -11,19 +11,19 @@
    merged with these at runtime). Each has a 3-letter code prefix,
    a shelf prefix, and an accent color. */
 export const DEFAULT_CATEGORIES = [
-  { key: "WNL", label: "Wing — Left",                   shelf: "A-01", color: "#FFC72C" },
+  { key: "WNL", label: "Wing — Left",                   shelf: "A-01", color: "#2563EB" },
   { key: "WNR", label: "Wing — Right",                  shelf: "A-02", color: "#FFA53C" },
-  { key: "DOR", label: "Doors",                         shelf: "B-01", color: "#5FB0FF" },
-  { key: "FBM", label: "Front Bumpers",                 shelf: "C-01", color: "#E8483A" },
+  { key: "DOR", label: "Doors",                         shelf: "B-01", color: "#2E86DE" },
+  { key: "FBM", label: "Front Bumpers",                 shelf: "C-01", color: "#DC3B2E" },
   { key: "RBM", label: "Rear Bumpers",                  shelf: "C-02", color: "#F07A4F" },
-  { key: "HDL", label: "Headlights",                    shelf: "D-01", color: "#F4F1A1" },
+  { key: "HDL", label: "Headlights",                    shelf: "D-01", color: "#D4A72C" },
   { key: "TLL", label: "Taillights",                    shelf: "D-02", color: "#E86A6A" },
   { key: "BSK", label: "Boot Shocks",                   shelf: "E-01", color: "#8FD6A6" },
-  { key: "BNT", label: "Bonnets",                       shelf: "F-01", color: "#C79BF0" },
+  { key: "BNT", label: "Bonnets",                       shelf: "F-01", color: "#7C5CD6" },
   { key: "BOT", label: "Boots",                         shelf: "F-02", color: "#9BB7F0" },
-  { key: "SMI", label: "Side Mirrors — With Indicator", shelf: "G-01", color: "#4FA87A" },
-  { key: "SMN", label: "Side Mirrors — Plain",          shelf: "G-02", color: "#7F8890" },
-  { key: "BPS", label: "Bumper Slides",                 shelf: "H-01", color: "#E8483A" },
+  { key: "SMI", label: "Side Mirrors — With Indicator", shelf: "G-01", color: "#15926A" },
+  { key: "SMN", label: "Side Mirrors — Plain",          shelf: "G-02", color: "#6B7480" },
+  { key: "BPS", label: "Bumper Slides",                 shelf: "H-01", color: "#DC3B2E" },
 ];
 
 export const CONDITIONS = ["Brand New", "Genuine Used", "Aftermarket", "Refurbished"];
@@ -158,11 +158,11 @@ export function formatLocation({ warehouse, rack, shelf, bin }) {
 
 export const condColor = (c) =>
   ({
-    "Brand New": "#4FA87A",
-    "Genuine Used": "#FFC72C",
-    Aftermarket: "#7F8890",
-    Refurbished: "#C79BF0",
-  }[c] || "#7F8890");
+    "Brand New": "#15926A",
+    "Genuine Used": "#2563EB",
+    Aftermarket: "#6B7480",
+    Refurbished: "#7C5CD6",
+  }[c] || "#6B7480");
 
 export const LOW_STOCK_THRESHOLD = 3;
 

@@ -85,23 +85,23 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 mb-4">
-        <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
-            <Layers size={15} className="text-[#FFC72C]" /> Stock by Category
+            <Layers size={15} className="text-[#2563EB]" /> Stock by Category
           </div>
           <BarChart data={byCategory} />
         </div>
-        <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
-            <TrendingUp size={15} className="text-[#FFC72C]" /> Sales Trend (7 days)
+            <TrendingUp size={15} className="text-[#2563EB]" /> Sales Trend (7 days)
           </div>
           <TrendChart points={trend} />
         </div>
       </div>
 
       {lowStock.length > 0 && (
-        <div className="bg-[#2A1E1B] border border-[#E8483A55] rounded-lg p-4 mb-4">
-          <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#E8483A]">
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E55] rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#DC3B2E]">
             <AlertTriangle size={15} /> Low Stock Summary
           </div>
           <div className="space-y-1.5">
@@ -109,28 +109,28 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
               <button
                 key={i.code}
                 onClick={() => onOpenLedger?.(i.code)}
-                className="w-full flex items-center justify-between text-sm text-left rounded px-1 py-0.5 hover:bg-[#E8483A11] transition-colors"
+                className="w-full flex items-center justify-between text-sm text-left rounded px-1 py-0.5 hover:bg-[#DC3B2E11] transition-colors"
                 title="View this item's history"
               >
-                <span className="font-mono text-xs text-[#ECE8E1]">{i.code}</span>
-                <span className="text-[#8B8F94] truncate px-2 flex-1">{i.name}</span>
-                <span className="text-[#E8483A] font-semibold">{i.qty} left</span>
+                <span className="font-mono text-xs text-[#1B2430]">{i.code}</span>
+                <span className="text-[#5A6472] truncate px-2 flex-1">{i.name}</span>
+                <span className="text-[#DC3B2E] font-semibold">{i.qty} left</span>
               </button>
             ))}
           </div>
         </div>
       )}
 
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
-            <Bell size={15} className="text-[#FFC72C]" /> Recent Activity
+            <Bell size={15} className="text-[#2563EB]" /> Recent Activity
           </div>
-          <button onClick={() => onNav("notify")} className="text-xs text-[#FFC72C] font-semibold">
+          <button onClick={() => onNav("notify")} className="text-xs text-[#2563EB] font-semibold">
             View all
           </button>
         </div>
-        {notifications.length === 0 && <div className="text-[#8B8F94] text-sm italic">No activity yet.</div>}
+        {notifications.length === 0 && <div className="text-[#5A6472] text-sm italic">No activity yet.</div>}
         <div className="space-y-2">
           {notifications.slice(0, 5).map((n) => (
             <NotifRow key={n.id} n={n} compact />
@@ -154,21 +154,21 @@ export function SearchTab({ items, categories }) {
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Find a part" title="Search Inventory" />
       <div className="relative mb-4">
-        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8B8F94]" />
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="e.g. Toyota Axela 2018 Front Bumper, or FBM-MZD..."
-          className="w-full bg-[#1F2226] border border-[#33373C] rounded-md pl-10 pr-9 py-3 text-[#ECE8E1] placeholder-[#8B8F94] outline-none focus:border-[#FFC72C]"
+          className="w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-md pl-10 pr-9 py-3 text-[#1B2430] placeholder-[#5A6472] outline-none focus:border-[#2563EB]"
         />
         {query && (
-          <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8B8F94]">
+          <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6472]">
             <X size={16} />
           </button>
         )}
       </div>
-      <div className="text-[#8B8F94] text-xs mb-2">
+      <div className="text-[#5A6472] text-xs mb-2">
         {results.length} result{results.length !== 1 ? "s" : ""}
       </div>
       <div className="space-y-2">
@@ -176,7 +176,7 @@ export function SearchTab({ items, categories }) {
           <ItemCard key={it.code} item={it} categories={categories} />
         ))}
         {results.length === 0 && (
-          <div className="text-[#8B8F94] text-sm py-8 text-center">No part matches that search.</div>
+          <div className="text-[#5A6472] text-sm py-8 text-center">No part matches that search.</div>
         )}
       </div>
     </div>
@@ -201,12 +201,12 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger }) {
             <div className="flex items-center gap-2 mb-2">
               <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
               <span className="text-sm font-bold uppercase tracking-wide">{cat.label}</span>
-              <span className="text-[#8B8F94] text-xs">· Shelf {cat.shelf}</span>
-              <span className="text-[#8B8F94] text-xs">· {(grouped[cat.key] || []).length} item(s)</span>
+              <span className="text-[#5A6472] text-xs">· Shelf {cat.shelf}</span>
+              <span className="text-[#5A6472] text-xs">· {(grouped[cat.key] || []).length} item(s)</span>
             </div>
             <div className="space-y-2">
               {(grouped[cat.key] || []).length === 0 && (
-                <div className="text-[#8B8F94] text-xs italic pl-1">No items yet in this section.</div>
+                <div className="text-[#5A6472] text-xs italic pl-1">No items yet in this section.</div>
               )}
               {(grouped[cat.key] || []).map((it) => (
                 <div key={it.code} className="relative group">
@@ -217,7 +217,7 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger }) {
                     onClick={() => {
                       if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
                     }}
-                    className="absolute top-2 right-2 p-1.5 rounded bg-[#16181B99] text-[#8B8F94] hover:text-[#E8483A] opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 right-2 p-1.5 rounded bg-[#1B243099] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Delete item"
                   >
                     <Trash2 size={14} />
@@ -427,7 +427,7 @@ export function AddItemTab({ items, categories, onAdd }) {
       </Field>
 
       <Field label="Images (main / back / damage / extra — up to 4)">
-        <label className="flex items-center gap-2 cursor-pointer bg-[#1F2226] border border-dashed border-[#33373C] rounded-md px-3 py-3 text-[#8B8F94] hover:border-[#FFC72C]">
+        <label className="flex items-center gap-2 cursor-pointer bg-[#FFFFFF] border border-dashed border-[#DEE3E9] rounded-md px-3 py-3 text-[#5A6472] hover:border-[#2563EB]">
           <ImagePlus size={16} /> <span className="text-sm">Upload images</span>
           <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
         </label>
@@ -435,10 +435,10 @@ export function AddItemTab({ items, categories, onAdd }) {
           <div className="flex gap-2 mt-2 flex-wrap">
             {images.map((src, i) => (
               <div key={i} className="relative">
-                <img src={src} alt="" className="w-16 h-16 object-cover rounded border border-[#33373C]" />
+                <img src={src} alt="" className="w-16 h-16 object-cover rounded border border-[#DEE3E9]" />
                 <button
                   onClick={() => setImages(images.filter((_, j) => j !== i))}
-                  className="absolute -top-1.5 -right-1.5 bg-[#E8483A] text-white rounded-full w-5 h-5 flex items-center justify-center"
+                  className="absolute -top-1.5 -right-1.5 bg-[#DC3B2E] text-white rounded-full w-5 h-5 flex items-center justify-center"
                 >
                   <X size={11} />
                 </button>
@@ -452,22 +452,22 @@ export function AddItemTab({ items, categories, onAdd }) {
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Any extra detail…" className={inputCls} />
       </Field>
 
-      <div className="text-xs text-[#8B8F94] mb-3 bg-[#1F2226] border border-[#33373C] rounded-md p-3">
+      <div className="text-xs text-[#5A6472] mb-3 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
         Auto-generated code:{" "}
-        <span className="font-mono text-[#FFC72C]">{previewCode}</span>
+        <span className="font-mono text-[#2563EB]">{previewCode}</span>
         <br />
-        Location: <span className="font-mono text-[#FFC72C]">{previewLoc}</span>
+        Location: <span className="font-mono text-[#2563EB]">{previewLoc}</span>
       </div>
 
       {err && (
-        <div className="text-[#E8483A] text-sm mb-3 flex items-center gap-1.5">
+        <div className="text-[#DC3B2E] text-sm mb-3 flex items-center gap-1.5">
           <AlertTriangle size={14} /> {err}
         </div>
       )}
 
       <button
         onClick={submit}
-        className="w-full bg-[#FFC72C] text-[#16181B] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+        className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
       >
         <Plus size={18} /> Add to inventory
       </button>
@@ -513,7 +513,7 @@ export function AddStockTab({ items, categories, onAddStock }) {
           <div className="flex gap-3">
             <button
               onClick={() => { setSelected(null); setAmount(""); setQuery(""); }}
-              className="flex-1 border border-[#33373C] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#8B8F94]"
+              className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472]"
             >
               Cancel
             </button>
@@ -525,7 +525,7 @@ export function AddStockTab({ items, categories, onAddStock }) {
                   setSelected(null); setAmount(""); setQuery("");
                 }
               }}
-              className="flex-1 bg-[#FFC72C] text-[#16181B] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"
+              className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"
             >
               <PackagePlus size={18} /> Confirm
             </button>
@@ -606,9 +606,9 @@ export function SellTab({ items, categories, onSell }) {
                     className={`flex-1 rounded-md py-2.5 font-semibold text-sm border ${
                       active
                         ? paid
-                          ? "bg-[#4FA87A22] border-[#4FA87A] text-[#4FA87A]"
-                          : "bg-[#E8483A22] border-[#E8483A] text-[#E8483A]"
-                        : "border-[#33373C] text-[#8B8F94]"
+                          ? "bg-[#15926A22] border-[#15926A] text-[#15926A]"
+                          : "bg-[#DC3B2E22] border-[#DC3B2E] text-[#DC3B2E]"
+                        : "border-[#DEE3E9] text-[#5A6472]"
                     }`}
                   >
                     {p}
@@ -617,15 +617,15 @@ export function SellTab({ items, categories, onSell }) {
               })}
             </div>
           </Field>
-          <div className="text-sm text-[#8B8F94] mb-3">
+          <div className="text-sm text-[#5A6472] mb-3">
             Total:{" "}
-            <span className="text-[#FFC72C] font-bold">KES {total.toLocaleString()}</span>{" "}
+            <span className="text-[#2563EB] font-bold">KES {total.toLocaleString()}</span>{" "}
             ({n} × {Number(selected.price).toLocaleString()})
           </div>
           <div className="flex gap-3">
             <button
               onClick={() => { setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery(""); }}
-              className="flex-1 border border-[#33373C] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#8B8F94]"
+              className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472]"
             >
               Cancel
             </button>
@@ -634,7 +634,7 @@ export function SellTab({ items, categories, onSell }) {
                 onSell({ code: selected.code, qty: n, buyer, phone, paid: payment === "Paid", total });
                 setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery("");
               }}
-              className="flex-1 bg-[#FFC72C] text-[#16181B] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"
+              className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"
             >
               <ShoppingCart size={18} /> Confirm sale
             </button>
@@ -648,28 +648,28 @@ export function SellTab({ items, categories, onSell }) {
 /* ======================= NOTIFICATIONS ======================= */
 function NotifRow({ n, compact }) {
   const typeMeta = {
-    sale: { label: "Sold", cls: "bg-[#E8483A22] text-[#E8483A]" },
-    stock: { label: "Stock added", cls: "bg-[#4FA87A22] text-[#4FA87A]" },
-    new_item: { label: "New item", cls: "bg-[#5FB0FF22] text-[#5FB0FF]" },
-    adjust: { label: "Adjusted", cls: "bg-[#5FB0FF22] text-[#5FB0FF]" },
-    delete: { label: "Deleted", cls: "bg-[#7F889022] text-[#8B8F94]" },
-  }[n.type] || { label: n.type, cls: "bg-[#7F889022] text-[#8B8F94]" };
+    sale: { label: "Sold", cls: "bg-[#DC3B2E22] text-[#DC3B2E]" },
+    stock: { label: "Stock added", cls: "bg-[#15926A22] text-[#15926A]" },
+    new_item: { label: "New item", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
+    adjust: { label: "Adjusted", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
+    delete: { label: "Deleted", cls: "bg-[#6B748022] text-[#5A6472]" },
+  }[n.type] || { label: n.type, cls: "bg-[#6B748022] text-[#5A6472]" };
 
   return (
-    <div className="bg-[#1F2226] border border-[#33373C] rounded-md p-3">
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs sm:text-sm text-[#FFC72C]">{n.code}</span>
-        <span className="text-[#8B8F94] text-xs">{compact ? timeAgo(n.ts) : fmtDateTime(n.ts)}</span>
+        <span className="font-mono text-xs sm:text-sm text-[#2563EB]">{n.code}</span>
+        <span className="text-[#5A6472] text-xs">{compact ? timeAgo(n.ts) : fmtDateTime(n.ts)}</span>
       </div>
       <p className="text-sm mt-1">
-        {n.name} <span className="text-[#8B8F94]">× {n.qty}</span>
+        {n.name} <span className="text-[#5A6472]">× {n.qty}</span>
       </p>
       {n.type === "sale" && (
         <div className="flex items-center gap-2 mt-1.5 text-xs flex-wrap">
-          <span className="text-[#8B8F94]">Customer: {n.buyer}</span>
-          {n.phone ? <span className="text-[#8B8F94]">· {n.phone}</span> : null}
-          {n.total ? <span className="text-[#FFC72C]">· KES {Number(n.total).toLocaleString()}</span> : null}
-          <span className={`px-2 py-0.5 rounded font-semibold ${n.paid ? "bg-[#4FA87A22] text-[#4FA87A]" : "bg-[#E8483A22] text-[#E8483A]"}`}>
+          <span className="text-[#5A6472]">Customer: {n.buyer}</span>
+          {n.phone ? <span className="text-[#5A6472]">· {n.phone}</span> : null}
+          {n.total ? <span className="text-[#2563EB]">· KES {Number(n.total).toLocaleString()}</span> : null}
+          <span className={`px-2 py-0.5 rounded font-semibold ${n.paid ? "bg-[#15926A22] text-[#15926A]" : "bg-[#DC3B2E22] text-[#DC3B2E]"}`}>
             {n.paid ? "Paid" : "Pending"}
           </span>
         </div>
@@ -678,10 +678,10 @@ function NotifRow({ n, compact }) {
         <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${typeMeta.cls}`}>
           {typeMeta.label}
         </span>
-        <span className="text-[#8B8F94] text-xs">by {n.by}</span>
+        <span className="text-[#5A6472] text-xs">by {n.by}</span>
       </div>
       {n.remaining !== undefined && n.remaining !== null && (
-        <div className="text-xs text-[#8B8F94] mt-1">Remaining stock: {n.remaining}</div>
+        <div className="text-xs text-[#5A6472] mt-1">Remaining stock: {n.remaining}</div>
       )}
     </div>
   );
@@ -705,14 +705,14 @@ export function NotifyTab({ notifications }) {
             key={k}
             onClick={() => setFilter(k)}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border ${
-              filter === k ? "bg-[#FFC72C] text-[#16181B] border-[#FFC72C]" : "border-[#33373C] text-[#8B8F94]"
+              filter === k ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
             }`}
           >
             {label}
           </button>
         ))}
       </div>
-      {filtered.length === 0 && <div className="text-[#8B8F94] text-sm py-8 text-center">No activity recorded yet.</div>}
+      {filtered.length === 0 && <div className="text-[#5A6472] text-sm py-8 text-center">No activity recorded yet.</div>}
       <div className="space-y-2">
         {filtered.map((n) => (
           <NotifRow key={n.id} n={n} />
@@ -743,7 +743,7 @@ export function ReportsTab({ items, notifications, categories }) {
   const topSelling = useMemo(() => {
     const map = {};
     for (const n of sales) {
-      map[n.code] = map[n.code] || { label: n.code, value: 0, color: "#FFC72C" };
+      map[n.code] = map[n.code] || { label: n.code, value: 0, color: "#2563EB" };
       map[n.code].value += Number(n.qty || 0);
     }
     return Object.values(map).sort((a, b) => b.value - a.value).slice(0, 8);
@@ -768,7 +768,7 @@ export function ReportsTab({ items, notifications, categories }) {
             key={k}
             onClick={() => setRange(k)}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border ${
-              range === k ? "bg-[#FFC72C] text-[#16181B] border-[#FFC72C]" : "border-[#33373C] text-[#8B8F94]"
+              range === k ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
             }`}
           >
             {label}
@@ -784,11 +784,11 @@ export function ReportsTab({ items, notifications, categories }) {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 mb-4">
-        <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="text-sm font-bold uppercase tracking-wide mb-3">Top Selling Parts</div>
           <BarChart data={topSelling} />
         </div>
-        <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="text-sm font-bold uppercase tracking-wide mb-3">Inventory Summary</div>
           <div className="space-y-2 text-sm">
             <Row label="Total items" value={items.length} />
@@ -799,16 +799,16 @@ export function ReportsTab({ items, notifications, categories }) {
         </div>
       </div>
 
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3 flex items-center gap-2">
-          <AlertTriangle size={15} className="text-[#E8483A]" /> Low Stock Report
+          <AlertTriangle size={15} className="text-[#DC3B2E]" /> Low Stock Report
         </div>
-        {lowStock.length === 0 && <div className="text-[#8B8F94] text-sm italic">All items above their reorder level.</div>}
+        {lowStock.length === 0 && <div className="text-[#5A6472] text-sm italic">All items above their reorder level.</div>}
         <div className="space-y-1.5">
           {lowStock.map((i) => (
             <div key={i.code} className="flex items-center justify-between text-sm">
-              <span className="font-mono text-xs text-[#ECE8E1]">{i.code}</span>
-              <span className="text-[#8B8F94] truncate px-2 flex-1">{i.name}</span>
+              <span className="font-mono text-xs text-[#1B2430]">{i.code}</span>
+              <span className="text-[#5A6472] truncate px-2 flex-1">{i.name}</span>
               <StockBadge item={i} />
             </div>
           ))}
@@ -820,8 +820,8 @@ export function ReportsTab({ items, notifications, categories }) {
 function Row({ label, value, tone }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[#8B8F94]">{label}</span>
-      <span className={`font-semibold ${tone === "red" ? "text-[#E8483A]" : "text-[#ECE8E1]"}`}>{value}</span>
+      <span className="text-[#5A6472]">{label}</span>
+      <span className={`font-semibold ${tone === "red" ? "text-[#DC3B2E]" : "text-[#1B2430]"}`}>{value}</span>
     </div>
   );
 }
@@ -832,23 +832,23 @@ export function SettingsTab({ categories, user, email }) {
     <div className="bp-fade-up">
       <SectionTitle eyebrow="System" title="Settings" />
 
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4 mb-4">
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Signed-in Staff</div>
         <div className="space-y-2 text-sm">
           <Row label="Name" value={user} />
           <Row label="Account" value={email || "—"} />
         </div>
-        <p className="text-xs text-[#8B8F94] mt-2">
+        <p className="text-xs text-[#5A6472] mt-2">
           Each staff member has their own account. Add more from the login screen (“Create an account”)
           or in the Supabase dashboard → Authentication → Users.
         </p>
       </div>
 
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4 mb-4">
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Categories</div>
         <div className="flex flex-wrap gap-2">
           {categories.map((c) => (
-            <span key={c.key} className="flex items-center gap-1.5 text-xs bg-[#26292E] border border-[#33373C] rounded px-2 py-1">
+            <span key={c.key} className="flex items-center gap-1.5 text-xs bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
               <span className="font-mono">{c.key}</span> {c.label}
             </span>
@@ -856,9 +856,9 @@ export function SettingsTab({ categories, user, email }) {
         </div>
       </div>
 
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4">
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">System Information &amp; Future Features</div>
-        <div className="space-y-2 text-sm text-[#8B8F94]">
+        <div className="space-y-2 text-sm text-[#5A6472]">
           <Row label="System" value="Bypass Shop v2.0 (Cloud)" />
           <Row label="Reports to" value="Jaspare Auto · Main Shop" />
           <Row label="Storage" value="Supabase (cloud Postgres)" />
@@ -873,14 +873,14 @@ export function SettingsTab({ categories, user, email }) {
             "AI inventory predictions",
             "Purchase history",
           ].map((f) => (
-            <div key={f} className="flex items-center justify-between text-xs bg-[#26292E] border border-[#33373C] rounded px-2.5 py-2">
-              <span className="text-[#8B8F94]">{f}</span>
-              <span className="text-[10px] font-bold uppercase text-[#FFC72C] bg-[#FFC72C22] rounded px-1.5 py-0.5">Soon</span>
+            <div key={f} className="flex items-center justify-between text-xs bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2.5 py-2">
+              <span className="text-[#5A6472]">{f}</span>
+              <span className="text-[10px] font-bold uppercase text-[#2563EB] bg-[#2563EB22] rounded px-1.5 py-0.5">Soon</span>
             </div>
           ))}
         </div>
-        <p className="text-[11px] text-[#8B8F94] mt-3 flex items-start gap-1.5">
-          <Check size={13} className="text-[#4FA87A] mt-0.5 shrink-0" />
+        <p className="text-[11px] text-[#5A6472] mt-3 flex items-start gap-1.5">
+          <Check size={13} className="text-[#15926A] mt-0.5 shrink-0" />
           Authentication is now real: passwords are hashed by Supabase, sessions are server-issued,
           and every action is attributed to a signed-in account.
         </p>

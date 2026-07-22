@@ -18,10 +18,10 @@ import { Field, inputCls, SectionTitle, ItemCard, StockBadge, fmtDateTime } from
 import { fetchMovements, rowToMovement } from "./lib/api.js";
 
 const ACTIONS = [
-  { id: "add", label: "Add Stock", icon: PackagePlus, tone: "#4FA87A", need: "match" },
-  { id: "out", label: "Stock Out", icon: ShoppingCart, tone: "#E8483A", need: "match" },
-  { id: "adjust", label: "Adjust", icon: SlidersHorizontal, tone: "#5FB0FF", need: "match" },
-  { id: "new", label: "New Item", icon: Plus, tone: "#FFC72C", need: "none" },
+  { id: "add", label: "Add Stock", icon: PackagePlus, tone: "#15926A", need: "match" },
+  { id: "out", label: "Stock Out", icon: ShoppingCart, tone: "#DC3B2E", need: "match" },
+  { id: "adjust", label: "Adjust", icon: SlidersHorizontal, tone: "#2E86DE", need: "match" },
+  { id: "new", label: "New Item", icon: Plus, tone: "#2563EB", need: "none" },
 ];
 
 export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
@@ -137,8 +137,8 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
         eyebrow="One form, no codes to remember"
         title="Quick Transaction"
         right={
-          <span className="flex items-center gap-1.5 text-xs text-[#8B8F94]">
-            <Zap size={14} className="text-[#FFC72C]" /> Smart matching
+          <span className="flex items-center gap-1.5 text-xs text-[#5A6472]">
+            <Zap size={14} className="text-[#2563EB]" /> Smart matching
           </span>
         }
       />
@@ -153,7 +153,7 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
               key={a.id}
               onClick={() => { setAction(a.id); setMsg(""); }}
               className={`flex flex-col items-center gap-1 py-2.5 rounded-md border text-xs font-semibold ${
-                on ? "text-[#16181B]" : "text-[#8B8F94] border-[#33373C]"
+                on ? "text-[#F3F5F8]" : "text-[#5A6472] border-[#DEE3E9]"
               }`}
               style={on ? { backgroundColor: a.tone, borderColor: a.tone } : {}}
             >
@@ -165,8 +165,8 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
       </div>
 
       {/* Describe the part */}
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4 mb-4">
-        <div className="text-xs font-bold uppercase tracking-wide text-[#8B8F94] mb-3">Describe the part</div>
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <div className="text-xs font-bold uppercase tracking-wide text-[#5A6472] mb-3">Describe the part</div>
         <Field label="Category / part">
           <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
             {categories.map((c) => (
@@ -221,13 +221,13 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
           <div className="mt-1">
             {match ? (
               <button onClick={() => onOpenLedger(match.code)} className="w-full text-left">
-                <div className="flex items-center gap-1.5 text-xs text-[#4FA87A] font-semibold mb-1.5">
+                <div className="flex items-center gap-1.5 text-xs text-[#15926A] font-semibold mb-1.5">
                   <Check size={13} /> Match found — {match.code}
                 </div>
                 <ItemCard item={match} categories={categories} />
               </button>
             ) : (
-              <div className="flex items-center gap-1.5 text-xs text-[#FFC72C] font-semibold bg-[#FFC72C11] border border-[#FFC72C33] rounded-md p-2.5">
+              <div className="flex items-center gap-1.5 text-xs text-[#2563EB] font-semibold bg-[#2563EB11] border border-[#2563EB33] rounded-md p-2.5">
                 <AlertTriangle size={13} /> No match yet — confirming will offer to create a new item.
               </div>
             )}
@@ -236,7 +236,7 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
       </div>
 
       {/* Action-specific fields */}
-      <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-4 mb-4">
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide mb-3" style={{ color: activeAction.tone }}>
           <activeAction.icon size={14} /> {activeAction.label} details
         </div>
@@ -263,7 +263,7 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
                   <div className="flex gap-2">
                     {PAYMENT.map((p) => (
                       <button key={p} onClick={() => setPayment(p)}
-                        className={`flex-1 rounded-md py-2.5 font-semibold text-sm border ${payment === p ? (p === "Paid" ? "bg-[#4FA87A22] border-[#4FA87A] text-[#4FA87A]" : "bg-[#E8483A22] border-[#E8483A] text-[#E8483A]") : "border-[#33373C] text-[#8B8F94]"}`}>
+                        className={`flex-1 rounded-md py-2.5 font-semibold text-sm border ${payment === p ? (p === "Paid" ? "bg-[#15926A22] border-[#15926A] text-[#15926A]" : "bg-[#DC3B2E22] border-[#DC3B2E] text-[#DC3B2E]") : "border-[#DEE3E9] text-[#5A6472]"}`}>
                         {p}
                       </button>
                     ))}
@@ -301,22 +301,22 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
                 <input value={bin} onChange={(e) => setBin(e.target.value)} placeholder="Bin 01" className={inputCls} />
               </div>
             </Field>
-            <div className="text-xs text-[#8B8F94] bg-[#26292E] border border-[#33373C] rounded-md p-2.5">
-              Will be assigned: <span className="font-mono text-[#FFC72C]">{generateCode(desc, items)}</span>
+            <div className="text-xs text-[#5A6472] bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5">
+              Will be assigned: <span className="font-mono text-[#2563EB]">{generateCode(desc, items)}</span>
             </div>
           </>
         )}
       </div>
 
       {msg && (
-        <div className="text-sm mb-3 flex items-center gap-1.5 text-[#FFC72C]">
+        <div className="text-sm mb-3 flex items-center gap-1.5 text-[#2563EB]">
           <Check size={14} /> {msg}
         </div>
       )}
 
       <button
         onClick={submit}
-        className="w-full font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform text-[#16181B]"
+        className="w-full font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform text-[#F3F5F8]"
         style={{ backgroundColor: activeAction.tone }}
       >
         <activeAction.icon size={18} /> Confirm {activeAction.label} <ArrowRight size={16} />
@@ -327,11 +327,11 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
 
 /* ======================= STOCK MOVEMENT LEDGER ======================= */
 const MOVE_META = {
-  new_item: { label: "Created", sign: "+", color: "#5FB0FF" },
-  stock: { label: "Added Stock", sign: "+", color: "#4FA87A" },
-  sale: { label: "Stock Out", sign: "−", color: "#E8483A" },
-  adjust: { label: "Adjusted", sign: "=", color: "#5FB0FF" },
-  return: { label: "Returned", sign: "+", color: "#4FA87A" },
+  new_item: { label: "Created", sign: "+", color: "#2E86DE" },
+  stock: { label: "Added Stock", sign: "+", color: "#15926A" },
+  sale: { label: "Stock Out", sign: "−", color: "#DC3B2E" },
+  adjust: { label: "Adjusted", sign: "=", color: "#2E86DE" },
+  return: { label: "Returned", sign: "+", color: "#15926A" },
 };
 
 export function LedgerTab({ items, categories, initialCode, onBack }) {
@@ -366,56 +366,56 @@ export function LedgerTab({ items, categories, initialCode, onBack }) {
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Complete audit trail" title="Inventory Ledger" />
       <div className="relative mb-4">
-        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8B8F94]" />
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Find item by code, name, vehicle, variant, supplier…"
-          className="w-full bg-[#1F2226] border border-[#33373C] rounded-md pl-10 pr-9 py-3 text-[#ECE8E1] placeholder-[#8B8F94] outline-none focus:border-[#FFC72C]"
+          className="w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-md pl-10 pr-9 py-3 text-[#1B2430] placeholder-[#5A6472] outline-none focus:border-[#2563EB]"
         />
-        {query && <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8B8F94]"><X size={16} /></button>}
+        {query && <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6472]"><X size={16} /></button>}
       </div>
 
-      {!item && <div className="text-[#8B8F94] text-sm py-8 text-center">Search for an item to see its full movement history.</div>}
+      {!item && <div className="text-[#5A6472] text-sm py-8 text-center">Search for an item to see its full movement history.</div>}
 
       {item && (
         <>
           <div className="mb-4"><ItemCard item={item} categories={categories} /></div>
           {item.supplier ? (
-            <div className="text-xs text-[#8B8F94] mb-3 flex items-center gap-1.5">
-              <MapPin size={12} /> Supplier: <span className="text-[#ECE8E1]">{item.supplier}</span>
+            <div className="text-xs text-[#5A6472] mb-3 flex items-center gap-1.5">
+              <MapPin size={12} /> Supplier: <span className="text-[#1B2430]">{item.supplier}</span>
             </div>
           ) : null}
 
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide mb-3">
-            <History size={15} className="text-[#FFC72C]" /> Movement History
+            <History size={15} className="text-[#2563EB]" /> Movement History
           </div>
 
-          {loadingLedger && <div className="flex items-center gap-2 text-[#8B8F94] text-sm"><Loader2 size={14} className="animate-spin" /> Loading history…</div>}
-          {!loadingLedger && ledger.length === 0 && <div className="text-[#8B8F94] text-sm italic">No movements recorded yet for this item.</div>}
+          {loadingLedger && <div className="flex items-center gap-2 text-[#5A6472] text-sm"><Loader2 size={14} className="animate-spin" /> Loading history…</div>}
+          {!loadingLedger && ledger.length === 0 && <div className="text-[#5A6472] text-sm italic">No movements recorded yet for this item.</div>}
 
           <div className="relative pl-4">
             {ledger.map((m, i) => {
               const meta = MOVE_META[m.type] || MOVE_META.adjust;
               return (
-                <div key={i} className="relative pb-4 border-l-2 border-[#33373C] pl-4 last:border-transparent">
-                  <span className="absolute -left-[7px] top-1 w-3 h-3 rounded-full border-2 border-[#16181B]" style={{ backgroundColor: meta.color }} />
+                <div key={i} className="relative pb-4 border-l-2 border-[#DEE3E9] pl-4 last:border-transparent">
+                  <span className="absolute -left-[7px] top-1 w-3 h-3 rounded-full border-2 border-[#F3F5F8]" style={{ backgroundColor: meta.color }} />
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="text-xs font-bold uppercase tracking-wide" style={{ color: meta.color }}>{meta.label}</span>
-                    <span className="text-xs text-[#8B8F94]">{fmtDateTime(m.ts)}</span>
+                    <span className="text-xs text-[#5A6472]">{fmtDateTime(m.ts)}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-sm">
                     <span className="font-bold" style={{ color: meta.color }}>{meta.sign}{m.type === "adjust" ? m.remaining : m.qty}</span>
-                    <span className="text-[#8B8F94]">→ stock now {m.remaining}</span>
+                    <span className="text-[#5A6472]">→ stock now {m.remaining}</span>
                   </div>
-                  <div className="text-xs text-[#8B8F94] mt-0.5 flex flex-wrap gap-x-3">
+                  <div className="text-xs text-[#5A6472] mt-0.5 flex flex-wrap gap-x-3">
                     <span>by {m.by}</span>
                     {m.buyer ? <span>Taken by: {m.buyer}</span> : null}
                     {m.supplier ? <span>Supplier: {m.supplier}</span> : null}
                     {m.reason ? <span>Reason: {m.reason}</span> : null}
                     {m.type === "sale" ? (
-                      <span className={m.paid ? "text-[#4FA87A]" : "text-[#E8483A]"}>{m.paid ? "Paid" : "Pending"}</span>
+                      <span className={m.paid ? "text-[#15926A]" : "text-[#DC3B2E]"}>{m.paid ? "Paid" : "Pending"}</span>
                     ) : null}
                   </div>
                 </div>

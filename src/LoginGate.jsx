@@ -68,35 +68,35 @@ export default function LoginGate() {
   };
 
   return (
-    <div className="min-h-screen bg-[#16181B] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#F3F5F8] flex items-center justify-center p-4">
       <div className="w-full max-w-sm bp-pop">
         <div className="text-center mb-6">
-          <div className="text-[#8B8F94] text-[11px] font-bold tracking-[0.25em] uppercase">
+          <div className="text-[#5A6472] text-[11px] font-bold tracking-[0.25em] uppercase">
             Jaspare Auto · Main Shop
           </div>
-          <h1 className="text-[#ECE8E1] text-2xl font-extrabold uppercase tracking-wide flex items-center justify-center gap-2 mt-1">
-            <Boxes size={22} className="text-[#FFC72C]" /> Bypass Shop
+          <h1 className="text-[#1B2430] text-2xl font-extrabold uppercase tracking-wide flex items-center justify-center gap-2 mt-1">
+            <Boxes size={22} className="text-[#2563EB]" /> Bypass Shop
           </h1>
-          <p className="text-[#8B8F94] text-xs mt-1">Branch Inventory Management System</p>
+          <p className="text-[#5A6472] text-xs mt-1">Branch Inventory Management System</p>
         </div>
 
         {!isConfigured && (
-          <div className="bg-[#2A1E1B] border border-[#E8483A] text-[#E8483A] rounded-lg p-3 text-xs mb-4 flex items-start gap-2">
+          <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-lg p-3 text-xs mb-4 flex items-start gap-2">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             Supabase keys are missing. Create a <span className="font-mono">.env</span> file
             from <span className="font-mono">.env.example</span> and restart the dev server.
           </div>
         )}
 
-        <div className="bg-[#1F2226] border border-[#33373C] rounded-lg p-5 shadow-xl">
-          <div className="flex items-center gap-2 mb-4 text-[#ECE8E1] font-semibold">
-            <Lock size={16} className="text-[#FFC72C]" />
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-5 shadow-xl">
+          <div className="flex items-center gap-2 mb-4 text-[#1B2430] font-semibold">
+            <Lock size={16} className="text-[#2563EB]" />
             {mode === "signin" ? "Staff Login" : "Create Staff Account"}
           </div>
 
           <Field label={mode === "signin" ? "Your name (or phone / email)" : "Your name"}>
             <div className="relative">
-              <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8B8F94]" />
+              <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -111,7 +111,7 @@ export default function LoginGate() {
           {mode === "signup" && (
             <Field label="Phone or email (optional)">
               <div className="relative">
-                <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8B8F94]" />
+                <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
                 <input
                   value={contact}
                   onChange={(e) => setContact(e.target.value)}
@@ -135,19 +135,19 @@ export default function LoginGate() {
           </Field>
 
           {mode === "signup" && (
-            <p className="text-[#8B8F94] text-[11px] -mt-1 mb-3 leading-relaxed">
+            <p className="text-[#5A6472] text-[11px] -mt-1 mb-3 leading-relaxed">
               Just pick a name and password — no email needed. The system saves
               your name and stamps it on everything you do.
             </p>
           )}
 
           {error && (
-            <div className="text-[#E8483A] text-sm mb-3 flex items-start gap-1.5">
+            <div className="text-[#DC3B2E] text-sm mb-3 flex items-start gap-1.5">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
             </div>
           )}
           {notice && (
-            <div className="text-[#4FA87A] text-sm mb-3 flex items-center gap-1.5">
+            <div className="text-[#15926A] text-sm mb-3 flex items-center gap-1.5">
               <CheckCircle2 size={14} /> {notice}
             </div>
           )}
@@ -155,7 +155,7 @@ export default function LoginGate() {
           <button
             onClick={submit}
             disabled={busy || !isConfigured}
-            className="w-full bg-[#FFC72C] text-[#16181B] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+            className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
             {mode === "signin" ? "Log In" : "Create Account"}
@@ -163,7 +163,7 @@ export default function LoginGate() {
 
           <button
             onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setNotice(""); }}
-            className="w-full text-[#8B8F94] text-xs mt-3 hover:text-[#FFC72C]"
+            className="w-full text-[#5A6472] text-xs mt-3 hover:text-[#2563EB]"
           >
             {mode === "signin" ? "New staff member? Create an account" : "Already have an account? Sign in"}
 
