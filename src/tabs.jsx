@@ -7,7 +7,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, X, Check,
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
-  ChevronRight, ArrowLeft, AlertCircle, MessageCircle,
+  ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square,
 } from "lucide-react";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
@@ -192,9 +192,12 @@ export function SearchTab({ items, categories, onDelete }) {
 }
 
 /* ======================= INVENTORY ======================= */
-export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdit = false }) {
+export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdit = false, onBulkDelete, onBulkAddStock }) {
   // Two-level view: pick a category first, then see that section's list.
   const [openCat, setOpenCat] = useState(null);
+  // Multi-select mode: a Set of selected item codes within the open section.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
 
   const grouped = useMemo(() => {
     const map = {};
@@ -206,19 +209,65 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
   const lowCount = (list) =>
     list.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD)).length;
 
+  // Leaving a section (or toggling select off) always clears the selection.
+  const exitSelect = () => { setSelectMode(false); setSelected(new Set()); };
+  const openSection = (key) => { setOpenCat(key); exitSelect(); };
+  const toggle = (code) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(code) ? next.delete(code) : next.add(code);
+      return next;
+    });
+
   /* ---------- Level 2: a single category's item list ---------- */
   if (openCat) {
     const cat = categories.find((c) => c.key === openCat) || {};
     const list = grouped[openCat] || [];
+    const allSelected = list.length > 0 && list.every((it) => selected.has(it.code));
+    const selCount = selected.size;
+    const canBulk = onBulkDelete || onBulkAddStock;
+
+    const bulkDelete = () => {
+      const codes = list.filter((it) => selected.has(it.code)).map((it) => it.code);
+      if (!codes.length) return;
+      if (confirm(`Delete ${codes.length} selected item(s)? This cannot be undone.`)) {
+        onBulkDelete?.(codes);
+        exitSelect();
+      }
+    };
+    const bulkAdd = () => {
+      const codes = list.filter((it) => selected.has(it.code)).map((it) => it.code);
+      if (!codes.length) return;
+      const raw = prompt(`Add how many units to each of the ${codes.length} selected item(s)?`, "1");
+      const amount = Number(raw);
+      if (amount > 0) {
+        onBulkAddStock?.(codes, amount);
+        exitSelect();
+      }
+    };
+
     return (
       <div className="bp-fade-up">
         <SectionTitle eyebrow="Inventory · section" title={cat.label || "Section"} />
-        <button
-          onClick={() => setOpenCat(null)}
-          className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm mb-4 hover:underline"
-        >
-          <ArrowLeft size={16} /> All categories
-        </button>
+        <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+          <button
+            onClick={() => openSection(null)}
+            className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm hover:underline"
+          >
+            <ArrowLeft size={16} /> All categories
+          </button>
+          {canBulk && list.length > 0 && (
+            selectMode ? (
+              <button onClick={exitSelect} className="text-[#5A6472] font-semibold text-sm hover:underline">
+                Cancel
+              </button>
+            ) : (
+              <button onClick={() => setSelectMode(true)} className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm hover:underline">
+                <CheckSquare size={15} /> Select
+              </button>
+            )
+          )}
+        </div>
 
         <div className="flex items-center gap-2 mb-3 text-[#5A6472] text-xs">
           <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
@@ -229,29 +278,76 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
           )}
         </div>
 
-        <div className="space-y-2">
+        {/* Select-all row while in multi-select mode */}
+        {selectMode && list.length > 0 && (
+          <button
+            onClick={() => setSelected(allSelected ? new Set() : new Set(list.map((it) => it.code)))}
+            className="flex items-center gap-2 text-sm font-semibold text-[#2563EB] mb-2"
+          >
+            {allSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+            {allSelected ? "Unselect all" : "Select all"}
+          </button>
+        )}
+
+        <div className={`space-y-2 ${selCount ? "pb-20" : ""}`}>
           {list.length === 0 && (
             <div className="text-[#5A6472] text-sm italic pl-1">No items yet in this section.</div>
           )}
-          {list.map((it) => (
-            <div key={it.code} className="relative group">
-              <button onClick={() => onOpenLedger?.(it.code)} className="w-full text-left" title="View movement history">
-                <ItemCard item={it} categories={categories} />
-              </button>
-              {canEdit && onDelete && (
+          {list.map((it) => {
+            const on = selected.has(it.code);
+            if (selectMode) {
+              return (
                 <button
-                  onClick={() => {
-                    if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
-                  }}
-                  className="absolute top-2 right-2 p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Delete item"
+                  key={it.code}
+                  onClick={() => toggle(it.code)}
+                  className={`w-full text-left flex items-center gap-2 rounded-md transition-colors ${on ? "ring-2 ring-[#2563EB] bg-[#2563EB0A]" : ""}`}
                 >
-                  <Trash2 size={14} />
+                  <span className="pl-1 text-[#2563EB] shrink-0">
+                    {on ? <CheckSquare size={20} /> : <Square size={20} className="text-[#5A6472]" />}
+                  </span>
+                  <span className="flex-1 min-w-0 pointer-events-none">
+                    <ItemCard item={it} categories={categories} />
+                  </span>
                 </button>
-              )}
-            </div>
-          ))}
+              );
+            }
+            return (
+              <div key={it.code} className="relative group">
+                <button onClick={() => onOpenLedger?.(it.code)} className="w-full text-left" title="View movement history">
+                  <ItemCard item={it} categories={categories} />
+                </button>
+                {canEdit && onDelete && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
+                    }}
+                    className="absolute top-2 right-2 p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Delete item"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
+
+        {/* Floating bulk-action bar (appears when items are selected) */}
+        {selectMode && selCount > 0 && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-[#FFFFFF] border border-[#DEE3E9] shadow-lg rounded-full pl-4 pr-2 py-2 bp-pop">
+            <span className="text-sm font-semibold text-[#1B2430]">{selCount} selected</span>
+            {onBulkAddStock && (
+              <button onClick={bulkAdd} className="flex items-center gap-1.5 bg-[#15926A] text-white text-sm font-semibold rounded-full px-3 py-1.5">
+                <PackagePlus size={15} /> Add stock
+              </button>
+            )}
+            {onBulkDelete && (
+              <button onClick={bulkDelete} className="flex items-center gap-1.5 bg-[#DC3B2E] text-white text-sm font-semibold rounded-full px-3 py-1.5">
+                <Trash2 size={15} /> Delete
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -267,7 +363,7 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
           return (
             <button
               key={cat.key}
-              onClick={() => setOpenCat(cat.key)}
+              onClick={() => openSection(cat.key)}
               className="text-left bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 hover:border-[#2563EB] active:scale-[0.99] transition-all flex items-center gap-3"
             >
               <span className="w-3 h-10 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />

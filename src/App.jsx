@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
@@ -28,7 +28,7 @@ const NAV = [
   { id: "ledger", label: "Inventory Ledger", icon: History },
   { id: "add", label: "Add New Item", icon: Plus, admin: true },
   { id: "edit", label: "Edit Parts", icon: Pencil, admin: true },
-  { id: "stock", label: "Add New Stock", icon: PackagePlus, admin: true },
+  { id: "stock", label: "Add New Stock", icon: PackagePlus },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   { id: "quote", label: "Quotation", icon: FileText },
   { id: "notify", label: "Notifications", icon: Bell },
@@ -98,22 +98,20 @@ function BypassShop({ session }) {
     api.logLogin(who).catch(() => {});
   }, [session.access_token]);
 
-  // Navigate to a screen, remembering where we came from so Back works.
   const openLedger = (code) => {
     setLedgerCode(code);
-    setHistory((h) => [...h, tab]);
-    setTab("ledger");
-    setNavOpen(false);
+    go("ledger");
   };
-  const goBack = () => {
+  // Step back to the previous screen. Also driven by the phone's hardware/
+  // gesture back button via the popstate listener below.
+  const goBack = useCallback(() => {
+    setNavOpen(false);
     setHistory((h) => {
       if (h.length === 0) return h;
-      const prev = h[h.length - 1];
-      setTab(prev);
+      setTab(h[h.length - 1]);
       return h.slice(0, -1);
     });
-    setNavOpen(false);
-  };
+  }, []);
   const showToast = (msg, tone = "ok") => {
     setToast({ msg, tone });
     setTimeout(() => setToast(null), 2800);
@@ -153,6 +151,15 @@ function BypassShop({ session }) {
     await run(async () => { await api.updateItem(code, patch, user); ok = true; }, `Updated ${code}`);
     return ok;
   };
+  // Bulk actions from the Inventory multi-select toolbar.
+  const handleBulkDelete = (codes) =>
+    run(async () => {
+      for (const code of codes) await api.deleteItem(code, user);
+    }, `Deleted ${codes.length} item${codes.length !== 1 ? "s" : ""}`, "warn");
+  const handleBulkAddStock = (codes, amount) =>
+    run(async () => {
+      for (const code of codes) await api.addStock(code, amount, user);
+    }, `+${amount} added to ${codes.length} item${codes.length !== 1 ? "s" : ""}`);
 
   const handleQuick = (t) => {
     if (t.kind === "new") handleAddItem(t.item);
@@ -168,11 +175,24 @@ function BypassShop({ session }) {
     [items]
   );
 
-  const go = (id) => {
-    if (id !== tab) setHistory((h) => [...h, tab]);
-    setTab(id);
+  const go = useCallback((id) => {
     setNavOpen(false);
-  };
+    setTab((cur) => {
+      if (id === cur) return cur;
+      // Remember where we came from, and push a browser history entry so the
+      // phone's back button / gesture pops back to it instead of leaving the app.
+      setHistory((h) => (h[h.length - 1] === cur ? h : [...h, cur]));
+      try { window.history.pushState({ tab: id }, ""); } catch { /* ignore */ }
+      return id;
+    });
+  }, []);
+
+  // Make the phone's hardware/gesture back button step back one screen.
+  useEffect(() => {
+    const onPop = () => goBack();
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [goBack]);
 
   return (
     <div className="min-h-screen bg-[#F3F5F8] text-[#1B2430] lg:flex">
@@ -289,11 +309,21 @@ function BypassShop({ session }) {
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
           )}
           {tab === "search" && <SearchTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} />}
-          {tab === "inventory" && <InventoryTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} onOpenLedger={openLedger} canEdit={admin} />}
+          {tab === "inventory" && (
+            <InventoryTab
+              items={items}
+              categories={CATEGORIES}
+              onDelete={admin ? handleDelete : undefined}
+              onOpenLedger={openLedger}
+              canEdit={admin}
+              onBulkDelete={admin ? handleBulkDelete : undefined}
+              onBulkAddStock={handleBulkAddStock}
+            />
+          )}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={admin ? handleDelete : undefined} />}
           {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
           {tab === "edit" && admin && <EditPartsTab items={items} categories={CATEGORIES} onSave={handleEditItem} />}
-          {tab === "stock" && admin && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
+          {tab === "stock" && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
           {tab === "quote" && <QuotationTab items={items} user={user} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
