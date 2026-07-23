@@ -8,8 +8,9 @@ import {
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
-  UserCheck, UserX, Clock, ShieldCheck,
+  UserCheck, UserX, Clock, ShieldCheck, Lock, Send,
 } from "lucide-react";
+import { CAPABILITIES } from "./lib/roles.js";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
 } from "./lib/appLock.js";
@@ -667,44 +668,57 @@ export function ApprovalsTab({ currentUserId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const setApproved = async (id, val) => {
+  // Optimistically patch one row in place after an action succeeds.
+  const patch = (id, fn) => setRows((rs) => rs.map((r) => (r.id === id ? fn(r) : r)));
+
+  const act = async (id, run, apply) => {
     setBusy(id); setErr("");
-    try {
-      await api.setUserApproved(id, val);
-      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, approved: val } : r)));
-    } catch (e) {
-      setErr(e.message || "Action failed.");
-    } finally {
-      setBusy("");
-    }
+    try { await run(); if (apply) patch(id, apply); }
+    catch (e) { setErr(e.message || "Action failed."); }
+    finally { setBusy(""); }
   };
+
+  const setApproved = (id, val) =>
+    act(id, () => api.setUserApproved(id, val), (r) => ({ ...r, approved: val }));
+
+  const grant = (id, perm) =>
+    act(id, () => api.grantPermission(id, perm), (r) => ({
+      ...r,
+      permissions: [...new Set([...(r.permissions || []), perm])],
+      pending: (r.pending || []).filter((p) => p !== perm),
+    }));
+  const revoke = (id, perm) =>
+    act(id, () => api.revokePermission(id, perm), (r) => ({
+      ...r,
+      permissions: (r.permissions || []).filter((p) => p !== perm),
+    }));
+  const deny = (id, perm) =>
+    act(id, () => api.denyPermissionRequest(id, perm), (r) => ({
+      ...r,
+      pending: (r.pending || []).filter((p) => p !== perm),
+    }));
 
   const pending = (rows || []).filter((r) => !r.approved);
   const approved = (rows || []).filter((r) => r.approved);
+  // Staff (non-self, approved) with outstanding permission requests.
+  const requests = approved.filter((r) => r.id !== currentUserId && (r.pending || []).length > 0);
+  const capLabel = (key) => CAPABILITIES.find((c) => c.key === key)?.label || key;
 
   const fmt = (t) =>
     t ? new Date(t).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" }) : "";
 
-  const Card = ({ r, action }) => (
-    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 flex items-center gap-3">
-      <div className="w-9 h-9 rounded-full bg-[#EEF2F6] flex items-center justify-center text-[#2563EB] font-bold shrink-0">
-        {(r.name || "?").charAt(0).toUpperCase()}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-semibold text-sm text-[#1B2430] truncate">
-          {r.name} {r.id === currentUserId && <span className="text-[10px] text-[#5A6472]">(you)</span>}
-        </div>
-        <div className="text-xs text-[#5A6472]">Joined {fmt(r.createdAt)}</div>
-      </div>
-      {action}
+  const Avatar = ({ name }) => (
+    <div className="w-9 h-9 rounded-full bg-[#EEF2F6] flex items-center justify-center text-[#2563EB] font-bold shrink-0">
+      {(name || "?").charAt(0).toUpperCase()}
     </div>
   );
 
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Admin · who can log in" title="Staff Approvals" />
+      <SectionTitle eyebrow="Admin · access control" title="Staff Approvals" />
       <div className="text-[#5A6472] text-xs mb-4">
-        New accounts stay locked until you approve them here. You can revoke anyone at any time.
+        New accounts stay locked until you approve them. Approved staff can only
+        view, sell and quote — grant delicate powers (delete, edit, add) per person below.
       </div>
 
       {err && (
@@ -717,33 +731,71 @@ export function ApprovalsTab({ currentUserId }) {
 
       {rows !== null && (
         <>
-          {/* Pending */}
+          {/* Permission requests waiting on the admin */}
+          {requests.length > 0 && (
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#2563EB]">
+                <Send size={15} /> Permission requests
+              </div>
+              <div className="space-y-2">
+                {requests.flatMap((r) =>
+                  (r.pending || []).map((perm) => (
+                    <div key={r.id + perm} className="bg-[#EAF1FF] border border-[#2563EB55] rounded-lg p-3 flex items-center gap-3">
+                      <Avatar name={r.name} />
+                      <div className="flex-1 min-w-0 text-sm">
+                        <span className="font-semibold text-[#1B2430]">{r.name}</span>
+                        <span className="text-[#5A6472]"> requests </span>
+                        <span className="font-semibold text-[#1B2430]">“{capLabel(perm)}”</span>
+                      </div>
+                      <button
+                        onClick={() => grant(r.id, perm)}
+                        disabled={busy === r.id}
+                        className="flex items-center gap-1 bg-[#15926A] text-white text-xs font-semibold rounded-md px-2.5 py-1.5 disabled:opacity-60"
+                      >
+                        <Check size={13} /> Grant
+                      </button>
+                      <button
+                        onClick={() => deny(r.id, perm)}
+                        disabled={busy === r.id}
+                        className="flex items-center gap-1 border border-[#DC3B2E] text-[#DC3B2E] text-xs font-semibold rounded-md px-2.5 py-1.5 disabled:opacity-60"
+                      >
+                        <X size={13} /> Deny
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Pending account approvals */}
           <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#DC3B2E]">
-            <Clock size={15} /> Pending ({pending.length})
+            <Clock size={15} /> Pending sign-ups ({pending.length})
           </div>
           {pending.length === 0 ? (
-            <div className="text-[#5A6472] text-sm italic mb-5">No accounts waiting for approval.</div>
+            <div className="text-[#5A6472] text-sm italic mb-6">No accounts waiting for approval.</div>
           ) : (
-            <div className="space-y-2 mb-5">
+            <div className="space-y-2 mb-6">
               {pending.map((r) => (
-                <Card
-                  key={r.id}
-                  r={r}
-                  action={
-                    <button
-                      onClick={() => setApproved(r.id, true)}
-                      disabled={busy === r.id}
-                      className="flex items-center gap-1.5 bg-[#15926A] text-white text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
-                    >
-                      <UserCheck size={15} /> {busy === r.id ? "…" : "Approve"}
-                    </button>
-                  }
-                />
+                <div key={r.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 flex items-center gap-3">
+                  <Avatar name={r.name} />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm text-[#1B2430] truncate">{r.name}</div>
+                    <div className="text-xs text-[#5A6472]">Joined {fmt(r.createdAt)}</div>
+                  </div>
+                  <button
+                    onClick={() => setApproved(r.id, true)}
+                    disabled={busy === r.id}
+                    className="flex items-center gap-1.5 bg-[#15926A] text-white text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                  >
+                    <UserCheck size={15} /> {busy === r.id ? "…" : "Approve"}
+                  </button>
+                </div>
               ))}
             </div>
           )}
 
-          {/* Approved */}
+          {/* Approved accounts + their per-action permissions */}
           <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#15926A]">
             <ShieldCheck size={15} /> Approved ({approved.length})
           </div>
@@ -751,31 +803,165 @@ export function ApprovalsTab({ currentUserId }) {
             <div className="text-[#5A6472] text-sm italic">No approved accounts yet.</div>
           ) : (
             <div className="space-y-2">
-              {approved.map((r) => (
-                <Card
-                  key={r.id}
-                  r={r}
-                  action={
-                    r.id === currentUserId ? (
-                      <span className="text-xs text-[#5A6472] px-2">Admin</span>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (confirm(`Revoke access for ${r.name}? They'll be locked out until re-approved.`))
-                            setApproved(r.id, false);
-                        }}
-                        disabled={busy === r.id}
-                        className="flex items-center gap-1.5 border border-[#DC3B2E] text-[#DC3B2E] text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
-                      >
-                        <UserX size={15} /> {busy === r.id ? "…" : "Revoke"}
-                      </button>
-                    )
-                  }
-                />
-              ))}
+              {approved.map((r) => {
+                const self = r.id === currentUserId;
+                return (
+                  <div key={r.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={r.name} />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-[#1B2430] truncate">
+                          {r.name} {self && <span className="text-[10px] text-[#5A6472]">(you)</span>}
+                        </div>
+                        <div className="text-xs text-[#5A6472]">Joined {fmt(r.createdAt)}</div>
+                      </div>
+                      {self ? (
+                        <span className="text-xs font-bold text-[#2563EB] bg-[#2563EB22] px-2 py-1 rounded">Admin · all access</span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Revoke access for ${r.name}? They'll be locked out until re-approved.`))
+                              setApproved(r.id, false);
+                          }}
+                          disabled={busy === r.id}
+                          className="flex items-center gap-1.5 border border-[#DC3B2E] text-[#DC3B2E] text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                        >
+                          <UserX size={15} /> Revoke
+                        </button>
+                      )}
+                    </div>
+
+                    {!self && (
+                      <div className="mt-3 pt-3 border-t border-[#EEF2F6]">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-2">Permissions</div>
+                        <div className="flex flex-wrap gap-2">
+                          {CAPABILITIES.map((c) => {
+                            const has = (r.permissions || []).includes(c.key);
+                            const req = (r.pending || []).includes(c.key);
+                            return (
+                              <button
+                                key={c.key}
+                                onClick={() => (has ? revoke(r.id, c.key) : grant(r.id, c.key))}
+                                disabled={busy === r.id}
+                                title={c.desc}
+                                className={`flex items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-1 border transition-colors disabled:opacity-60 ${
+                                  has
+                                    ? "bg-[#15926A] text-white border-[#15926A]"
+                                    : req
+                                    ? "bg-[#EAF1FF] text-[#2563EB] border-[#2563EB]"
+                                    : "bg-[#F3F5F8] text-[#5A6472] border-[#DEE3E9]"
+                                }`}
+                              >
+                                {has ? <Check size={12} /> : req ? <Send size={12} /> : <Lock size={12} />}
+                                {c.label}{req && !has ? " · requested" : ""}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="text-[10px] text-[#5A6472] mt-2">Tap a permission to grant; tap a green one to revoke.</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/* ======================= MY PERMISSIONS (staff) ======================= */
+// Staff see what they can do and can REQUEST a delicate capability. The
+// request goes to the admin's Staff Approvals screen for a decision.
+export function MyPermissionsTab({ userId }) {
+  const [state, setState] = useState(null); // { permissions, pending }
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setState(await api.getMyPermissions(userId));
+  };
+
+  useEffect(() => {
+    load();
+    const ch = api.subscribeProfiles ? api.subscribeProfiles(load) : null;
+    return () => { if (ch) ch(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const act = async (perm, run, optimistic) => {
+    setBusy(perm); setErr("");
+    try { await run(); setState((s) => optimistic(s)); }
+    catch (e) { setErr(e.message || "Action failed."); }
+    finally { setBusy(""); }
+  };
+  const request = (perm) =>
+    act(perm, () => api.requestPermission(perm), (s) => ({
+      ...s, pending: [...new Set([...(s?.pending || []), perm])],
+    }));
+  const cancel = (perm) =>
+    act(perm, () => api.cancelPermissionRequest(perm), (s) => ({
+      ...s, pending: (s?.pending || []).filter((p) => p !== perm),
+    }));
+
+  const has = (k) => (state?.permissions || []).includes(k);
+  const req = (k) => (state?.pending || []).includes(k);
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Your access" title="My Permissions" />
+      <div className="text-[#5A6472] text-xs mb-4">
+        You can view, sell and create quotations by default. Delicate actions need
+        an admin's approval — request one below and an admin at Jaspare Auto will decide.
+      </div>
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-4 flex items-start gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {err}
+        </div>
+      )}
+
+      {state === null ? (
+        <div className="text-[#5A6472] text-sm">Loading…</div>
+      ) : (
+        <div className="space-y-2">
+          {CAPABILITIES.map((c) => {
+            const granted = has(c.key);
+            const requested = req(c.key);
+            return (
+              <div key={c.key} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${granted ? "bg-[#E6F6EF] text-[#15926A]" : "bg-[#EEF2F6] text-[#5A6472]"}`}>
+                  {granted ? <ShieldCheck size={18} /> : <Lock size={18} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm text-[#1B2430]">{c.label}</div>
+                  <div className="text-xs text-[#5A6472]">{c.desc}</div>
+                </div>
+                {granted ? (
+                  <span className="text-xs font-bold text-[#15926A] bg-[#E6F6EF] px-2.5 py-1.5 rounded-md">Granted</span>
+                ) : requested ? (
+                  <button
+                    onClick={() => cancel(c.key)}
+                    disabled={busy === c.key}
+                    className="flex items-center gap-1.5 border border-[#2563EB] text-[#2563EB] text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                  >
+                    <Clock size={14} /> Requested · cancel
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => request(c.key)}
+                    disabled={busy === c.key}
+                    className="flex items-center gap-1.5 bg-[#2563EB] text-white text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                  >
+                    <Send size={14} /> Request
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

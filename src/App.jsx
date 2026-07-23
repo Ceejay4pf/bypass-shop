@@ -3,7 +3,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
-  FileText, HelpCircle, Pencil, Printer, UserCheck,
+  FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
@@ -13,32 +13,34 @@ import { isLockEnabled, isUnlocked, markUnlocked, lockNow } from "./lib/appLock.
 import { supabase, isConfigured } from "./lib/supabase.js";
 import { useInventory, useNotifications, useAuth } from "./lib/hooks.js";
 import { getProfileName, signOut } from "./lib/auth.js";
-import { isAdmin } from "./lib/roles.js";
+import { isAdmin, hasCap } from "./lib/roles.js";
 import * as api from "./lib/api.js";
 import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
-  LowStockTab, PrintStockTab, ApprovalsTab,
+  LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
-// `admin: true` = only shown to / usable by admins (stock-editing screens).
+// `admin: true` = admin-only screen. `cap: "<key>"` = needs that capability
+// (admins always have every capability; staff need it granted).
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "quick", label: "Quick Transaction", icon: Zap, admin: true },
+  { id: "quick", label: "Quick Transaction", icon: Zap, cap: "quick" },
   { id: "search", label: "Search Inventory", icon: Search },
   { id: "inventory", label: "Inventory", icon: Boxes },
   { id: "lowstock", label: "Low Stock", icon: AlertTriangle },
   { id: "ledger", label: "Inventory Ledger", icon: History },
-  { id: "add", label: "Add New Item", icon: Plus, admin: true },
-  { id: "edit", label: "Edit Parts", icon: Pencil, admin: true },
+  { id: "add", label: "Add New Item", icon: Plus, cap: "additem" },
+  { id: "edit", label: "Edit Parts", icon: Pencil, cap: "edit" },
   { id: "stock", label: "Add New Stock", icon: PackagePlus },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   { id: "quote", label: "Quotation", icon: FileText },
   { id: "notify", label: "Notifications", icon: Bell },
   { id: "print", label: "Print Stock", icon: Printer },
   { id: "reports", label: "Reports", icon: FileBarChart },
+  { id: "permissions", label: "My Permissions", icon: ShieldCheck, staffOnly: true },
   { id: "approvals", label: "Staff Approvals", icon: UserCheck, admin: true },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -73,7 +75,6 @@ function BypassShop({ session }) {
   const { items, loading: itemsLoading, error } = useInventory();
   const { notifications } = useNotifications();
   const admin = isAdmin(session);
-  const navItems = NAV.filter((n) => !n.admin || admin);
   const [user, setUser] = useState(session.user.user_metadata?.full_name || "Staff");
   const [tab, setTab] = useState("dashboard");
   const [history, setHistory] = useState([]); // screens visited, for the Back button
@@ -90,28 +91,51 @@ function BypassShop({ session }) {
   // Admin-approval gate: null = still checking, true/false = known.
   // Admins are always allowed; only non-admin accounts can be held pending.
   const [approved, setApproved] = useState(admin ? true : null);
+  // This staff account's granted capabilities (admins have all implicitly).
+  const [myPerms, setMyPerms] = useState([]);
 
   useEffect(() => {
     if (admin) { setApproved(true); return; }
     let alive = true;
-    const check = () =>
+    const check = () => {
       api.getMyApproval(session.user.id).then((ok) => { if (alive) setApproved(ok); });
+      api.getMyPermissions(session.user.id).then((p) => { if (alive) setMyPerms(p.permissions); });
+    };
     check();
-    // Re-check whenever profiles change so a pending screen unlocks instantly.
+    // Re-check whenever profiles change so a pending screen unlocks instantly
+    // and newly-granted permissions appear without a refresh.
     const unsub = api.subscribeProfiles(check);
     return () => { alive = false; unsub(); };
   }, [admin, session.user.id]);
 
+  const can = useCallback(
+    (cap) => hasCap(cap, { admin, permissions: myPerms }),
+    [admin, myPerms]
+  );
+  const navItems = NAV.filter((n) => {
+    if (n.admin) return admin;
+    if (n.staffOnly) return !admin;
+    if (n.cap) return can(n.cap);
+    return true;
+  });
+
   // Re-lock when the app goes to the background, so returning asks for biometric again.
   useEffect(() => {
-    const onHide = () => {
-      if (document.visibilityState === "hidden" && isLockEnabled()) {
+    // Only re-lock after being in the background for a while, so a quick
+    // switch to another app (or a notification) doesn't force a re-unlock.
+    const GRACE_MS = 3 * 60 * 1000; // 3 minutes
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (!isLockEnabled()) return;
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+      } else if (hiddenAt && Date.now() - hiddenAt > GRACE_MS) {
         lockNow();
         setLocked(true);
       }
     };
-    document.addEventListener("visibilitychange", onHide);
-    return () => document.removeEventListener("visibilitychange", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
   const dismissWelcome = () => {
@@ -349,31 +373,32 @@ function BypassShop({ session }) {
           {tab === "dashboard" && (
             <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} onOpenLedger={openLedger} />
           )}
-          {tab === "quick" && admin && (
+          {tab === "quick" && can("quick") && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
           )}
-          {tab === "search" && <SearchTab items={items} categories={CATEGORIES} onDelete={admin ? handleDelete : undefined} />}
+          {tab === "search" && <SearchTab items={items} categories={CATEGORIES} onDelete={can("delete") ? handleDelete : undefined} />}
           {tab === "inventory" && (
             <InventoryTab
               items={items}
               categories={CATEGORIES}
-              onDelete={admin ? handleDelete : undefined}
+              onDelete={can("delete") ? handleDelete : undefined}
               onOpenLedger={openLedger}
-              canEdit={admin}
-              onBulkDelete={admin ? handleBulkDelete : undefined}
+              canEdit={can("edit")}
+              onBulkDelete={can("delete") ? handleBulkDelete : undefined}
               onBulkAddStock={handleBulkAddStock}
             />
           )}
           {tab === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
-          {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={admin ? handleDelete : undefined} />}
-          {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
-          {tab === "edit" && admin && <EditPartsTab items={items} categories={CATEGORIES} onSave={handleEditItem} />}
+          {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={can("delete") ? handleDelete : undefined} />}
+          {tab === "add" && can("additem") && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
+          {tab === "edit" && can("edit") && <EditPartsTab items={items} categories={CATEGORIES} onSave={handleEditItem} />}
           {tab === "stock" && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
           {tab === "quote" && <QuotationTab items={items} user={user} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
+          {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
           {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
           {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}
         </main>

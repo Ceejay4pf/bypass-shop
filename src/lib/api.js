@@ -333,19 +333,60 @@ export async function getMyApproval(userId) {
   return data?.approved !== false;
 }
 
-// Admin: list all staff profiles with their approval state.
+// This account's granted + pending capabilities (for the staff-side UI and
+// for gating delicate actions). Missing columns (migration not run) → none.
+export async function getMyPermissions(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("permissions, pending_permissions")
+    .eq("id", userId)
+    .single();
+  if (error) return { permissions: [], pending: [] };
+  return {
+    permissions: Array.isArray(data?.permissions) ? data.permissions : [],
+    pending: Array.isArray(data?.pending_permissions) ? data.pending_permissions : [],
+  };
+}
+
+// Admin: list all staff profiles with their approval state + permissions.
 export async function fetchProfiles() {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, approved, created_at")
+    .select("id, full_name, approved, permissions, pending_permissions, created_at")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data || []).map((p) => ({
     id: p.id,
     name: p.full_name || "(no name)",
     approved: p.approved !== false,
+    permissions: Array.isArray(p.permissions) ? p.permissions : [],
+    pending: Array.isArray(p.pending_permissions) ? p.pending_permissions : [],
     createdAt: p.created_at || null,
   }));
+}
+
+/* ---- PER-ACTION PERMISSIONS ---- */
+// Staff: request / cancel a capability for my own account.
+export async function requestPermission(perm) {
+  const { error } = await supabase.rpc("request_permission", { perm });
+  if (error) throw error;
+}
+export async function cancelPermissionRequest(perm) {
+  const { error } = await supabase.rpc("cancel_permission_request", { perm });
+  if (error) throw error;
+}
+// Admin: grant / revoke / deny a capability for a staff account.
+export async function grantPermission(targetId, perm) {
+  const { error } = await supabase.rpc("grant_permission", { target: targetId, perm });
+  if (error) throw error;
+}
+export async function revokePermission(targetId, perm) {
+  const { error } = await supabase.rpc("revoke_permission", { target: targetId, perm });
+  if (error) throw error;
+}
+export async function denyPermissionRequest(targetId, perm) {
+  const { error } = await supabase.rpc("deny_permission_request", { target: targetId, perm });
+  if (error) throw error;
 }
 
 // Admin: approve or revoke an account (server checks caller is an admin).

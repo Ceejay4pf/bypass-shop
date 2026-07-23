@@ -44,3 +44,81 @@ do $$
 begin
   begin execute 'alter publication supabase_realtime add table public.profiles'; exception when others then null; end;
 end $$;
+
+-- ============================================================
+-- 5) PER-ACTION PERMISSIONS
+--    Approved staff can still be limited. An admin grants individual
+--    capabilities (delete items, edit parts, add items, quick transaction)
+--    to each staff member. Staff can REQUEST a capability; it stays pending
+--    until an admin grants it.
+--
+--    Capability keys used by the app: 'delete', 'edit', 'additem', 'quick'.
+-- ============================================================
+alter table public.profiles
+  add column if not exists permissions        text[] not null default '{}',
+  add column if not exists pending_permissions text[] not null default '{}';
+
+-- Staff: request a capability for MY OWN account (adds to pending, unless I
+-- already have it). No admin check — you can only ever affect your own row.
+create or replace function public.request_permission(perm text)
+returns void language plpgsql security definer as $$
+begin
+  update public.profiles
+     set pending_permissions =
+           case when perm = any(permissions) then pending_permissions
+                else array(select distinct unnest(pending_permissions || array[perm])) end
+   where id = auth.uid();
+end; $$;
+
+-- Staff: cancel my own pending request.
+create or replace function public.cancel_permission_request(perm text)
+returns void language plpgsql security definer as $$
+begin
+  update public.profiles
+     set pending_permissions = array_remove(pending_permissions, perm)
+   where id = auth.uid();
+end; $$;
+
+-- Admin: grant a capability to a staff account (also clears any pending request).
+create or replace function public.grant_permission(target uuid, perm text)
+returns void language plpgsql security definer as $$
+declare caller_email text;
+begin
+  select lower(email) into caller_email from auth.users where id = auth.uid();
+  if caller_email not in ('admin@bypassshop.co', 'addamsjmk@gmail.com') then
+    raise exception 'Only an admin can grant permissions.';
+  end if;
+  update public.profiles
+     set permissions = array(select distinct unnest(permissions || array[perm])),
+         pending_permissions = array_remove(pending_permissions, perm)
+   where id = target;
+end; $$;
+
+-- Admin: revoke a granted capability.
+create or replace function public.revoke_permission(target uuid, perm text)
+returns void language plpgsql security definer as $$
+declare caller_email text;
+begin
+  select lower(email) into caller_email from auth.users where id = auth.uid();
+  if caller_email not in ('admin@bypassshop.co', 'addamsjmk@gmail.com') then
+    raise exception 'Only an admin can revoke permissions.';
+  end if;
+  update public.profiles
+     set permissions = array_remove(permissions, perm),
+         pending_permissions = array_remove(pending_permissions, perm)
+   where id = target;
+end; $$;
+
+-- Admin: deny (clear) a pending request without granting it.
+create or replace function public.deny_permission_request(target uuid, perm text)
+returns void language plpgsql security definer as $$
+declare caller_email text;
+begin
+  select lower(email) into caller_email from auth.users where id = auth.uid();
+  if caller_email not in ('admin@bypassshop.co', 'addamsjmk@gmail.com') then
+    raise exception 'Only an admin can deny requests.';
+  end if;
+  update public.profiles
+     set pending_permissions = array_remove(pending_permissions, perm)
+   where id = target;
+end; $$;
