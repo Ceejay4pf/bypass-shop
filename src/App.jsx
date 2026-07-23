@@ -3,11 +3,12 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
-  FileText, HelpCircle, Pencil, Printer,
+  FileText, HelpCircle, Pencil, Printer, UserCheck,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
 import LockScreen from "./LockScreen.jsx";
+import PendingGate from "./PendingGate.jsx";
 import { isLockEnabled, isUnlocked, markUnlocked, lockNow } from "./lib/appLock.js";
 import { supabase, isConfigured } from "./lib/supabase.js";
 import { useInventory, useNotifications, useAuth } from "./lib/hooks.js";
@@ -18,7 +19,7 @@ import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
-  LowStockTab, PrintStockTab,
+  LowStockTab, PrintStockTab, ApprovalsTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
@@ -38,6 +39,7 @@ const NAV = [
   { id: "notify", label: "Notifications", icon: Bell },
   { id: "print", label: "Print Stock", icon: Printer },
   { id: "reports", label: "Reports", icon: FileBarChart },
+  { id: "approvals", label: "Staff Approvals", icon: UserCheck, admin: true },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -85,6 +87,20 @@ function BypassShop({ session }) {
     () => localStorage.getItem("bp_seen_welcome") !== "1"
   );
   const now = useClock();
+  // Admin-approval gate: null = still checking, true/false = known.
+  // Admins are always allowed; only non-admin accounts can be held pending.
+  const [approved, setApproved] = useState(admin ? true : null);
+
+  useEffect(() => {
+    if (admin) { setApproved(true); return; }
+    let alive = true;
+    const check = () =>
+      api.getMyApproval(session.user.id).then((ok) => { if (alive) setApproved(ok); });
+    check();
+    // Re-check whenever profiles change so a pending screen unlocks instantly.
+    const unsub = api.subscribeProfiles(check);
+    return () => { alive = false; unsub(); };
+  }, [admin, session.user.id]);
 
   // Re-lock when the app goes to the background, so returning asks for biometric again.
   useEffect(() => {
@@ -215,6 +231,11 @@ function BypassShop({ session }) {
 
   if (locked) {
     return <LockScreen user={user} onUnlocked={() => { markUnlocked(); setLocked(false); }} />;
+  }
+
+  // Hold non-admin accounts on the pending screen until an admin approves them.
+  if (!admin && approved === false) {
+    return <PendingGate user={user} onSignOut={handleLogout} />;
   }
 
   return (
@@ -353,6 +374,7 @@ function BypassShop({ session }) {
           {tab === "notify" && <NotifyTab notifications={notifications} />}
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
+          {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
           {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}
         </main>
       </div>

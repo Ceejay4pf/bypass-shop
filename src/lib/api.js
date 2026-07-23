@@ -319,3 +319,47 @@ export async function fetchSales(limit = 500) {
   if (error) throw error;
   return data;
 }
+
+/* ---- ACCOUNT APPROVALS ---- */
+// Is THIS account approved to use the app? Missing column (migration not run
+// yet) is treated as approved so the app never locks everyone out by mistake.
+export async function getMyApproval(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("approved")
+    .eq("id", userId)
+    .single();
+  if (error) return true; // fail open — don't trap staff if the query fails
+  return data?.approved !== false;
+}
+
+// Admin: list all staff profiles with their approval state.
+export async function fetchProfiles() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, approved, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map((p) => ({
+    id: p.id,
+    name: p.full_name || "(no name)",
+    approved: p.approved !== false,
+    createdAt: p.created_at || null,
+  }));
+}
+
+// Admin: approve or revoke an account (server checks caller is an admin).
+export async function setUserApproved(targetId, approved) {
+  const { error } = await supabase.rpc("set_user_approved", { target: targetId, val: approved });
+  if (error) throw error;
+}
+
+// Live-subscribe to profile changes (new sign-ups, approvals). Returns an
+// unsubscribe function.
+export function subscribeProfiles(onChange) {
+  const ch = supabase
+    .channel("profiles-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => onChange())
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}

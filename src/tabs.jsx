@@ -8,6 +8,7 @@ import {
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
+  UserCheck, UserX, Clock, ShieldCheck,
 } from "lucide-react";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
@@ -636,6 +637,146 @@ export function PrintStockTab({ items, categories }) {
       >
         <FileText size={18} /> Generate PDF / Print
       </button>
+    </div>
+  );
+}
+
+/* ======================= STAFF APPROVALS (admin) ======================= */
+// Admin approves / revokes staff accounts. New sign-ups are pending until
+// approved here; they can't use the app in the meantime.
+export function ApprovalsTab({ currentUserId }) {
+  const [rows, setRows] = useState(null); // null = loading
+  const [busy, setBusy] = useState("");   // id being changed
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    try {
+      setErr("");
+      setRows(await api.fetchProfiles());
+    } catch (e) {
+      setErr(e.message || "Couldn't load accounts. Did you run supabase/approvals.sql?");
+      setRows([]);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // Refresh live when any profile changes (new sign-up, another admin acts).
+    const ch = api.subscribeProfiles ? api.subscribeProfiles(load) : null;
+    return () => { if (ch) ch(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setApproved = async (id, val) => {
+    setBusy(id); setErr("");
+    try {
+      await api.setUserApproved(id, val);
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, approved: val } : r)));
+    } catch (e) {
+      setErr(e.message || "Action failed.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const pending = (rows || []).filter((r) => !r.approved);
+  const approved = (rows || []).filter((r) => r.approved);
+
+  const fmt = (t) =>
+    t ? new Date(t).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" }) : "";
+
+  const Card = ({ r, action }) => (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-full bg-[#EEF2F6] flex items-center justify-center text-[#2563EB] font-bold shrink-0">
+        {(r.name || "?").charAt(0).toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold text-sm text-[#1B2430] truncate">
+          {r.name} {r.id === currentUserId && <span className="text-[10px] text-[#5A6472]">(you)</span>}
+        </div>
+        <div className="text-xs text-[#5A6472]">Joined {fmt(r.createdAt)}</div>
+      </div>
+      {action}
+    </div>
+  );
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Admin · who can log in" title="Staff Approvals" />
+      <div className="text-[#5A6472] text-xs mb-4">
+        New accounts stay locked until you approve them here. You can revoke anyone at any time.
+      </div>
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-4 flex items-start gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {err}
+        </div>
+      )}
+
+      {rows === null && <div className="text-[#5A6472] text-sm">Loading accounts…</div>}
+
+      {rows !== null && (
+        <>
+          {/* Pending */}
+          <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#DC3B2E]">
+            <Clock size={15} /> Pending ({pending.length})
+          </div>
+          {pending.length === 0 ? (
+            <div className="text-[#5A6472] text-sm italic mb-5">No accounts waiting for approval.</div>
+          ) : (
+            <div className="space-y-2 mb-5">
+              {pending.map((r) => (
+                <Card
+                  key={r.id}
+                  r={r}
+                  action={
+                    <button
+                      onClick={() => setApproved(r.id, true)}
+                      disabled={busy === r.id}
+                      className="flex items-center gap-1.5 bg-[#15926A] text-white text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                    >
+                      <UserCheck size={15} /> {busy === r.id ? "…" : "Approve"}
+                    </button>
+                  }
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Approved */}
+          <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#15926A]">
+            <ShieldCheck size={15} /> Approved ({approved.length})
+          </div>
+          {approved.length === 0 ? (
+            <div className="text-[#5A6472] text-sm italic">No approved accounts yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {approved.map((r) => (
+                <Card
+                  key={r.id}
+                  r={r}
+                  action={
+                    r.id === currentUserId ? (
+                      <span className="text-xs text-[#5A6472] px-2">Admin</span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (confirm(`Revoke access for ${r.name}? They'll be locked out until re-approved.`))
+                            setApproved(r.id, false);
+                        }}
+                        disabled={busy === r.id}
+                        className="flex items-center gap-1.5 border border-[#DC3B2E] text-[#DC3B2E] text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                      >
+                        <UserX size={15} /> {busy === r.id ? "…" : "Revoke"}
+                      </button>
+                    )
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
