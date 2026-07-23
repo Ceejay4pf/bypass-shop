@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Fingerprint, Boxes, Loader2, AlertTriangle } from "lucide-react";
 import { unlock } from "./lib/appLock.js";
 
@@ -7,8 +7,11 @@ import { unlock } from "./lib/appLock.js";
 export default function LockScreen({ user, onUnlocked }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const authing = useRef(false); // guard so taps don't stack prompts (was the lag)
 
   const tryUnlock = async () => {
+    if (authing.current) return;
+    authing.current = true;
     setErr("");
     setBusy(true);
     try {
@@ -17,6 +20,7 @@ export default function LockScreen({ user, onUnlocked }) {
     } catch (e) {
       setErr(e?.message || "Couldn't verify. Try again.");
     } finally {
+      authing.current = false;
       setBusy(false);
     }
   };

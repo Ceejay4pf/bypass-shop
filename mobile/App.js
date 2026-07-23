@@ -47,12 +47,20 @@ export default function App() {
     })();
   }, []);
 
+  const authing = useRef(false);
   const authenticate = useCallback(async () => {
-    const res = await LocalAuthentication.authenticateAsync({
-      promptMessage: "Unlock Bypass Shop",
-      fallbackLabel: "Use passcode",
-    });
-    if (res.success) setUnlocked(true);
+    if (authing.current) return; // don't stack prompts
+    authing.current = true;
+    try {
+      const res = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Unlock Bypass Shop",
+        fallbackLabel: "Use passcode",
+        disableDeviceFallback: false,
+      });
+      if (res.success) setUnlocked(true);
+    } finally {
+      authing.current = false;
+    }
   }, []);
 
   // Prompt automatically whenever we're locked.
@@ -60,10 +68,12 @@ export default function App() {
     if (ready && lockOn && !unlocked) authenticate();
   }, [ready, lockOn, unlocked, authenticate]);
 
-  // Re-lock when the app goes to the background.
+  // Re-lock only when the app truly goes to the background — NOT on the brief
+  // "inactive" the OS reports while the biometric dialog is showing (that was
+  // fighting the unlock and making it feel slow). Also skip while scanning.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active" && lockOn) setUnlocked(false);
+      if (state === "background" && lockOn && !authing.current) setUnlocked(false);
     });
     return () => sub.remove();
   }, [lockOn]);
