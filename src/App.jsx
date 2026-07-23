@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
+import LockScreen from "./LockScreen.jsx";
+import { isLockEnabled, isUnlocked, markUnlocked, lockNow } from "./lib/appLock.js";
 import { supabase, isConfigured } from "./lib/supabase.js";
 import { useInventory, useNotifications, useAuth } from "./lib/hooks.js";
 import { getProfileName, signOut } from "./lib/auth.js";
@@ -73,11 +75,25 @@ function BypassShop({ session }) {
   const [toast, setToast] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   const [ledgerCode, setLedgerCode] = useState("");
+  // Biometric app-lock: gate the app until unlocked this session.
+  const [locked, setLocked] = useState(() => isLockEnabled() && !isUnlocked());
   // Show the welcome guide until this device has seen it once.
   const [showWelcome, setShowWelcome] = useState(
     () => localStorage.getItem("bp_seen_welcome") !== "1"
   );
   const now = useClock();
+
+  // Re-lock when the app goes to the background, so returning asks for biometric again.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden" && isLockEnabled()) {
+        lockNow();
+        setLocked(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []);
 
   const dismissWelcome = () => {
     localStorage.setItem("bp_seen_welcome", "1");
@@ -193,6 +209,10 @@ function BypassShop({ session }) {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [goBack]);
+
+  if (locked) {
+    return <LockScreen user={user} onUnlocked={() => { markUnlocked(); setLocked(false); }} />;
+  }
 
   return (
     <div className="min-h-screen bg-[#F3F5F8] text-[#1B2430] lg:flex">

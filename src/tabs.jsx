@@ -7,8 +7,11 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, X, Check,
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
-  ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square,
+  ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
 } from "lucide-react";
+import {
+  isBiometricSupported, isLockEnabled, enableLock, disableLock,
+} from "./lib/appLock.js";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
   LOW_STOCK_THRESHOLD,
@@ -1234,6 +1237,71 @@ const SHOPS = [
   { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
 ];
 
+// Optional biometric app-lock. Auto-hides the enable button on devices with no
+// biometric (e.g. desktop computers) — it's never compulsory.
+function BiometricCard({ email }) {
+  const [supported, setSupported] = useState(null); // null = still checking
+  const [enabled, setEnabled] = useState(isLockEnabled());
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => { isBiometricSupported().then(setSupported); }, []);
+
+  const turnOn = async () => {
+    setMsg(""); setBusy(true);
+    try {
+      await enableLock(email || "staff");
+      setEnabled(true);
+      setMsg("Biometric unlock is on for this device.");
+    } catch {
+      setMsg("Couldn't set up biometric — you can try again anytime.");
+    } finally { setBusy(false); }
+  };
+  const turnOff = () => {
+    disableLock();
+    setEnabled(false);
+    setMsg("Biometric unlock turned off.");
+  };
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide mb-3">
+        <Fingerprint size={16} className="text-[#2563EB]" /> Biometric Unlock
+      </div>
+
+      {supported === null && (
+        <p className="text-xs text-[#5A6472]">Checking this device…</p>
+      )}
+
+      {supported === false && (
+        <p className="text-xs text-[#5A6472] leading-relaxed">
+          This device has no fingerprint or Face ID, so biometric unlock isn't available here.
+          It's optional — set it up on a phone that supports it. You can still sign in normally.
+        </p>
+      )}
+
+      {supported === true && (
+        <>
+          <p className="text-xs text-[#5A6472] leading-relaxed mb-3">
+            Optional. When on, this device asks for your fingerprint / Face ID each time the app
+            is opened. It only locks this device — everyone chooses their own.
+          </p>
+          {enabled ? (
+            <button onClick={turnOff} className="w-full border border-[#DC3B2E] text-[#DC3B2E] font-semibold rounded-md py-2.5 text-sm">
+              Turn off biometric unlock
+            </button>
+          ) : (
+            <button onClick={turnOn} disabled={busy} className="w-full bg-[#2563EB] text-white font-semibold rounded-md py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+              <Fingerprint size={16} /> {busy ? "Setting up…" : "Turn on biometric unlock"}
+            </button>
+          )}
+          {msg && <p className="text-xs text-[#15926A] mt-2">{msg}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SettingsTab({ categories, user, email, admin }) {
   return (
     <div className="bp-fade-up">
@@ -1252,6 +1320,8 @@ export function SettingsTab({ categories, user, email, admin }) {
             : "You're signed in as staff: you can view stock, sell, and make quotations. Adding, editing or deleting stock is admin-only."}
         </p>
       </div>
+
+      <BiometricCard email={email} />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Login Alerts</div>
