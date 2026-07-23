@@ -12,6 +12,21 @@ import { isConfigured } from "./lib/supabase.js";
    self-typed name. Passwords are hashed server-side by Supabase;
    the app never sees or stores them.
 --------------------------------------------------------- */
+/* A spare-part emblem — a cog/gear with a piston, drawn in white so it sits
+   cleanly on the blue hero. */
+function SparePartIcon() {
+  return (
+    <svg width="38" height="38" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M24 6l2.2 3.9 4.4-1 .6 4.5 4.3 1.5-1.6 4.2 3.3 3.1-3.3 3.1 1.6 4.2-4.3 1.5-.6 4.5-4.4-1L24 42l-2.2-3.9-4.4 1-.6-4.5-4.3-1.5 1.6-4.2L10.8 26l3.3-3.1-1.6-4.2 4.3-1.5.6-4.5 4.4 1L24 6z"
+        stroke="white" strokeWidth="2.2" strokeLinejoin="round" fill="white" fillOpacity="0.12"
+      />
+      <circle cx="24" cy="24" r="6.5" stroke="white" strokeWidth="2.4" />
+      <circle cx="24" cy="24" r="1.8" fill="white" />
+    </svg>
+  );
+}
+
 export default function LoginGate() {
   const [mode, setMode] = useState("signin"); // signin | signup
   const [name, setName] = useState("");        // name OR phone/email — the login id
@@ -68,16 +83,29 @@ export default function LoginGate() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F3F5F8] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-[#EAF1FF] via-[#F3F5F8] to-[#F3F5F8] flex items-center justify-center p-4">
       <div className="w-full max-w-sm bp-pop">
-        <div className="text-center mb-6">
-          <div className="text-[#5A6472] text-[11px] font-bold tracking-[0.25em] uppercase">
-            Jaspare Auto · Main Shop
+        {/* Branded blue hero with a spare-part graphic */}
+        <div className="relative overflow-hidden rounded-2xl mb-5 shadow-lg bg-gradient-to-br from-[#1E4FD6] via-[#2563EB] to-[#3B82F6]">
+          {/* soft decorative circles */}
+          <div className="absolute -top-10 -right-8 w-32 h-32 rounded-full bg-white/10" />
+          <div className="absolute -bottom-12 -left-10 w-40 h-40 rounded-full bg-white/5" />
+
+          <div className="relative px-6 pt-6 pb-7 text-center">
+            <div className="text-white/70 text-[11px] font-bold tracking-[0.25em] uppercase">
+              Jaspare Auto · Main Shop
+            </div>
+
+            {/* Spare-part emblem (gear + piston) */}
+            <div className="mx-auto my-3 w-16 h-16 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center ring-1 ring-white/25">
+              <SparePartIcon />
+            </div>
+
+            <h1 className="text-white text-3xl font-extrabold uppercase tracking-wide">
+              Bypass Shop
+            </h1>
+            <p className="text-white/80 text-xs mt-1">Branch Inventory Management System</p>
           </div>
-          <h1 className="text-[#1B2430] text-2xl font-extrabold uppercase tracking-wide flex items-center justify-center gap-2 mt-1">
-            <Boxes size={22} className="text-[#2563EB]" /> Bypass Shop
-          </h1>
-          <p className="text-[#5A6472] text-xs mt-1">Branch Inventory Management System</p>
         </div>
 
         {!isConfigured && (

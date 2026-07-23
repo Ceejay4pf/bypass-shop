@@ -227,7 +227,7 @@ function BypassShop({ session }) {
           <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">Jaspare Auto</div>
           <div className="flex items-center gap-2 mt-0.5">
             <Boxes size={20} className="text-[#2563EB]" />
-            <span className="text-lg font-extrabold uppercase tracking-wide">Bypass Shop</span>
+            <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">Bypass Shop</span>
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
