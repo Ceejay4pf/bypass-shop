@@ -8,6 +8,14 @@
 -- All accounts that already exist are grandfathered in (approved).
 -- ============================================================
 
+-- 0) Backfill a profile row for every existing auth user. Accounts created
+--    before the sign-up trigger existed have no profiles row, so they never
+--    appear in Staff Approvals. This creates the missing rows.
+insert into public.profiles (id, full_name)
+select u.id, coalesce(u.raw_user_meta_data->>'full_name', split_part(u.email, '@', 1))
+from auth.users u
+on conflict (id) do nothing;
+
 -- 1) Add the approval flag (defaults to false for all FUTURE sign-ups).
 alter table public.profiles
   add column if not exists approved boolean not null default false;
