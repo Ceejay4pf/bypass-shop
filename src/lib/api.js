@@ -28,6 +28,8 @@ export function rowToItem(r) {
     notes: r.notes || "",
     images: Array.isArray(r.images) ? r.images : [],
     status: r.status || "Active",
+    createdBy: r.created_by || "",
+    createdAt: r.created_at || null,
   };
 }
 export function itemToRow(i) {

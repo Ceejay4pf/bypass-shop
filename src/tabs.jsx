@@ -433,8 +433,50 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
 export function PrintStockTab({ items, categories }) {
   // "all" prints the whole shop grouped by category.
   const [catKey, setCatKey] = useState("all");
+  // Date filter on when the item was ADDED: all | today | week | month | day.
+  const [dateMode, setDateMode] = useState("all");
+  const [onDay, setOnDay] = useState(""); // yyyy-mm-dd for the "specific day" option
 
-  const countFor = (key) => items.filter((i) => i.cat === key).length;
+  // Start-of-window timestamp (ms) for the chosen date mode; null = no limit.
+  const windowStart = () => {
+    if (dateMode === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+    if (dateMode === "week") return Date.now() - 7 * 86400000;
+    if (dateMode === "month") return Date.now() - 30 * 86400000;
+    return null;
+  };
+
+  // Does an item fall inside the current date filter (by created-at)?
+  const inDate = (i) => {
+    if (dateMode === "all") return true;
+    const t = i.createdAt ? new Date(i.createdAt).getTime() : null;
+    if (dateMode === "day") {
+      if (!onDay || !t) return false;
+      const start = new Date(onDay + "T00:00:00").getTime();
+      return t >= start && t < start + 86400000;
+    }
+    const start = windowStart();
+    return t !== null && start !== null && t >= start;
+  };
+
+  // Apply BOTH filters (category is handled where used).
+  const filtered = useMemo(
+    () => items.filter((i) => (catKey === "all" || i.cat === catKey) && inDate(i)),
+    [items, catKey, dateMode, onDay]
+  );
+  const countFor = (key) => items.filter((i) => i.cat === key && inDate(i)).length;
+
+  const dateLabel = () => {
+    if (dateMode === "today") return "Added today";
+    if (dateMode === "week") return "Added in last 7 days";
+    if (dateMode === "month") return "Added in last 30 days";
+    if (dateMode === "day") return onDay ? `Added on ${onDay}` : "Added on (pick a day)";
+    return "All dates";
+  };
+
+  const fmtAdded = (i) =>
+    i.createdAt
+      ? new Date(i.createdAt).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })
+      : "—";
 
   const openPdf = () => {
     const chosen = catKey === "all" ? categories : categories.filter((c) => c.key === catKey);
@@ -442,7 +484,7 @@ export function PrintStockTab({ items, categories }) {
 
     const sections = chosen
       .map((c) => {
-        const list = items
+        const list = filtered
           .filter((i) => i.cat === c.key)
           .sort((a, b) => String(a.code).localeCompare(String(b.code)));
         if (list.length === 0) return "";
@@ -457,6 +499,7 @@ export function PrintStockTab({ items, categories }) {
               <td class="c">${Number(i.qty || 0)}</td>
               <td class="r">${Number(i.price) ? Number(i.price).toLocaleString() : "—"}</td>
               <td>${escapeHtml(i.location || "")}</td>
+              <td>${escapeHtml(fmtAdded(i))}</td>
             </tr>`
           )
           .join("");
@@ -466,7 +509,7 @@ export function PrintStockTab({ items, categories }) {
             <table>
               <thead><tr>
                 <th class="c">#</th><th>Code</th><th>Item</th><th>Side</th><th>Color</th>
-                <th class="c">Qty</th><th class="r">Price (KES)</th><th>Location</th>
+                <th class="c">Qty</th><th class="r">Price (KES)</th><th>Location</th><th>Date added</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -474,10 +517,11 @@ export function PrintStockTab({ items, categories }) {
       })
       .join("");
 
-    const totalItems = items.filter((i) => catKey === "all" || i.cat === catKey).length;
-    const title = catKey === "all" ? "Full Stock List" : `${categories.find((c) => c.key === catKey)?.label || ""} — Stock List`;
+    const totalItems = filtered.length;
+    const catName = catKey === "all" ? "Full Stock List" : `${categories.find((c) => c.key === catKey)?.label || ""} — Stock List`;
+    const title = dateMode === "all" ? catName : `${catName} · ${dateLabel()}`;
 
-    const body = sections || `<div class="empty">No items to list for this category yet.</div>`;
+    const body = sections || `<div class="empty">No items match this category / date.</div>`;
 
     const html = `<!doctype html><html><head><meta charset="utf-8">
 <title>${escapeHtml(title)}</title>
@@ -521,12 +565,21 @@ export function PrintStockTab({ items, categories }) {
     w.document.close();
   };
 
+  const dateTabs = [
+    ["all", "All dates"],
+    ["today", "Added today"],
+    ["week", "Last 7 days"],
+    ["month", "Last 30 days"],
+    ["day", "Specific day"],
+  ];
+
   return (
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Export a stock listing" title="Print Stock" />
       <div className="text-[#5A6472] text-xs mb-4">
-        Choose a category and print (or save as PDF) every part currently in it — Wings, Side Mirrors,
-        Bumpers and so on. Choose <span className="font-semibold">All categories</span> for the full list.
+        Print (or save as PDF) parts by category — Wings, Side Mirrors, Bumpers… and optionally only
+        those <span className="font-semibold">added on a chosen date</span>, so you can print a report
+        of newly-added stock.
       </div>
 
       <Field label="Category to print">
@@ -540,16 +593,40 @@ export function PrintStockTab({ items, categories }) {
         </select>
       </Field>
 
+      <Field label="Date added">
+        <div className="flex flex-wrap gap-2">
+          {dateTabs.map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setDateMode(k)}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+                dateMode === k ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {dateMode === "day" && (
+        <Field label="Pick the day">
+          <input type="date" value={onDay} onChange={(e) => setOnDay(e.target.value)} className={inputCls} />
+        </Field>
+      )}
+
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 text-sm">
         <div className="flex items-center justify-between">
           <span className="text-[#5A6472]">Items to be listed</span>
-          <span className="font-bold text-[#2563EB]">
-            {catKey === "all" ? items.length : countFor(catKey)}
-          </span>
+          <span className="font-bold text-[#2563EB]">{filtered.length}</span>
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[#5A6472]">Filter</span>
+          <span className="text-xs font-semibold text-[#1B2430]">{dateLabel()}</span>
         </div>
         <p className="text-xs text-[#5A6472] mt-2 leading-relaxed">
-          The PDF shows code, item, side, color, quantity, price and location. On a phone the print
-          dialog has a “Save as PDF” option you can then share on WhatsApp.
+          The PDF shows code, item, side, color, quantity, price, location and date added. On a phone the
+          print dialog has a “Save as PDF” option you can then share on WhatsApp.
         </p>
       </div>
 
