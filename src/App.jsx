@@ -3,7 +3,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
-  FileText, HelpCircle, Pencil,
+  FileText, HelpCircle, Pencil, Printer,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
@@ -18,6 +18,7 @@ import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
+  LowStockTab, PrintStockTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
@@ -27,6 +28,7 @@ const NAV = [
   { id: "quick", label: "Quick Transaction", icon: Zap, admin: true },
   { id: "search", label: "Search Inventory", icon: Search },
   { id: "inventory", label: "Inventory", icon: Boxes },
+  { id: "lowstock", label: "Low Stock", icon: AlertTriangle },
   { id: "ledger", label: "Inventory Ledger", icon: History },
   { id: "add", label: "Add New Item", icon: Plus, admin: true },
   { id: "edit", label: "Edit Parts", icon: Pencil, admin: true },
@@ -34,6 +36,7 @@ const NAV = [
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   { id: "quote", label: "Quotation", icon: FileText },
   { id: "notify", label: "Notifications", icon: Bell },
+  { id: "print", label: "Print Stock", icon: Printer },
   { id: "reports", label: "Reports", icon: FileBarChart },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -340,6 +343,7 @@ function BypassShop({ session }) {
               onBulkAddStock={handleBulkAddStock}
             />
           )}
+          {tab === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={admin ? handleDelete : undefined} />}
           {tab === "add" && admin && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
           {tab === "edit" && admin && <EditPartsTab items={items} categories={CATEGORIES} onSave={handleEditItem} />}
@@ -347,6 +351,7 @@ function BypassShop({ session }) {
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
           {tab === "quote" && <QuotationTab items={items} user={user} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
+          {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
           {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}
         </main>

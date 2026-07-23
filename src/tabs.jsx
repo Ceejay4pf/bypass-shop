@@ -110,28 +110,6 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
         </div>
       </div>
 
-      {lowStock.length > 0 && (
-        <div className="bg-[#FBEAE8] border border-[#DC3B2E55] rounded-lg p-4 mb-4">
-          <div className="flex items-center gap-2 mb-2 text-sm font-bold uppercase tracking-wide text-[#DC3B2E]">
-            <AlertTriangle size={15} /> Low Stock Summary
-          </div>
-          <div className="space-y-1.5">
-            {lowStock.slice(0, 6).map((i) => (
-              <button
-                key={i.code}
-                onClick={() => onOpenLedger?.(i.code)}
-                className="w-full flex items-center justify-between text-sm text-left rounded px-1 py-0.5 hover:bg-[#DC3B2E11] transition-colors"
-                title="View this item's history"
-              >
-                <span className="font-mono text-xs text-[#1B2430]">{i.code}</span>
-                <span className="text-[#5A6472] truncate px-2 flex-1">{i.name}</span>
-                <span className="text-[#DC3B2E] font-semibold">{i.qty} left</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
@@ -296,8 +274,14 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
           {list.length === 0 && (
             <div className="text-[#5A6472] text-sm italic pl-1">No items yet in this section.</div>
           )}
-          {list.map((it) => {
+          {list.map((it, idx) => {
             const on = selected.has(it.code);
+            // 1…N counting number within this category, for stock-taking.
+            const num = (
+              <span className="w-7 shrink-0 text-center text-xs font-bold text-[#5A6472] tabular-nums pt-3">
+                {idx + 1}
+              </span>
+            );
             if (selectMode) {
               return (
                 <button
@@ -315,8 +299,9 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
               );
             }
             return (
-              <div key={it.code} className="relative group">
-                <button onClick={() => onOpenLedger?.(it.code)} className="w-full text-left" title="View movement history">
+              <div key={it.code} className="relative group flex items-start gap-1">
+                {num}
+                <button onClick={() => onOpenLedger?.(it.code)} className="flex-1 min-w-0 text-left" title="View movement history">
                   <ItemCard item={it} categories={categories} />
                 </button>
                 {canEdit && onDelete && (
@@ -387,6 +372,193 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ======================= LOW STOCK (own module) ======================= */
+// A dedicated screen for parts at or below their reorder level, moved off the
+// dashboard so it reads like Inventory — its own module in the sidebar.
+export function LowStockTab({ items, categories, onOpenLedger }) {
+  const lowStock = useMemo(
+    () =>
+      items
+        .filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD))
+        .sort((a, b) => Number(a.qty) - Number(b.qty)),
+    [items]
+  );
+  const catLabel = (key) => categories.find((c) => c.key === key)?.label || key;
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Parts to reorder" title="Low Stock" />
+      <div className="text-[#5A6472] text-xs mb-4">
+        {lowStock.length} item{lowStock.length !== 1 ? "s" : ""} at or below their reorder level.
+        Tap any row to view its history.
+      </div>
+
+      {lowStock.length === 0 ? (
+        <div className="bg-[#E6F6EF] border border-[#15926A55] rounded-lg p-6 text-center">
+          <Check size={22} className="text-[#15926A] mx-auto mb-2" />
+          <div className="text-sm font-semibold text-[#15926A]">All good</div>
+          <div className="text-xs text-[#5A6472] mt-1">Every item is above its reorder level.</div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {lowStock.map((i) => (
+            <button
+              key={i.code}
+              onClick={() => onOpenLedger?.(i.code)}
+              className="w-full flex items-center gap-3 text-left bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 hover:border-[#DC3B2E] transition-colors"
+              title="View this item's history"
+            >
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: categories.find((c) => c.key === i.cat)?.color || "#DC3B2E" }} />
+              <div className="flex-1 min-w-0">
+                <div className="font-mono text-xs text-[#2563EB]">{i.code}</div>
+                <div className="text-sm text-[#1B2430] truncate">{i.name}</div>
+                <div className="text-[10px] text-[#5A6472] uppercase tracking-wide">{catLabel(i.cat)}</div>
+              </div>
+              <StockBadge item={i} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ======================= PRINT STOCK (PDF by category) ======================= */
+// Pick a category (Wings, Side Mirrors, Bumpers…) and print/save a PDF listing
+// of every existing item in it. Uses the browser's built-in "Save as PDF".
+export function PrintStockTab({ items, categories }) {
+  // "all" prints the whole shop grouped by category.
+  const [catKey, setCatKey] = useState("all");
+
+  const countFor = (key) => items.filter((i) => i.cat === key).length;
+
+  const openPdf = () => {
+    const chosen = catKey === "all" ? categories : categories.filter((c) => c.key === catKey);
+    const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+
+    const sections = chosen
+      .map((c) => {
+        const list = items
+          .filter((i) => i.cat === c.key)
+          .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+        if (list.length === 0) return "";
+        const rows = list
+          .map(
+            (i, idx) => `<tr>
+              <td class="c">${idx + 1}</td>
+              <td class="mono">${escapeHtml(i.code)}</td>
+              <td>${escapeHtml(i.name || `${i.brand || ""} ${i.model || ""}`)}</td>
+              <td>${escapeHtml(i.side || "")}</td>
+              <td>${escapeHtml(i.color || "")}</td>
+              <td class="c">${Number(i.qty || 0)}</td>
+              <td class="r">${Number(i.price) ? Number(i.price).toLocaleString() : "—"}</td>
+              <td>${escapeHtml(i.location || "")}</td>
+            </tr>`
+          )
+          .join("");
+        const qty = list.reduce((s, i) => s + Number(i.qty || 0), 0);
+        return `<div class="sec">
+            <div class="sech">${escapeHtml(c.label)} <span class="sechn">${list.length} item(s) · ${qty} in stock · Shelf ${escapeHtml(c.shelf || "—")}</span></div>
+            <table>
+              <thead><tr>
+                <th class="c">#</th><th>Code</th><th>Item</th><th>Side</th><th>Color</th>
+                <th class="c">Qty</th><th class="r">Price (KES)</th><th>Location</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`;
+      })
+      .join("");
+
+    const totalItems = items.filter((i) => catKey === "all" || i.cat === catKey).length;
+    const title = catKey === "all" ? "Full Stock List" : `${categories.find((c) => c.key === catKey)?.label || ""} — Stock List`;
+
+    const body = sections || `<div class="empty">No items to list for this category yet.</div>`;
+
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>${escapeHtml(title)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:28px; }
+  .wrap { max-width: 900px; margin:0 auto; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563EB; padding-bottom:12px; margin-bottom:6px; }
+  .brand { font-size:22px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
+  .sub { color:#5A6472; font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .doc { text-align:right; }
+  .doc .t { font-size:16px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:1px; }
+  .doc .m { color:#5A6472; font-size:12px; margin-top:3px; }
+  .sec { margin-top:18px; }
+  .sech { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:1px; background:#2563EB; color:#fff; padding:7px 10px; border-radius:4px; }
+  .sechn { font-weight:600; text-transform:none; letter-spacing:0; font-size:11px; opacity:.85; margin-left:8px; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:12px; }
+  th { background:#EEF2F6; text-align:left; padding:7px 8px; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; border-bottom:1px solid #DEE3E9; }
+  td { padding:6px 8px; border-bottom:1px solid #EEF2F6; }
+  th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
+  td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
+  .empty { color:#5A6472; padding:40px; text-align:center; }
+  .foot { margin-top:28px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px; }
+  tr { break-inside: avoid; }
+  @media print { body { padding:0; } .wrap { max-width:none; } .sech { -webkit-print-color-adjust:exact; print-color-adjust:exact; } th { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
+    <div class="doc"><div class="t">${escapeHtml(title)}</div><div class="m">${today}</div><div class="m">${totalItems} item(s)</div></div>
+  </div>
+  ${body}
+  <div class="foot">Generated from Bypass Shop cloud inventory on ${today}. Prices shown are current selling prices.</div>
+</div>
+<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+</body></html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to open the PDF."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Export a stock listing" title="Print Stock" />
+      <div className="text-[#5A6472] text-xs mb-4">
+        Choose a category and print (or save as PDF) every part currently in it — Wings, Side Mirrors,
+        Bumpers and so on. Choose <span className="font-semibold">All categories</span> for the full list.
+      </div>
+
+      <Field label="Category to print">
+        <select value={catKey} onChange={(e) => setCatKey(e.target.value)} className={inputCls}>
+          <option value="all">All categories (full stock list)</option>
+          {categories.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.label} — {countFor(c.key)} item(s)
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-[#5A6472]">Items to be listed</span>
+          <span className="font-bold text-[#2563EB]">
+            {catKey === "all" ? items.length : countFor(catKey)}
+          </span>
+        </div>
+        <p className="text-xs text-[#5A6472] mt-2 leading-relaxed">
+          The PDF shows code, item, side, color, quantity, price and location. On a phone the print
+          dialog has a “Save as PDF” option you can then share on WhatsApp.
+        </p>
+      </div>
+
+      <button
+        onClick={openPdf}
+        className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+      >
+        <FileText size={18} /> Generate PDF / Print
+      </button>
     </div>
   );
 }
