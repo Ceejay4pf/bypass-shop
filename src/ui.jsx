@@ -188,6 +188,53 @@ export function BarChart({ data, colorKey = "color", labelKey = "label", valueKe
   );
 }
 
+/* Donut/pie chart (SVG, no library). `data` = [{ label, value, color }].
+   Shows each slice's share of the total, with a legend and centre total. */
+export function DonutChart({ data, centerLabel = "Total" }) {
+  const total = data.reduce((s, d) => s + (d.value || 0), 0);
+  const r = 42;          // radius
+  const cx = 60, cy = 60;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  const slices = data.map((d) => {
+    const frac = total > 0 ? d.value / total : 0;
+    const seg = { ...d, frac, dash: frac * circ, offset };
+    offset += frac * circ;
+    return seg;
+  });
+  return (
+    <div className="flex items-center gap-4 flex-wrap">
+      <svg viewBox="0 0 120 120" className="w-32 h-32 shrink-0 -rotate-90">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#EEF2F6" strokeWidth="14" />
+        {total > 0 && slices.map((s, i) => (
+          <circle
+            key={i}
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke={s.color || "#2563EB"}
+            strokeWidth="14"
+            strokeDasharray={`${s.dash} ${circ - s.dash}`}
+            strokeDashoffset={-s.offset}
+          />
+        ))}
+        <text x={cx} y={cy} transform={`rotate(90 ${cx} ${cy})`} textAnchor="middle" dominantBaseline="central" className="fill-[#1B2430]" style={{ fontSize: 18, fontWeight: 800 }}>
+          {total}
+        </text>
+      </svg>
+      <div className="flex-1 min-w-[8rem] space-y-1.5">
+        {slices.map((s, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color || "#2563EB" }} />
+            <span className="flex-1 min-w-0 truncate text-[#5A6472]">{s.label}</span>
+            <span className="font-semibold text-[#1B2430] tabular-nums">{Math.round(s.frac * 100)}%</span>
+          </div>
+        ))}
+        {total === 0 && <div className="text-[#5A6472] text-sm italic">No stock yet.</div>}
+      </div>
+    </div>
+  );
+}
+
 /* Sales trend as a lightweight SVG sparkline/area. */
 export function TrendChart({ points }) {
   const w = 320;

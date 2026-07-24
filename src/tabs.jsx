@@ -20,7 +20,7 @@ import {
 } from "./data.js";
 import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
-  timeAgo, fmtDateTime, BarChart, TrendChart,
+  timeAgo, fmtDateTime, BarChart, TrendChart, DonutChart,
 } from "./ui.jsx";
 
 // Escape user text before dropping it into the generated PDF HTML.
@@ -51,6 +51,17 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
   const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
 
+  // Live list of shop staff (names) for the team panel.
+  const [staff, setStaff] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.fetchProfiles().then((p) => { if (alive) setStaff(p); }).catch(() => {});
+    const unsub = api.subscribeProfiles
+      ? api.subscribeProfiles(() => api.fetchProfiles().then((p) => alive && setStaff(p)).catch(() => {}))
+      : null;
+    return () => { alive = false; if (unsub) unsub(); };
+  }, []);
+
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const todaySales = notifications.filter((n) => n.type === "sale" && n.ts >= startOfToday.getTime());
@@ -66,6 +77,22 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
     .filter((d) => d.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
+
+  // Stock share of the top categories for the donut (rest folded into "Other").
+  const donut = useMemo(() => {
+    const all = categories
+      .map((c) => ({
+        label: c.label,
+        color: c.color,
+        value: items.filter((i) => i.cat === c.key).reduce((s, i) => s + Number(i.qty || 0), 0),
+      }))
+      .filter((d) => d.value > 0)
+      .sort((a, b) => b.value - a.value);
+    if (all.length <= 6) return all;
+    const top = all.slice(0, 5);
+    const rest = all.slice(5).reduce((s, d) => s + d.value, 0);
+    return [...top, { label: "Other", color: "#9BB7F0", value: rest }];
+  }, [items, categories]);
 
   // Sales trend for last 7 days.
   const trend = useMemo(() => {
@@ -100,15 +127,79 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       <div className="grid lg:grid-cols-2 gap-4 mb-4">
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
+            <Package size={15} className="text-[#7C5CD6]" /> Stock Share
+          </div>
+          <DonutChart data={donut} />
+        </div>
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
             <Layers size={15} className="text-[#2563EB]" /> Stock by Category
           </div>
           <BarChart data={byCategory} />
         </div>
+      </div>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
+          <TrendingUp size={15} className="text-[#15926A]" /> Sales Trend (7 days)
+        </div>
+        <TrendChart points={trend} />
+      </div>
+
+      {/* Team + shops */}
+      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
+              <UserCheck size={15} className="text-[#2563EB]" /> Shop Team ({staff.length})
+            </div>
+          </div>
+          {staff.length === 0 ? (
+            <div className="text-[#5A6472] text-sm italic">No staff loaded yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {staff.map((s) => {
+                let hue = 0;
+                for (const ch of s.name) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+                return (
+                  <div key={s.id} className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: `hsl(${hue} 55% 45%)` }}>
+                      {(s.name || "?").charAt(0).toUpperCase()}
+                    </span>
+                    <span className="flex-1 min-w-0 text-sm text-[#1B2430] truncate">{s.name}</span>
+                    {!s.approved && (
+                      <span className="text-[10px] font-bold uppercase text-[#DC3B2E] bg-[#DC3B2E22] rounded px-1.5 py-0.5">Pending</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
-            <TrendingUp size={15} className="text-[#2563EB]" /> Sales Trend (7 days)
+            <MapPin size={15} className="text-[#DC3B2E]" /> Shops &amp; Contacts
           </div>
-          <TrendChart points={trend} />
+          <div className="space-y-2">
+            {SHOPS.map((s) => (
+              <div key={s.name} className="flex items-center gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{s.name}</div>
+                  <div className="text-[11px] text-[#5A6472] font-mono truncate">{s.display}</div>
+                </div>
+                <a href={`tel:+${s.wa}`} className="p-1.5 rounded-md bg-[#2563EB22] text-[#2563EB] hover:bg-[#2563EB] hover:text-white transition-colors shrink-0" title={`Call ${s.name}`}>
+                  <Phone size={14} />
+                </a>
+                <a href={`https://wa.me/${s.wa}`} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md bg-[#15926A22] text-[#15926A] hover:bg-[#15926A] hover:text-white transition-colors shrink-0" title={`WhatsApp ${s.name}`}>
+                  <MessageCircle size={14} />
+                </a>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => onNav("settings")} className="text-xs text-[#2563EB] font-semibold mt-3">
+            Full staff directory →
+          </button>
         </div>
       </div>
 
