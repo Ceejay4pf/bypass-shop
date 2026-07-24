@@ -55,6 +55,18 @@ begin
   update public.profiles set force_logout_at = now() where id = target;
 end; $$;
 
+-- 3c) Admin: rename a staff account (updates the profile display name).
+create or replace function public.rename_user(target uuid, new_name text)
+returns void language plpgsql security definer as $$
+declare caller_email text;
+begin
+  select lower(email) into caller_email from auth.users where id = auth.uid();
+  if caller_email not in ('admin@bypassshop.co', 'addamsjmk@gmail.com') then
+    raise exception 'Only an admin can rename accounts.';
+  end if;
+  update public.profiles set full_name = new_name where id = target;
+end; $$;
+
 -- 4) Broadcast profile changes over realtime, so a pending user's screen
 --    unlocks the instant an admin approves them (no refresh needed).
 do $$

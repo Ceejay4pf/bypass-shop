@@ -3,7 +3,8 @@
    Maps between DB rows (snake_case) and app items (camelCase),
    and records notifications + stock movements for every action.
 --------------------------------------------------------- */
-import { supabase } from "./supabase.js";
+import { supabase, createIsolatedClient } from "./supabase.js";
+import { toLoginEmail } from "./auth.js";
 
 /* ---- row <-> item mapping ---- */
 export function rowToItem(r) {
@@ -400,6 +401,35 @@ export async function setUserApproved(targetId, approved) {
 export async function forceLogout(targetId) {
   const { error } = await supabase.rpc("force_logout", { target: targetId });
   if (error) throw error;
+}
+
+// Admin: rename a staff account.
+export async function renameUser(targetId, newName) {
+  const { error } = await supabase.rpc("rename_user", { target: targetId, new_name: newName.trim() });
+  if (error) throw error;
+}
+
+// Admin: create a staff account directly and auto-approve it, so the new
+// member can log in immediately without waiting for approval. Uses an
+// isolated client so it never replaces the admin's own session.
+export async function adminCreateStaff({ name, password, contact = "" }) {
+  const c = String(contact || "").trim();
+  const usesEmail = c.includes("@");
+  const email = usesEmail ? c.toLowerCase() : toLoginEmail(name);
+  const iso = createIsolatedClient();
+  if (!iso) throw new Error("Supabase is not configured.");
+  const { data, error } = await iso.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: name.trim(), phone: usesEmail ? "" : c } },
+  });
+  if (error) throw error;
+  const newId = data.user?.id;
+  // Auto-approve so they skip the pending screen (admin double-checks server-side).
+  if (newId) {
+    try { await supabase.rpc("set_user_approved", { target: newId, val: true }); } catch { /* ignore */ }
+  }
+  return { id: newId, email };
 }
 
 // This account's force-logout timestamp (ms) — used to detect an admin

@@ -8,7 +8,7 @@ import {
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
-  UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut,
+  UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil,
 } from "lucide-react";
 import { CAPABILITIES } from "./lib/roles.js";
 import {
@@ -800,6 +800,13 @@ export function ApprovalsTab({ currentUserId }) {
   const [rows, setRows] = useState(null); // null = loading
   const [busy, setBusy] = useState("");   // id being changed
   const [err, setErr] = useState("");
+  // Add-staff form.
+  const [showAdd, setShowAdd] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addContact, setAddContact] = useState("");
+  const [addPass, setAddPass] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addMsg, setAddMsg] = useState("");
 
   const load = async () => {
     try {
@@ -852,6 +859,30 @@ export function ApprovalsTab({ currentUserId }) {
     if (!confirm(`Log ${name} out now? They stay approved and can sign back in.`)) return;
     act(id, () => api.forceLogout(id));
   };
+  const rename = (id, current) => {
+    const next = prompt("New name for this account:", current);
+    if (next == null) return;
+    const name = next.trim();
+    if (!name || name === current) return;
+    act(id, () => api.renameUser(id, name), (r) => ({ ...r, name }));
+  };
+
+  const addStaff = async () => {
+    setAddMsg(""); setErr("");
+    if (!addName.trim()) { setAddMsg("Enter the staff member's name."); return; }
+    if (addPass.length < 6) { setAddMsg("Password must be at least 6 characters."); return; }
+    setAdding(true);
+    try {
+      await api.adminCreateStaff({ name: addName.trim(), password: addPass, contact: addContact.trim() });
+      setAddName(""); setAddContact(""); setAddPass(""); setShowAdd(false);
+      await load();
+    } catch (e) {
+      const m = e.message || "Couldn't create the account.";
+      setAddMsg(/already registered/i.test(m) ? "That name is already taken — add a phone to make it unique." : m);
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const pending = (rows || []).filter((r) => !r.approved);
   const approved = (rows || []).filter((r) => r.approved);
@@ -872,9 +903,50 @@ export function ApprovalsTab({ currentUserId }) {
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Admin · access control" title="Staff Approvals" />
       <div className="text-[#5A6472] text-xs mb-4">
-        New accounts stay locked until you approve them. Approved staff can only
-        view, sell and quote — grant delicate powers (delete, edit, add) per person below.
+        New sign-ups stay locked until you approve them once — after that they log in
+        freely, no repeat approval. You can also add staff yourself (auto-approved),
+        rename any account, and grant delicate powers (delete, edit, add) per person.
       </div>
+
+      {/* Add staff directly (auto-approved) */}
+      {!showAdd ? (
+        <button
+          onClick={() => { setShowAdd(true); setAddMsg(""); }}
+          className="flex items-center gap-2 bg-[#2563EB] text-white font-semibold rounded-md px-4 py-2.5 text-sm mb-4"
+        >
+          <Plus size={16} /> Add staff account
+        </button>
+      ) : (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+          <div className="text-sm font-bold uppercase tracking-wide mb-3">New staff account</div>
+          <Field label="Name">
+            <input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="e.g. Josphat Kamau" className={inputCls} />
+          </Field>
+          <Field label="Phone or email (optional — makes the login unique)">
+            <input value={addContact} onChange={(e) => setAddContact(e.target.value)} placeholder="0712 345 678" className={inputCls} />
+          </Field>
+          <Field label="Temporary password (min 6 chars)">
+            <input type="text" value={addPass} onChange={(e) => setAddPass(e.target.value)} placeholder="Share this with the staff member" className={inputCls} />
+          </Field>
+          {addMsg && (
+            <div className="text-[#DC3B2E] text-sm mb-2 flex items-start gap-1.5">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {addMsg}
+            </div>
+          )}
+          <div className="flex gap-2 mt-1">
+            <button onClick={addStaff} disabled={adding} className="flex items-center gap-1.5 bg-[#15926A] text-white font-semibold rounded-md px-4 py-2.5 text-sm disabled:opacity-60">
+              <UserCheck size={15} /> {adding ? "Creating…" : "Create & approve"}
+            </button>
+            <button onClick={() => { setShowAdd(false); setAddMsg(""); }} className="text-[#5A6472] font-semibold text-sm px-3">
+              Cancel
+            </button>
+          </div>
+          <p className="text-[11px] text-[#5A6472] mt-2">
+            They can log in immediately with this name and password — no approval wait.
+            Ask them to change the password later if you like.
+          </p>
+        </div>
+      )}
 
       {err && (
         <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-4 flex items-start gap-2">
@@ -971,9 +1043,27 @@ export function ApprovalsTab({ currentUserId }) {
                         <div className="text-xs text-[#5A6472]">Joined {fmt(r.createdAt)}</div>
                       </div>
                       {self ? (
-                        <span className="text-xs font-bold text-[#2563EB] bg-[#2563EB22] px-2 py-1 rounded">Admin · all access</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => rename(r.id, r.name)}
+                            disabled={busy === r.id}
+                            className="p-2 rounded-md border border-[#DEE3E9] text-[#5A6472] hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-60"
+                            title="Rename your account"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <span className="text-xs font-bold text-[#2563EB] bg-[#2563EB22] px-2 py-1 rounded">Admin · all access</span>
+                        </div>
                       ) : (
                         <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => rename(r.id, r.name)}
+                            disabled={busy === r.id}
+                            className="p-2 rounded-md border border-[#DEE3E9] text-[#5A6472] hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-60"
+                            title="Rename this account"
+                          >
+                            <Pencil size={15} />
+                          </button>
                           <button
                             onClick={() => logout(r.id, r.name)}
                             disabled={busy === r.id}

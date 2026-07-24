@@ -21,3 +21,13 @@ export const supabase = isConfigured
       realtime: { params: { eventsPerSecond: 10 } },
     })
   : null;
+
+/* A throwaway client that never persists its session. Used when an admin
+   creates a staff account so signing the new user up doesn't replace the
+   admin's own session in this browser. */
+export function createIsolatedClient() {
+  if (!isConfigured) return null;
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
