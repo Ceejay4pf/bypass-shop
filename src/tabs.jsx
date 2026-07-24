@@ -134,23 +134,83 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
 
 /* ======================= SEARCH ======================= */
 export function SearchTab({ items, categories, onDelete }) {
+  // Step 1: pick a category (or "All"). Step 2: search within it.
+  // null = nothing chosen yet (show the category picker first).
+  const [cat, setCat] = useState(null); // "__all__" | category key | null
   const [query, setQuery] = useState("");
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => matchesQuery(i, categories.find((c) => c.key === i.cat), q));
-  }, [items, categories, query]);
 
+  // How many items sit in each category, for the picker counts.
+  const counts = useMemo(() => {
+    const m = {};
+    for (const it of items) m[it.cat] = (m[it.cat] || 0) + 1;
+    return m;
+  }, [items]);
+
+  const results = useMemo(() => {
+    let base = items;
+    if (cat && cat !== "__all__") base = items.filter((i) => i.cat === cat);
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((i) => matchesQuery(i, categories.find((c) => c.key === i.cat), q));
+  }, [items, categories, cat, query]);
+
+  /* ---------- Step 1: choose a category ---------- */
+  if (cat === null) {
+    return (
+      <div className="bp-fade-up">
+        <SectionTitle eyebrow="Find a part" title="Search Inventory" />
+        <div className="text-[#5A6472] text-sm mb-4">
+          Choose a category to search in — or search across everything.
+        </div>
+
+        <button
+          onClick={() => { setCat("__all__"); setQuery(""); }}
+          className="w-full flex items-center gap-3 bg-[#2563EB] text-white rounded-lg p-4 mb-3 font-semibold hover:brightness-110 transition"
+        >
+          <Search size={18} />
+          <span className="flex-1 text-left">Search all categories</span>
+          <span className="text-xs opacity-80">{items.length} item(s)</span>
+        </button>
+
+        <div className="grid grid-cols-2 gap-2">
+          {categories.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => { setCat(c.key); setQuery(""); }}
+              className="flex items-center gap-2 bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 text-left hover:border-[#2563EB] transition"
+            >
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-[#1B2430] truncate">{c.label}</span>
+                <span className="block text-[11px] text-[#5A6472]">{counts[c.key] || 0} item(s)</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- Step 2: search within the chosen category ---------- */
+  const chosen = cat === "__all__" ? null : categories.find((c) => c.key === cat);
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Find a part" title="Search Inventory" />
+      <SectionTitle eyebrow="Find a part" title={chosen ? chosen.label : "Search — all categories"} />
+
+      <button
+        onClick={() => { setCat(null); setQuery(""); }}
+        className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm hover:underline mb-4"
+      >
+        <ArrowLeft size={16} /> Change category
+      </button>
+
       <div className="relative mb-4">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. Toyota Axela 2018 Front Bumper, or FBM-MZD..."
+          placeholder={chosen ? `Search ${chosen.label}…` : "e.g. Toyota Axela 2018 Front Bumper, or FBM-MZD..."}
           className="w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-md pl-10 pr-9 py-3 text-[#1B2430] placeholder-[#5A6472] outline-none focus:border-[#2563EB]"
         />
         {query && (
