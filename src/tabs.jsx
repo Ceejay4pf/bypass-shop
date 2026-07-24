@@ -1082,11 +1082,15 @@ export function AddItemTab({ items, categories, onAdd }) {
   };
 
   const submit = () => {
-    if (!brand.trim() || !model.trim() || !price || qty === "") {
-      setErr("Brand, model, price and starting quantity are required.");
+    // Only need something to identify the part — brand or model. Everything
+    // else (price, quantity, year, colour…) is optional and can be filled later.
+    if (!brand.trim() && !model.trim()) {
+      setErr("Enter at least a brand or a model so the part can be identified.");
       return;
     }
     setErr("");
+    const catLabel = categories.find((c) => c.key === cat)?.label || "";
+    const nameParts = [brand.trim(), model.trim()].filter(Boolean).join(" ");
     onAdd({
       cat,
       brand: brand.trim(),
@@ -1098,11 +1102,11 @@ export function AddItemTab({ items, categories, onAdd }) {
       side,
       color: color.trim(),
       name:
-        `${categories.find((c) => c.key === cat)?.label || ""} — ${brand.trim()} ${model.trim()}${
+        `${catLabel}${nameParts ? " — " + nameParts : ""}${
           color.trim() ? ` (${color.trim()})` : ""
         }`.trim(),
-      price: Number(price),
-      qty: Number(qty),
+      price: Number(price) || 0,
+      qty: Number(qty) || 0,
       min: Number(min) || LOW_STOCK_THRESHOLD,
       location: previewLoc,
       notes: notes.trim(),
@@ -1118,6 +1122,12 @@ export function AddItemTab({ items, categories, onAdd }) {
   return (
     <div className="bp-fade-up">
       <SectionTitle eyebrow="New part" title="Add New Item" />
+
+      <div className="text-[#5A6472] text-xs mb-4 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+        Only a <span className="font-semibold text-[#1B2430]">brand or model</span> is required.
+        Fill in whatever else you know now — price, quantity, year, colour and photos can all be
+        added or edited later from Edit Parts and Add Stock.
+      </div>
 
       <Field label="Category / section">
         <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
@@ -1210,13 +1220,13 @@ export function AddItemTab({ items, categories, onAdd }) {
 
       <div className="flex gap-3">
         <div className="flex-1">
-          <Field label="Price (KES)">
-            <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="8500" className={inputCls} />
+          <Field label="Price (KES) — optional">
+            <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Add later if unknown" className={inputCls} />
           </Field>
         </div>
         <div className="flex-1">
-          <Field label="Starting qty">
-            <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="1" className={inputCls} />
+          <Field label="Starting qty — optional">
+            <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" className={inputCls} />
           </Field>
         </div>
         <div className="flex-1">
