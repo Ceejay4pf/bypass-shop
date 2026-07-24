@@ -1813,6 +1813,23 @@ const SHOPS = [
   { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
 ];
 
+/* Company staff directory, grouped by department. `phones` = list of
+   { display, wa } (wa = intl digits only, no + or leading 0) so each number
+   is tappable to call / WhatsApp. Add new staff here. */
+const STAFF_DIRECTORY = [
+  {
+    dept: "Store",
+    people: [
+      { name: "Thangwa", role: "Store Supervisor", phones: [{ display: "+254 768 553182", wa: "254768553182" }] },
+      { name: "Delivery Guy", role: "Deliveries", phones: [{ display: "0718 170 737", wa: "254718170737" }] },
+      { name: "Sales Head", role: "Head of Sales", phones: [
+        { display: "0737 277 032", wa: "254737277032" },
+        { display: "0718 223 756", wa: "254718223756" },
+      ] },
+    ],
+  },
+];
+
 // Optional biometric app-lock. Auto-hides the enable button on devices with no
 // biometric (e.g. desktop computers) — it's never compulsory.
 function BiometricCard({ email }) {
@@ -1878,6 +1895,170 @@ function BiometricCard({ email }) {
   );
 }
 
+/* ======================= STAFF FEED (group chat) ======================= */
+// One shop-wide group chat. Every signed-in staff member posts and reads
+// here — enquiries, best-price questions, general info. Sender name + time
+// show on each message; live via realtime.
+export function StaffFeedTab({ userId, user, admin }) {
+  const [messages, setMessages] = useState(null); // null = loading
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState("");
+  const endRef = React.useRef(null);
+  const scrollerRef = React.useRef(null);
+
+  const load = async () => {
+    try { setMessages(await api.fetchMessages()); setErr(""); }
+    catch (e) { setErr(e.message || "Couldn't load the feed. Did you run supabase/chat.sql?"); setMessages([]); }
+  };
+
+  useEffect(() => {
+    load();
+    const ch = api.subscribeMessages ? api.subscribeMessages(load) : null;
+    return () => { if (ch) ch(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the newest message in view as the feed grows.
+  useEffect(() => {
+    if (endRef.current) endRef.current.scrollIntoView({ block: "end" });
+  }, [messages]);
+
+  const send = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true); setErr("");
+    try {
+      await api.sendMessage({ userId, author: user, body });
+      setText("");
+      // Realtime will bring it in; reload as a fallback in case it's slow.
+      load();
+    } catch (e) { setErr(e.message || "Couldn't send. Try again."); }
+    finally { setSending(false); }
+  };
+
+  const remove = async (id) => {
+    if (!confirm("Delete this message?")) return;
+    try { await api.deleteMessage(id); load(); }
+    catch (e) { setErr(e.message || "Couldn't delete."); }
+  };
+
+  const onKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  // Colour each author's avatar/name consistently from their name.
+  const hue = (name) => {
+    let h = 0;
+    for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) % 360;
+    return h;
+  };
+  const dayLabel = (ts) => {
+    const d = new Date(ts);
+    const today = new Date();
+    const same = d.toDateString() === today.toDateString();
+    return same ? "Today" : d.toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
+  };
+  const clock = (ts) =>
+    new Date(ts).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <div className="bp-fade-up flex flex-col" style={{ height: "calc(100vh - 8.5rem)" }}>
+      <SectionTitle eyebrow="Everyone · Bypass Shop" title="Staff Feed" />
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3 flex items-start gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {err}
+        </div>
+      )}
+
+      <div
+        ref={scrollerRef}
+        className="flex-1 overflow-y-auto bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 space-y-3"
+      >
+        {messages === null ? (
+          <div className="text-[#5A6472] text-sm">Loading feed…</div>
+        ) : messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center text-[#5A6472] px-6">
+            <MessageCircle size={30} className="text-[#2563EB] mb-2" />
+            <div className="font-semibold text-[#1B2430]">No messages yet</div>
+            <div className="text-xs mt-1">Say hello, ask a price, or share an enquiry with the team.</div>
+          </div>
+        ) : (
+          messages.map((m, i) => {
+            const mine = m.userId === userId;
+            const showDay = i === 0 || dayLabel(m.ts) !== dayLabel(messages[i - 1].ts);
+            const canDelete = mine || admin;
+            return (
+              <div key={m.id}>
+                {showDay && (
+                  <div className="text-center my-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] bg-[#EEF2F6] rounded-full px-2.5 py-1">
+                      {dayLabel(m.ts)}
+                    </span>
+                  </div>
+                )}
+                <div className={`flex items-start gap-2 group ${mine ? "flex-row-reverse" : ""}`}>
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                    style={{ backgroundColor: `hsl(${hue(m.author)} 55% 45%)` }}
+                    title={m.author}
+                  >
+                    {(m.author || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className={`max-w-[78%] ${mine ? "items-end text-right" : ""} flex flex-col`}>
+                    <div className={`text-[11px] text-[#5A6472] mb-0.5 ${mine ? "text-right" : ""}`}>
+                      <span className="font-semibold text-[#1B2430]">{mine ? "You" : m.author}</span>
+                      <span className="mx-1">·</span>{clock(m.ts)}
+                    </div>
+                    <div
+                      className={`inline-block rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words ${
+                        mine
+                          ? "bg-[#2563EB] text-white rounded-tr-sm"
+                          : "bg-[#EEF2F6] text-[#1B2430] rounded-tl-sm"
+                      }`}
+                    >
+                      {m.body}
+                    </div>
+                  </div>
+                  {canDelete && (
+                    <button
+                      onClick={() => remove(m.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-[#5A6472] hover:text-[#DC3B2E] mt-1 shrink-0"
+                      title="Delete message"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <div className="mt-3 flex items-end gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKey}
+          rows={1}
+          placeholder="Message the team…  (Enter to send)"
+          className="flex-1 resize-none bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] max-h-32"
+        />
+        <button
+          onClick={send}
+          disabled={sending || !text.trim()}
+          className="flex items-center gap-1.5 bg-[#2563EB] text-white font-semibold rounded-lg px-4 py-2.5 text-sm disabled:opacity-50 shrink-0"
+        >
+          <Send size={16} /> {sending ? "…" : "Send"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsTab({ categories, user, email, admin }) {
   return (
     <div className="bp-fade-up">
@@ -1937,6 +2118,52 @@ export function SettingsTab({ categories, user, email, admin }) {
               >
                 <MessageCircle size={16} />
               </a>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <div className="text-sm font-bold uppercase tracking-wide mb-3">Staff Directory</div>
+        <div className="space-y-4">
+          {STAFF_DIRECTORY.map((group) => (
+            <div key={group.dept}>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#2563EB] mb-2">{group.dept}</div>
+              <div className="space-y-2">
+                {group.people.map((p) => (
+                  <div key={p.name} className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm truncate">{p.name}</div>
+                        {p.role && <div className="text-xs text-[#5A6472]">{p.role}</div>}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {p.phones.map((ph) => (
+                        <div key={ph.wa} className="flex items-center gap-2">
+                          <span className="flex-1 text-xs font-mono text-[#1B2430]">{ph.display}</span>
+                          <a
+                            href={`tel:+${ph.wa}`}
+                            className="p-1.5 rounded-md bg-[#2563EB22] text-[#2563EB] hover:bg-[#2563EB] hover:text-white transition-colors"
+                            title={`Call ${p.name}`}
+                          >
+                            <Phone size={14} />
+                          </a>
+                          <a
+                            href={`https://wa.me/${ph.wa}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-md bg-[#15926A22] text-[#15926A] hover:bg-[#15926A] hover:text-white transition-colors"
+                            title={`WhatsApp ${p.name}`}
+                          >
+                            <MessageCircle size={14} />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>

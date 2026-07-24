@@ -404,3 +404,51 @@ export function subscribeProfiles(onChange) {
     .subscribe();
   return () => supabase.removeChannel(ch);
 }
+
+/* ---- STAFF FEED (group chat) ---- */
+export function rowToMessage(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    author: r.author || "Staff",
+    body: r.body || "",
+    ts: r.created_at ? new Date(r.created_at).getTime() : 0,
+  };
+}
+
+// Load recent messages, oldest first (so the newest sits at the bottom).
+export async function fetchMessages(limit = 200) {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map(rowToMessage).reverse();
+}
+
+export async function sendMessage({ userId, author, body }) {
+  const text = String(body || "").trim();
+  if (!text) return;
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({ user_id: userId, author, body: text })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToMessage(data);
+}
+
+export async function deleteMessage(id) {
+  const { error } = await supabase.from("messages").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Live-subscribe to new/removed messages. Returns an unsubscribe function.
+export function subscribeMessages(onChange) {
+  const ch = supabase
+    .channel("messages-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => onChange(payload))
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}

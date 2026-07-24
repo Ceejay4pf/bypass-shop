@@ -3,7 +3,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, LogOut, User,
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
-  FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck,
+  FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
@@ -19,7 +19,7 @@ import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
-  LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab,
+  LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab, StaffFeedTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
@@ -37,6 +37,7 @@ const NAV = [
   { id: "stock", label: "Add New Stock", icon: PackagePlus },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   { id: "quote", label: "Quotation", icon: FileText },
+  { id: "feed", label: "Staff Feed", icon: MessageCircle },
   { id: "notify", label: "Notifications", icon: Bell },
   { id: "print", label: "Print Stock", icon: Printer },
   { id: "reports", label: "Reports", icon: FileBarChart },
@@ -395,6 +396,7 @@ function BypassShop({ session }) {
           {tab === "stock" && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
           {tab === "quote" && <QuotationTab items={items} user={user} />}
+          {tab === "feed" && <StaffFeedTab userId={session.user.id} user={user} admin={admin} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
