@@ -89,10 +89,10 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       <SectionTitle eyebrow={`Welcome, ${user}`} title="Dashboard" />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-        <StatCard icon={Boxes} label="Inventory Items" value={totalItems} tone="gold" onClick={() => onNav("inventory")} />
+        <StatCard icon={Boxes} label="Inventory Items" value={totalItems} tone="purple" onClick={() => onNav("inventory")} />
         <StatCard icon={Layers} label="Total Stock Qty" value={totalQty} tone="blue" onClick={() => onNav("inventory")} />
         <StatCard icon={ShoppingCart} label="Items Sold Today" value={soldToday} tone="green" onClick={() => onNav("sell")} />
-        <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="green" onClick={() => onNav("reports")} />
+        <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="yellow" onClick={() => onNav("reports")} />
         <StatCard icon={AlertTriangle} label="Low Stock Items" value={lowStock.length} tone="red" onClick={() => onNav("reports")} />
         <StatCard icon={Bell} label="Total Activity" value={notifications.length} tone="purple" onClick={() => onNav("notify")} />
       </div>

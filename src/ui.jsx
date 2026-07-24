@@ -114,13 +114,14 @@ export function ItemCard({ item, categories, onDelete }) {
 /* Dashboard stat card. Pass onClick to make it a tappable shortcut. */
 export function StatCard({ icon: Icon, label, value, sub, tone = "gold", onClick }) {
   const tones = {
-    gold: "#2563EB",
+    gold: "#E0A400",
+    yellow: "#E0A400",
     green: "#15926A",
     red: "#DC3B2E",
-    blue: "#2E86DE",
+    blue: "#2563EB",
     purple: "#7C5CD6",
   };
-  const c = tones[tone] || tones.gold;
+  const c = tones[tone] || tones.blue;
   const clickable = typeof onClick === "function";
   return (
     <div
