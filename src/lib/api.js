@@ -395,6 +395,25 @@ export async function setUserApproved(targetId, approved) {
   if (error) throw error;
 }
 
+// Admin: force a staff member's current session to sign out (account stays
+// approved — they can log back in). The target's app reacts over realtime.
+export async function forceLogout(targetId) {
+  const { error } = await supabase.rpc("force_logout", { target: targetId });
+  if (error) throw error;
+}
+
+// This account's force-logout timestamp (ms) — used to detect an admin
+// signing us out. Returns 0 if the column/row is missing.
+export async function getForceLogoutAt(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("force_logout_at")
+    .eq("id", userId)
+    .single();
+  if (error || !data?.force_logout_at) return 0;
+  return new Date(data.force_logout_at).getTime();
+}
+
 // Live-subscribe to profile changes (new sign-ups, approvals). Returns an
 // unsubscribe function.
 export function subscribeProfiles(onChange) {

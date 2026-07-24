@@ -38,6 +38,23 @@ begin
   update public.profiles set approved = val where id = target;
 end; $$;
 
+-- 3b) Force-logout: an admin can end a staff member's CURRENT session without
+--     revoking their account (they can log back in). Bumping this timestamp is
+--     picked up by the target's app over realtime, which then signs itself out.
+alter table public.profiles
+  add column if not exists force_logout_at timestamptz;
+
+create or replace function public.force_logout(target uuid)
+returns void language plpgsql security definer as $$
+declare caller_email text;
+begin
+  select lower(email) into caller_email from auth.users where id = auth.uid();
+  if caller_email not in ('admin@bypassshop.co', 'addamsjmk@gmail.com') then
+    raise exception 'Only an admin can log out other users.';
+  end if;
+  update public.profiles set force_logout_at = now() where id = target;
+end; $$;
+
 -- 4) Broadcast profile changes over realtime, so a pending user's screen
 --    unlocks the instant an admin approves them (no refresh needed).
 do $$

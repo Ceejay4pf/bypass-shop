@@ -98,13 +98,22 @@ function BypassShop({ session }) {
   useEffect(() => {
     if (admin) { setApproved(true); return; }
     let alive = true;
+    // Baseline force-logout time seen at load; a newer one means an admin
+    // signed us out since. null until first read so we don't sign out on boot.
+    let logoutBaseline = null;
     const check = () => {
       api.getMyApproval(session.user.id).then((ok) => { if (alive) setApproved(ok); });
       api.getMyPermissions(session.user.id).then((p) => { if (alive) setMyPerms(p.permissions); });
+      api.getForceLogoutAt(session.user.id).then((ts) => {
+        if (!alive) return;
+        if (logoutBaseline === null) { logoutBaseline = ts; return; }
+        if (ts > logoutBaseline) { signOut(); }
+      });
     };
     check();
-    // Re-check whenever profiles change so a pending screen unlocks instantly
-    // and newly-granted permissions appear without a refresh.
+    // Re-check whenever profiles change so a pending screen unlocks instantly,
+    // newly-granted permissions appear, and a force-logout takes effect — all
+    // without a refresh.
     const unsub = api.subscribeProfiles(check);
     return () => { alive = false; unsub(); };
   }, [admin, session.user.id]);

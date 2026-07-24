@@ -8,7 +8,7 @@ import {
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
-  UserCheck, UserX, Clock, ShieldCheck, Lock, Send,
+  UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut,
 } from "lucide-react";
 import { CAPABILITIES } from "./lib/roles.js";
 import {
@@ -697,6 +697,10 @@ export function ApprovalsTab({ currentUserId }) {
       ...r,
       pending: (r.pending || []).filter((p) => p !== perm),
     }));
+  const logout = (id, name) => {
+    if (!confirm(`Log ${name} out now? They stay approved and can sign back in.`)) return;
+    act(id, () => api.forceLogout(id));
+  };
 
   const pending = (rows || []).filter((r) => !r.approved);
   const approved = (rows || []).filter((r) => r.approved);
@@ -818,16 +822,26 @@ export function ApprovalsTab({ currentUserId }) {
                       {self ? (
                         <span className="text-xs font-bold text-[#2563EB] bg-[#2563EB22] px-2 py-1 rounded">Admin · all access</span>
                       ) : (
-                        <button
-                          onClick={() => {
-                            if (confirm(`Revoke access for ${r.name}? They'll be locked out until re-approved.`))
-                              setApproved(r.id, false);
-                          }}
-                          disabled={busy === r.id}
-                          className="flex items-center gap-1.5 border border-[#DC3B2E] text-[#DC3B2E] text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
-                        >
-                          <UserX size={15} /> Revoke
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => logout(r.id, r.name)}
+                            disabled={busy === r.id}
+                            className="flex items-center gap-1.5 border border-[#DEE3E9] text-[#5A6472] text-sm font-semibold rounded-md px-3 py-2 hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-60"
+                            title="End their current session (they can log back in)"
+                          >
+                            <LogOut size={15} /> Log out
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Revoke access for ${r.name}? They'll be locked out until re-approved.`))
+                                setApproved(r.id, false);
+                            }}
+                            disabled={busy === r.id}
+                            className="flex items-center gap-1.5 border border-[#DC3B2E] text-[#DC3B2E] text-sm font-semibold rounded-md px-3 py-2 disabled:opacity-60"
+                          >
+                            <UserX size={15} /> Revoke
+                          </button>
+                        </div>
                       )}
                     </div>
 
