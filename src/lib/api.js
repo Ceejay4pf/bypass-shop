@@ -454,6 +454,55 @@ export function subscribeProfiles(onChange) {
   return () => supabase.removeChannel(ch);
 }
 
+/* ---- STAFF DIRECTORY (admin-typed contacts) ---- */
+// Turn a typed phone into WhatsApp/international digits (no + or leading 0).
+// Kenyan local numbers (07.. / 01..) become 2547.. / 2541..
+export function waDigits(phone) {
+  let d = String(phone || "").replace(/[^\d]/g, "");
+  if (d.startsWith("0")) d = "254" + d.slice(1);
+  return d;
+}
+
+export async function fetchStaffContacts() {
+  const { data, error } = await supabase
+    .from("staff_contacts")
+    .select("*")
+    .order("dept", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map((r) => ({
+    id: r.id,
+    dept: r.dept || "General",
+    name: r.name || "",
+    role: r.role || "",
+    phone: r.phone || "",
+    wa: waDigits(r.phone),
+  }));
+}
+
+export async function addStaffContact({ dept, name, role, phone }) {
+  const { error } = await supabase.from("staff_contacts").insert({
+    dept: (dept || "General").trim(),
+    name: (name || "").trim(),
+    role: (role || "").trim() || null,
+    phone: (phone || "").trim(),
+  });
+  if (error) throw error;
+}
+
+export async function deleteStaffContact(id) {
+  const { error } = await supabase.from("staff_contacts").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export function subscribeStaffContacts(onChange) {
+  const ch = supabase
+    .channel("staff-contacts-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "staff_contacts" }, () => onChange())
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
 /* ---- STAFF FEED (group chat) ---- */
 export function rowToMessage(r) {
   return {

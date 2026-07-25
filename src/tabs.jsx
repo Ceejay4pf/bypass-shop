@@ -2078,23 +2078,6 @@ const SHOPS = [
   { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
 ];
 
-/* Company staff directory, grouped by department. `phones` = list of
-   { display, wa } (wa = intl digits only, no + or leading 0) so each number
-   is tappable to call / WhatsApp. Add new staff here. */
-const STAFF_DIRECTORY = [
-  {
-    dept: "Store",
-    people: [
-      { name: "Thangwa", role: "Store Supervisor", phones: [{ display: "+254 768 553182", wa: "254768553182" }] },
-      { name: "Delivery Guy", role: "Deliveries", phones: [{ display: "0718 170 737", wa: "254718170737" }] },
-      { name: "Sales Head", role: "Head of Sales", phones: [
-        { display: "0737 277 032", wa: "254737277032" },
-        { display: "0718 223 756", wa: "254718223756" },
-      ] },
-    ],
-  },
-];
-
 // Optional biometric app-lock. Auto-hides the enable button on devices with no
 // biometric (e.g. desktop computers) — it's never compulsory.
 function BiometricCard({ email }) {
@@ -2324,6 +2307,134 @@ export function StaffFeedTab({ userId, user, admin }) {
   );
 }
 
+/* Company phone directory — admin-typed, grouped by department, cloud-synced.
+   Everyone can see and tap the numbers; only an admin can add or remove them. */
+function StaffDirectoryCard({ admin }) {
+  const [contacts, setContacts] = useState(null); // null = loading
+  const [showAdd, setShowAdd] = useState(false);
+  const [dept, setDept] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    try { setContacts(await api.fetchStaffContacts()); setErr(""); }
+    catch (e) { setErr(e.message || "Couldn't load the directory. Did you run supabase/staff_directory.sql?"); setContacts([]); }
+  };
+  useEffect(() => {
+    load();
+    const unsub = api.subscribeStaffContacts ? api.subscribeStaffContacts(load) : null;
+    return () => { if (unsub) unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const add = async () => {
+    if (!name.trim() || !phone.trim()) { setErr("Enter at least a name and a phone number."); return; }
+    setBusy(true); setErr("");
+    try {
+      await api.addStaffContact({ dept, name, role, phone });
+      setDept(""); setName(""); setRole(""); setPhone(""); setShowAdd(false);
+      load();
+    } catch (e) { setErr(e.message || "Couldn't save. Only an admin can add contacts."); }
+    finally { setBusy(false); }
+  };
+
+  const remove = async (id) => {
+    if (!confirm("Remove this contact from the directory?")) return;
+    try { await api.deleteStaffContact(id); load(); }
+    catch (e) { setErr(e.message || "Couldn't remove."); }
+  };
+
+  // Group the flat list by department for display.
+  const groups = useMemo(() => {
+    const m = {};
+    for (const c of contacts || []) (m[c.dept] = m[c.dept] || []).push(c);
+    return Object.entries(m); // [ [dept, contacts[]], ... ]
+  }, [contacts]);
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-bold uppercase tracking-wide">Staff Directory</div>
+        {admin && (
+          <button
+            onClick={() => { setShowAdd((v) => !v); setErr(""); }}
+            className="flex items-center gap-1 text-xs font-semibold text-[#2563EB] bg-[#2563EB22] rounded-md px-2.5 py-1.5 hover:bg-[#2563EB] hover:text-white transition-colors"
+          >
+            <Plus size={14} /> {showAdd ? "Close" : "Add contact"}
+          </button>
+        )}
+      </div>
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-2.5 text-xs mb-3 flex items-start gap-2">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {err}
+        </div>
+      )}
+
+      {admin && showAdd && (
+        <div className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 mb-3 space-y-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" className={inputCls} />
+          <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (e.g. Store Supervisor)" className={inputCls} />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone * (e.g. 0712 345 678)" className={inputCls} />
+          <input value={dept} onChange={(e) => setDept(e.target.value)} placeholder="Department (e.g. Store) — defaults to General" className={inputCls} />
+          <button
+            onClick={add}
+            disabled={busy}
+            className="w-full bg-[#2563EB] text-white font-semibold rounded-md py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+          >
+            <Check size={15} /> {busy ? "Saving…" : "Add to directory"}
+          </button>
+        </div>
+      )}
+
+      {contacts === null ? (
+        <div className="text-[#5A6472] text-sm">Loading directory…</div>
+      ) : contacts.length === 0 ? (
+        <div className="text-[#5A6472] text-sm italic">
+          {admin ? "No contacts yet — tap “Add contact” to type in staff numbers." : "No contacts added yet."}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {groups.map(([groupDept, people]) => (
+            <div key={groupDept}>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#2563EB] mb-2">{groupDept}</div>
+              <div className="space-y-2">
+                {people.map((p) => (
+                  <div key={p.id} className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm truncate">{p.name}</div>
+                        {p.role && <div className="text-xs text-[#5A6472]">{p.role}</div>}
+                      </div>
+                      {admin && (
+                        <button onClick={() => remove(p.id)} className="p-1.5 rounded text-[#5A6472] hover:text-[#DC3B2E]" title="Remove contact">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="flex-1 text-xs font-mono text-[#1B2430]">{p.phone}</span>
+                      <a href={`tel:+${p.wa}`} className="p-1.5 rounded-md bg-[#2563EB22] text-[#2563EB] hover:bg-[#2563EB] hover:text-white transition-colors" title={`Call ${p.name}`}>
+                        <Phone size={14} />
+                      </a>
+                      <a href={`https://wa.me/${p.wa}`} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md bg-[#15926A22] text-[#15926A] hover:bg-[#15926A] hover:text-white transition-colors" title={`WhatsApp ${p.name}`}>
+                        <MessageCircle size={14} />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsTab({ categories, user, email, admin }) {
   return (
     <div className="bp-fade-up">
@@ -2388,51 +2499,7 @@ export function SettingsTab({ categories, user, email, admin }) {
         </div>
       </div>
 
-      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
-        <div className="text-sm font-bold uppercase tracking-wide mb-3">Staff Directory</div>
-        <div className="space-y-4">
-          {STAFF_DIRECTORY.map((group) => (
-            <div key={group.dept}>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-[#2563EB] mb-2">{group.dept}</div>
-              <div className="space-y-2">
-                {group.people.map((p) => (
-                  <div key={p.name} className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm truncate">{p.name}</div>
-                        {p.role && <div className="text-xs text-[#5A6472]">{p.role}</div>}
-                      </div>
-                    </div>
-                    <div className="mt-2 flex flex-col gap-1.5">
-                      {p.phones.map((ph) => (
-                        <div key={ph.wa} className="flex items-center gap-2">
-                          <span className="flex-1 text-xs font-mono text-[#1B2430]">{ph.display}</span>
-                          <a
-                            href={`tel:+${ph.wa}`}
-                            className="p-1.5 rounded-md bg-[#2563EB22] text-[#2563EB] hover:bg-[#2563EB] hover:text-white transition-colors"
-                            title={`Call ${p.name}`}
-                          >
-                            <Phone size={14} />
-                          </a>
-                          <a
-                            href={`https://wa.me/${ph.wa}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-md bg-[#15926A22] text-[#15926A] hover:bg-[#15926A] hover:text-white transition-colors"
-                            title={`WhatsApp ${p.name}`}
-                          >
-                            <MessageCircle size={14} />
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <StaffDirectoryCard admin={admin} />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Categories</div>
