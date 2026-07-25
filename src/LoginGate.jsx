@@ -197,6 +197,10 @@ export default function LoginGate() {
 
           </button>
         </div>
+
+        <p className="text-center text-[11px] text-[#5A6472] mt-4">
+          Developed by <span className="font-semibold text-[#1B2430]">Josphat Mbugua Kagiri</span>
+        </p>
       </div>
     </div>
   );

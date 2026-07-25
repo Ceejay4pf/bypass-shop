@@ -2450,6 +2450,7 @@ export function SettingsTab({ categories, user, email, admin }) {
         <div className="text-sm font-bold uppercase tracking-wide mb-3">System Information &amp; Future Features</div>
         <div className="space-y-2 text-sm text-[#5A6472]">
           <Row label="System" value="Bypass Shop v2.0 (Cloud)" />
+          <Row label="Developed by" value="Josphat Mbugua Kagiri" tone="blue" />
           <Row label="Reports to" value="Jaspare Auto · Main Shop" />
           <Row label="Storage" value="Supabase (cloud Postgres)" />
           <Row label="Sync" value="Realtime — instant across devices" />

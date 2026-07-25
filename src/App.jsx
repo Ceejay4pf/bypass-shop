@@ -321,6 +321,10 @@ function BypassShop({ session }) {
           <button onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#DC3B2E]">
             <LogOut size={17} /> Logout
           </button>
+          <div className="text-center text-[10px] text-[#5A6472] mt-2 leading-tight">
+            Developed by
+            <div className="font-semibold text-[#1B2430]">Josphat Mbugua Kagiri</div>
+          </div>
         </div>
       </aside>
 
