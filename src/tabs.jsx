@@ -62,6 +62,18 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
     return () => { alive = false; if (unsub) unsub(); };
   }, []);
 
+  // Live directory contacts (admin-typed names + phone numbers).
+  const [contacts, setContacts] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    if (!api.fetchStaffContacts) return;
+    api.fetchStaffContacts().then((c) => { if (alive) setContacts(c); }).catch(() => {});
+    const unsub = api.subscribeStaffContacts
+      ? api.subscribeStaffContacts(() => api.fetchStaffContacts().then((c) => alive && setContacts(c)).catch(() => {}))
+      : null;
+    return () => { alive = false; if (unsub) unsub(); };
+  }, []);
+
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const todaySales = notifications.filter((n) => n.type === "sale" && n.ts >= startOfToday.getTime());
@@ -201,6 +213,43 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
             Full staff directory →
           </button>
         </div>
+      </div>
+
+      {/* Team directory — the contacts an admin typed into the directory. */}
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
+            <Phone size={15} className="text-[#15926A]" /> Team Directory ({contacts.length})
+          </div>
+          <button onClick={() => onNav("settings")} className="text-xs text-[#2563EB] font-semibold">
+            Manage →
+          </button>
+        </div>
+        {contacts.length === 0 ? (
+          <div className="text-[#5A6472] text-sm italic">
+            No contacts yet — add staff numbers in Settings → Staff Directory.
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-2">
+            {contacts.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{p.name}</div>
+                  <div className="text-[11px] text-[#5A6472] truncate">
+                    {p.role ? `${p.role} · ` : ""}<span className="font-mono text-[#1B2430]">{p.phone}</span>
+                  </div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#2563EB]">{p.dept}</div>
+                </div>
+                <a href={`tel:+${p.wa}`} className="p-1.5 rounded-md bg-[#2563EB22] text-[#2563EB] hover:bg-[#2563EB] hover:text-white transition-colors shrink-0" title={`Call ${p.name}`}>
+                  <Phone size={14} />
+                </a>
+                <a href={`https://wa.me/${p.wa}`} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-md bg-[#15926A22] text-[#15926A] hover:bg-[#15926A] hover:text-white transition-colors shrink-0" title={`WhatsApp ${p.name}`}>
+                  <MessageCircle size={14} />
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
