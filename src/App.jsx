@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
-  Receipt,
+  Receipt, Wallet, ArrowRightLeft,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
@@ -21,7 +21,7 @@ import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
   LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab, StaffFeedTab,
-  ReceiptTab,
+  ReceiptTab, CreditAccountsTab, TransfersTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 
@@ -40,6 +40,8 @@ const NAV = [
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   { id: "quote", label: "Quotation", icon: FileText },
   { id: "receipt", label: "Receipt", icon: Receipt },
+  { id: "credit", label: "Credit Accounts", icon: Wallet },
+  { id: "transfers", label: "Branch Transfers", icon: ArrowRightLeft },
   { id: "feed", label: "Staff Feed", icon: MessageCircle },
   { id: "notify", label: "Notifications", icon: Bell },
   { id: "print", label: "Print Stock", icon: Printer },
@@ -414,6 +416,8 @@ function BypassShop({ session }) {
           {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
           {tab === "quote" && <QuotationTab items={items} user={user} />}
           {tab === "receipt" && <ReceiptTab items={items} user={user} />}
+          {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
+          {tab === "transfers" && <TransfersTab items={items} user={user} />}
           {tab === "feed" && <StaffFeedTab userId={session.user.id} user={user} admin={admin} />}
           {tab === "notify" && <NotifyTab notifications={notifications} />}
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}

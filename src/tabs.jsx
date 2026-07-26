@@ -9,6 +9,7 @@ import {
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
+  Wallet, CreditCard, ArrowRightLeft, Building2, User,
 } from "lucide-react";
 import { CAPABILITIES } from "./lib/roles.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
@@ -3473,6 +3474,548 @@ function PastReceipts({ past }) {
         </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ======================= CREDIT ACCOUNTS =======================
+   Garages that buy on credit. Taking goods raises the balance owed;
+   paying (cash/cheque/paybill) lowers it. Each account has a full,
+   printable statement. */
+export function CreditAccountsTab({ user, admin }) {
+  const [accounts, setAccounts] = useState([]);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [openId, setOpenId] = useState(null);     // account whose statement is open
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: "", contact: "", phone: "" });
+
+  const load = () =>
+    api.fetchCreditAccounts()
+      .then((a) => { setAccounts(a); setErr(""); })
+      .catch((e) => setErr(e.message || String(e)))
+      .finally(() => setLoading(false));
+
+  useEffect(() => {
+    load();
+    const unsub = api.subscribeCreditAccounts(load);
+    return unsub;
+  }, []);
+
+  const totalOwed = accounts.reduce((s, a) => s + a.balance, 0);
+  const open = accounts.find((a) => a.id === openId) || null;
+
+  const addAccount = async () => {
+    if (!form.name.trim()) return;
+    try {
+      await api.addCreditAccount(form, user);
+      setForm({ name: "", contact: "", phone: "" });
+      setAdding(false);
+      load();
+    } catch (e) {
+      alert("Could not add account: " + (e.message || e) + "\n(Did you run supabase/credit_accounts.sql?)");
+    }
+  };
+
+  if (open) {
+    return <CreditStatement account={open} user={user} admin={admin} onBack={() => setOpenId(null)} onChanged={load} />;
+  }
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle
+        eyebrow="Garages & customers buying on credit"
+        title="Credit Accounts"
+        right={
+          <button
+            onClick={() => setAdding((v) => !v)}
+            className="text-[#2563EB] text-xs font-semibold border border-[#DEE3E9] rounded-md px-3 py-1.5 hover:bg-[#EEF2F6] flex items-center gap-1.5"
+          >
+            <Plus size={13} /> {adding ? "Close" : "New account"}
+          </button>
+        }
+      />
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          Couldn't load accounts. Run <span className="font-mono mx-1">supabase/credit_accounts.sql</span> once, then reload.
+        </div>
+      )}
+
+      {/* Total outstanding across all accounts. */}
+      <div className="bg-[#1B2430] text-white rounded-lg p-4 mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Wallet size={20} className="text-[#F5B301]" />
+          <span className="text-sm text-[#C6CBD3]">Total owed to us</span>
+        </div>
+        <span className="text-2xl font-extrabold tabular-nums">KES {totalOwed.toLocaleString()}</span>
+      </div>
+
+      {adding && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 space-y-3">
+          <Field label="Garage / customer name *">
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. ABC Motors" className={inputCls} autoFocus />
+          </Field>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Contact person">
+                <input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="e.g. Peter" className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Phone">
+                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="07…" className={inputCls} />
+              </Field>
+            </div>
+          </div>
+          <button
+            onClick={addAccount}
+            disabled={!form.name.trim()}
+            className="w-full bg-[#2563EB] text-white font-bold uppercase tracking-wide rounded-md py-2.5 text-sm disabled:opacity-50"
+          >
+            Create account
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-[#5A6472] text-sm py-8 text-center">Loading…</div>
+      ) : accounts.length === 0 ? (
+        <div className="text-[#5A6472] text-sm py-8 text-center">No credit accounts yet. Add one above.</div>
+      ) : (
+        <div className="space-y-2">
+          {accounts.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => setOpenId(a.id)}
+              className="w-full text-left bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3 hover:border-[#2563EB] transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-[#1B2430] flex items-center gap-2">
+                  <Building2 size={15} className="text-[#5A6472]" /> {a.name}
+                </span>
+                <span className={`font-extrabold tabular-nums ${a.balance > 0 ? "text-[#DC3B2E]" : "text-[#15926A]"}`}>
+                  KES {a.balance.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1 text-xs text-[#5A6472]">
+                <span>{a.contact || "—"}{a.phone ? ` · ${a.phone}` : ""}</span>
+                <span>{a.balance > 0 ? "Owes us" : "Settled"}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Statement for one credit account: charge/pay forms + full ledger. */
+function CreditStatement({ account, user, admin, onBack, onChanged }) {
+  const [txns, setTxns] = useState([]);
+  const [mode, setMode] = useState(null);          // "charge" | "payment" | null
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("Cash");
+  const [reference, setReference] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lastReceipt, setLastReceipt] = useState(null);
+
+  const loadTxns = () => api.fetchCreditTxns(account.id).then(setTxns).catch(() => setTxns([]));
+  useEffect(() => { loadTxns(); }, [account.id]);
+
+  const post = async () => {
+    const amt = Number(amount) || 0;
+    if (amt <= 0 || busy) return;
+    setBusy(true);
+    try {
+      const newBalance = await api.postCreditTxn(
+        { accountId: account.id, kind: mode, amount: amt, method, reference, description },
+        user
+      );
+      const receipt = {
+        kind: mode, amount: amt, method, reference, description,
+        balanceAfter: newBalance, by: user,
+      };
+      setLastReceipt(receipt);
+      setAmount(""); setReference(""); setDescription(""); setMode(null);
+      loadTxns();
+      onChanged && onChanged();
+    } catch (e) {
+      alert("Could not save: " + (e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Printable A4 statement of the whole account.
+  const printStatement = () => {
+    const b = SHOP_INFO.branch, m = SHOP_INFO.main;
+    const today = new Date().toLocaleString("en-KE", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const rows = txns.slice().reverse().map((t) => `<tr>
+        <td>${new Date(t.ts).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })}</td>
+        <td>${t.kind === "charge" ? "Goods taken" : "Payment"}${t.description ? " — " + escapeHtml(t.description) : ""}${t.reference ? " (" + escapeHtml(t.reference) + ")" : ""}</td>
+        <td class="r">${t.kind === "charge" ? "KES " + t.amount.toLocaleString() : ""}</td>
+        <td class="r">${t.kind === "payment" ? "KES " + t.amount.toLocaleString() : ""}</td>
+        <td class="r">KES ${t.balanceAfter.toLocaleString()}</td>
+      </tr>`).join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Statement — ${escapeHtml(account.name)}</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1B2430;margin:0;padding:32px;}
+  .wrap{max-width:760px;margin:0 auto;}
+  .head{text-align:center;border-bottom:3px solid #2563EB;padding-bottom:12px;}
+  .brand{font-size:24px;font-weight:800;text-transform:uppercase;letter-spacing:1px;}
+  .contacts{color:#5A6472;font-size:12px;margin-top:4px;}
+  .doc{display:flex;justify-content:space-between;align-items:center;margin:16px 0;}
+  .doc .t{font-size:18px;font-weight:800;color:#2563EB;text-transform:uppercase;letter-spacing:2px;}
+  .doc .m{color:#5A6472;font-size:12px;text-align:right;}
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px;}
+  th{background:#EEF2F6;text-align:left;padding:8px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#5A6472;}
+  th.r,td.r{text-align:right;}
+  td{padding:8px;border-bottom:1px solid #DEE3E9;}
+  .bal{margin-top:16px;text-align:right;font-size:18px;font-weight:800;color:${account.balance > 0 ? "#DC3B2E" : "#15926A"};}
+  .foot{margin-top:28px;color:#5A6472;font-size:11px;border-top:1px solid #DEE3E9;padding-top:10px;text-align:center;}
+  @media print{body{padding:0;}.wrap{max-width:none;}}
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div class="brand">${escapeHtml(b.name)}</div>
+    <div class="contacts">${b.location ? escapeHtml(b.location) : ""}${b.phone ? " · Tel: " + escapeHtml(b.phone) : ""}</div>
+  </div>
+  <div class="doc">
+    <div class="t">Account Statement</div>
+    <div class="m">${today}<br>Prepared by: ${escapeHtml(user || "Staff")}</div>
+  </div>
+  <div style="font-size:14px;margin-bottom:8px;">
+    <b>${escapeHtml(account.name)}</b>${account.contact ? " — " + escapeHtml(account.contact) : ""}${account.phone ? " · " + escapeHtml(account.phone) : ""}
+  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Detail</th><th class="r">Charge</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:#5A6472;padding:24px;">No transactions yet.</td></tr>`}</tbody>
+  </table>
+  <div class="bal">Balance owing: KES ${account.balance.toLocaleString()}</div>
+  <div class="foot">A branch reporting to ${escapeHtml(m.name)}${m.phone ? " · " + escapeHtml(m.phone) : ""}</div>
+</div>
+<script>window.onload=function(){setTimeout(function(){window.print();},250);};</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to print the statement."); return; }
+    w.document.write(html); w.document.close();
+  };
+
+  // Small printable slip for a single charge/payment just recorded.
+  const printSlip = (t) => {
+    const b = SHOP_INFO.branch;
+    const today = new Date().toLocaleString("en-KE", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const isPay = t.kind === "payment";
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${isPay ? "Payment" : "Credit"} slip</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1B2430;margin:0;padding:28px;}
+  .wrap{max-width:420px;margin:0 auto;}
+  .brand{font-size:20px;font-weight:800;text-transform:uppercase;text-align:center;letter-spacing:1px;border-bottom:2px solid #2563EB;padding-bottom:10px;}
+  .t{font-size:16px;font-weight:800;color:${isPay ? "#15926A" : "#DC3B2E"};text-transform:uppercase;letter-spacing:2px;text-align:center;margin:14px 0;}
+  .row{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px dashed #DEE3E9;}
+  .lbl{color:#5A6472;}
+  .big{font-size:20px;font-weight:800;}
+  .foot{margin-top:20px;color:#5A6472;font-size:11px;text-align:center;}
+  @media print{body{padding:0;}}
+</style></head>
+<body><div class="wrap">
+  <div class="brand">${escapeHtml(b.name)}</div>
+  <div class="t">${isPay ? "Payment Received" : "Goods on Credit"}</div>
+  <div class="row"><span class="lbl">Account</span><span>${escapeHtml(account.name)}</span></div>
+  <div class="row"><span class="lbl">Date</span><span>${today}</span></div>
+  ${t.description ? `<div class="row"><span class="lbl">Detail</span><span>${escapeHtml(t.description)}</span></div>` : ""}
+  ${isPay ? `<div class="row"><span class="lbl">Method</span><span>${escapeHtml(t.method || "—")}</span></div>` : ""}
+  ${t.reference ? `<div class="row"><span class="lbl">Reference</span><span>${escapeHtml(t.reference)}</span></div>` : ""}
+  <div class="row"><span class="lbl">${isPay ? "Amount paid" : "Amount taken"}</span><span class="big">KES ${t.amount.toLocaleString()}</span></div>
+  <div class="row"><span class="lbl">Balance now</span><span class="big">KES ${t.balanceAfter.toLocaleString()}</span></div>
+  <div class="row"><span class="lbl">Served by</span><span>${escapeHtml(t.by || "Staff")}</span></div>
+  <div class="foot">Thank you. Keep this slip as your record.</div>
+</div>
+<script>window.onload=function(){setTimeout(function(){window.print();},250);};</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to print the slip."); return; }
+    w.document.write(html); w.document.close();
+  };
+
+  return (
+    <div className="bp-fade-up">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-[#5A6472] text-sm font-semibold mb-3 hover:text-[#2563EB]">
+        <ArrowLeft size={16} /> All accounts
+      </button>
+
+      <div className="bg-[#1B2430] text-white rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-lg font-extrabold flex items-center gap-2"><Building2 size={18} /> {account.name}</div>
+            <div className="text-xs text-[#C6CBD3] mt-0.5">{account.contact || "—"}{account.phone ? ` · ${account.phone}` : ""}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-[11px] text-[#C6CBD3] uppercase tracking-wide">Balance owing</div>
+            <div className={`text-2xl font-extrabold tabular-nums ${account.balance > 0 ? "text-[#F5B301]" : "text-[#4ADE80]"}`}>
+              KES {account.balance.toLocaleString()}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Just-recorded slip prompt. */}
+      {lastReceipt && (
+        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <Check size={15} /> Recorded {lastReceipt.kind === "payment" ? "payment" : "goods"} of KES {lastReceipt.amount.toLocaleString()}.
+          </span>
+          <button onClick={() => printSlip(lastReceipt)} className="text-[#15926A] font-semibold border border-[#15926A] rounded px-2.5 py-1 text-xs flex items-center gap-1 hover:bg-[#15926A11]">
+            <Printer size={12} /> Slip
+          </button>
+        </div>
+      )}
+
+      {/* Charge / Payment buttons. */}
+      <div className="flex gap-3 mb-3">
+        <button
+          onClick={() => { setMode(mode === "charge" ? null : "charge"); setAmount(""); setReference(""); setDescription(""); }}
+          className={`flex-1 rounded-md py-3 font-bold uppercase tracking-wide text-sm border flex items-center justify-center gap-2 ${mode === "charge" ? "bg-[#DC3B2E] text-white border-[#DC3B2E]" : "border-[#DC3B2E] text-[#DC3B2E]"}`}
+        >
+          <CreditCard size={16} /> Took goods
+        </button>
+        <button
+          onClick={() => { setMode(mode === "payment" ? null : "payment"); setAmount(""); setReference(""); setDescription(""); }}
+          className={`flex-1 rounded-md py-3 font-bold uppercase tracking-wide text-sm border flex items-center justify-center gap-2 ${mode === "payment" ? "bg-[#15926A] text-white border-[#15926A]" : "border-[#15926A] text-[#15926A]"}`}
+        >
+          <Wallet size={16} /> Made payment
+        </button>
+      </div>
+
+      {mode && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 space-y-3">
+          <Field label={mode === "charge" ? "Amount of goods taken (KES)" : "Amount paid (KES)"}>
+            <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className={inputCls} autoFocus />
+          </Field>
+          {mode === "payment" && (
+            <Field label="How did they pay?">
+              <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+                <option>Cash</option>
+                <option>Cheque</option>
+                <option>Paybill</option>
+                <option>Bank transfer</option>
+              </select>
+            </Field>
+          )}
+          <Field label={mode === "charge" ? "What was taken? (optional)" : "Reference — cheque no / paybill code (optional)"}>
+            {mode === "charge" ? (
+              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. 2 brake pads, 1 filter" className={inputCls} />
+            ) : (
+              <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. Cheque 004821" className={inputCls} />
+            )}
+          </Field>
+          <button
+            onClick={post}
+            disabled={(Number(amount) || 0) <= 0 || busy}
+            className={`w-full font-bold uppercase tracking-wide rounded-md py-2.5 text-sm text-white disabled:opacity-50 ${mode === "charge" ? "bg-[#DC3B2E]" : "bg-[#15926A]"}`}
+          >
+            {busy ? "Saving…" : mode === "charge" ? "Add to balance" : "Reduce balance"}
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[#2563EB] text-[11px] font-bold tracking-[0.2em] uppercase">Statement</div>
+        <button onClick={printStatement} className="text-[#5A6472] text-xs font-semibold border border-[#DEE3E9] rounded px-2.5 py-1 flex items-center gap-1 hover:bg-[#EEF2F6]">
+          <Printer size={12} /> Print statement
+        </button>
+      </div>
+
+      {txns.length === 0 ? (
+        <div className="text-[#5A6472] text-sm py-8 text-center">No transactions yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {txns.map((t) => {
+            const charge = t.kind === "charge";
+            return (
+              <div key={t.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${charge ? "bg-[#DC3B2E22] text-[#DC3B2E]" : "bg-[#15926A22] text-[#15926A]"}`}>
+                    {charge ? "Took goods" : `Paid · ${t.method || "—"}`}
+                  </span>
+                  <span className={`font-bold tabular-nums ${charge ? "text-[#DC3B2E]" : "text-[#15926A]"}`}>
+                    {charge ? "+" : "−"} KES {t.amount.toLocaleString()}
+                  </span>
+                </div>
+                {(t.description || t.reference) && (
+                  <div className="text-sm text-[#1B2430] mt-1">{t.description || t.reference}</div>
+                )}
+                <div className="flex items-center justify-between mt-1 text-xs text-[#5A6472]">
+                  <span>Balance: KES {t.balanceAfter.toLocaleString()}{t.by ? ` · ${t.by}` : ""}</span>
+                  <span className="flex items-center gap-2">
+                    {fmtDateTime(t.ts)}
+                    <button onClick={() => printSlip(t)} className="text-[#5A6472] hover:text-[#2563EB]" title="Print slip"><Printer size={13} /></button>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ======================= BRANCH TRANSFERS =======================
+   A plain log of stock moving between branches — taken to another
+   branch, or received from one. LOG ONLY: does not change stock counts. */
+export function TransfersTab({ items, user }) {
+  const [rows, setRows] = useState([]);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ direction: "out", otherBranch: "", code: "", item: "", qty: "1", note: "" });
+
+  const load = () =>
+    api.fetchTransfers()
+      .then((t) => { setRows(t); setErr(""); })
+      .catch((e) => setErr(e.message || String(e)))
+      .finally(() => setLoading(false));
+
+  useEffect(() => {
+    load();
+    const unsub = api.subscribeTransfers(load);
+    return unsub;
+  }, []);
+
+  const save = async () => {
+    if (!form.item.trim() || (Number(form.qty) || 0) <= 0) return;
+    try {
+      await api.addTransfer(form, user);
+      setForm({ direction: form.direction, otherBranch: "", code: "", item: "", qty: "1", note: "" });
+      setAdding(false);
+      load();
+    } catch (e) {
+      alert("Could not save transfer: " + (e.message || e) + "\n(Did you run supabase/transfers.sql?)");
+    }
+  };
+
+  const remove = async (id) => {
+    if (!confirm("Delete this transfer record?")) return;
+    try { await api.deleteTransfer(id); load(); } catch (e) { alert(e.message || String(e)); }
+  };
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle
+        eyebrow="Stock moved between branches (record only)"
+        title="Branch Transfers"
+        right={
+          <button
+            onClick={() => setAdding((v) => !v)}
+            className="text-[#2563EB] text-xs font-semibold border border-[#DEE3E9] rounded-md px-3 py-1.5 hover:bg-[#EEF2F6] flex items-center gap-1.5"
+          >
+            <Plus size={13} /> {adding ? "Close" : "Record transfer"}
+          </button>
+        }
+      />
+
+      <div className="bg-[#FFF7E6] border border-[#E0A400] text-[#8A6400] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
+        <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+        This is a record only — it does <b className="mx-1">not</b> change your stock counts. Use “Sell” or “Add Stock” to adjust quantities.
+      </div>
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          Couldn't load transfers. Run <span className="font-mono mx-1">supabase/transfers.sql</span> once, then reload.
+        </div>
+      )}
+
+      {adding && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 space-y-3">
+          <Field label="Direction">
+            <div className="flex gap-2">
+              {[
+                { v: "out", label: "Taken to another branch" },
+                { v: "in", label: "Received from a branch" },
+              ].map((o) => {
+                const active = form.direction === o.v;
+                return (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => setForm({ ...form, direction: o.v })}
+                    className={`flex-1 rounded-md py-2.5 text-sm font-semibold border ${active ? "bg-[#2563EB] text-white border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"}`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <Field label={form.direction === "out" ? "Which branch received it?" : "Which branch sent it?"}>
+            <input value={form.otherBranch} onChange={(e) => setForm({ ...form, otherBranch: e.target.value })} placeholder="e.g. Jaspare Auto Main" className={inputCls} />
+          </Field>
+          <Field label="Item / part">
+            <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} list="transfer-parts" placeholder="Part name or description" className={inputCls} />
+          </Field>
+          <datalist id="transfer-parts">
+            {items.slice(0, 300).map((it) => (
+              <option key={it.code} value={it.name || `${it.brand} ${it.model}`} />
+            ))}
+          </datalist>
+          <div className="flex gap-3">
+            <div className="w-28">
+              <Field label="Quantity">
+                <input type="number" min="1" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} className={inputCls + " text-center"} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Note (optional)">
+                <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="e.g. urgent order for client" className={inputCls} />
+              </Field>
+            </div>
+          </div>
+          <button
+            onClick={save}
+            disabled={!form.item.trim() || (Number(form.qty) || 0) <= 0}
+            className="w-full bg-[#2563EB] text-white font-bold uppercase tracking-wide rounded-md py-2.5 text-sm disabled:opacity-50"
+          >
+            Save record
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-[#5A6472] text-sm py-8 text-center">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-[#5A6472] text-sm py-8 text-center">No transfers recorded yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((t) => {
+            const out = t.direction === "out";
+            return (
+              <div key={t.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${out ? "bg-[#DC3B2E22] text-[#DC3B2E]" : "bg-[#15926A22] text-[#15926A]"}`}>
+                    {out ? "Taken out" : "Received"}
+                  </span>
+                  <span className="font-bold tabular-nums text-[#1B2430]">Qty {t.qty}</span>
+                </div>
+                <div className="text-sm text-[#1B2430] mt-1 font-semibold">{t.item}</div>
+                <div className="flex items-center justify-between mt-1 text-xs text-[#5A6472]">
+                  <span>
+                    {out ? "To" : "From"}: {t.otherBranch || "—"}{t.note ? ` · ${t.note}` : ""}{t.by ? ` · ${t.by}` : ""}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {fmtDateTime(t.ts)}
+                    <button onClick={() => remove(t.id)} className="text-[#5A6472] hover:text-[#DC3B2E]" title="Delete record"><Trash2 size={13} /></button>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

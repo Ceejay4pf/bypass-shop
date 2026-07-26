@@ -388,6 +388,167 @@ export async function saveReceipt(rc, byName) {
   return rowToReceipt(data);
 }
 
+/* ============================================================
+   CREDIT ACCOUNTS — garages that buy on credit.
+   Charge = took goods (balance up). Payment = paid us (balance down).
+   Every move is posted atomically via the post_credit_txn function.
+   ============================================================ */
+function rowToAccount(a) {
+  return {
+    id: a.id,
+    name: a.name || "",
+    contact: a.contact || "",
+    phone: a.phone || "",
+    balance: Number(a.balance) || 0,
+    notes: a.notes || "",
+    createdAt: a.created_at ? new Date(a.created_at).getTime() : 0,
+    by: a.created_by || "",
+  };
+}
+
+function rowToTxn(t) {
+  return {
+    id: t.id,
+    accountId: t.account_id,
+    ts: t.ts ? new Date(t.ts).getTime() : 0,
+    kind: t.kind,                         // "charge" | "payment"
+    amount: Number(t.amount) || 0,
+    method: t.method || "",
+    reference: t.reference || "",
+    description: t.description || "",
+    balanceAfter: Number(t.balance_after) || 0,
+    by: t.by_name || "",
+  };
+}
+
+export async function fetchCreditAccounts() {
+  const { data, error } = await supabase
+    .from("credit_accounts")
+    .select("*")
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return data.map(rowToAccount);
+}
+
+export async function addCreditAccount({ name, contact, phone, notes }, byName) {
+  const { data, error } = await supabase
+    .from("credit_accounts")
+    .insert({ name, contact: contact || null, phone: phone || null, notes: notes || null, created_by: byName || null })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToAccount(data);
+}
+
+export async function updateCreditAccount(id, patch) {
+  const row = {};
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.contact !== undefined) row.contact = patch.contact || null;
+  if (patch.phone !== undefined) row.phone = patch.phone || null;
+  if (patch.notes !== undefined) row.notes = patch.notes || null;
+  const { error } = await supabase.from("credit_accounts").update(row).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteCreditAccount(id) {
+  const { error } = await supabase.from("credit_accounts").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchCreditTxns(accountId, limit = 300) {
+  const { data, error } = await supabase
+    .from("credit_txns")
+    .select("*")
+    .eq("account_id", accountId)
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data.map(rowToTxn);
+}
+
+// Post a charge (took goods) or a payment (paid us). Returns the new balance.
+export async function postCreditTxn({ accountId, kind, amount, method, reference, description }, byName) {
+  const { data, error } = await supabase.rpc("post_credit_txn", {
+    p_account: accountId,
+    p_kind: kind,
+    p_amount: amount,
+    p_method: method || null,
+    p_reference: reference || null,
+    p_description: description || null,
+    p_by: byName || null,
+  });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+export function subscribeCreditAccounts(onChange) {
+  const ch = supabase
+    .channel("credit_accounts_rt")
+    .on("postgres_changes", { event: "*", schema: "public", table: "credit_accounts" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "credit_txns" }, onChange)
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
+/* ============================================================
+   BRANCH TRANSFERS — a log of stock moving between branches.
+   LOG ONLY: recording a transfer does NOT change any stock count.
+   ============================================================ */
+function rowToTransfer(t) {
+  return {
+    id: t.id,
+    ts: t.ts ? new Date(t.ts).getTime() : 0,
+    direction: t.direction,               // "out" (taken) | "in" (received)
+    otherBranch: t.other_branch || "",
+    code: t.code || "",
+    item: t.item || "",
+    qty: Number(t.qty) || 0,
+    note: t.note || "",
+    by: t.by_name || "",
+  };
+}
+
+export async function fetchTransfers(limit = 300) {
+  const { data, error } = await supabase
+    .from("transfers")
+    .select("*")
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data.map(rowToTransfer);
+}
+
+export async function addTransfer({ direction, otherBranch, code, item, qty, note }, byName) {
+  const { data, error } = await supabase
+    .from("transfers")
+    .insert({
+      direction,
+      other_branch: otherBranch || null,
+      code: code || null,
+      item,
+      qty: Number(qty) || 0,
+      note: note || null,
+      by_name: byName || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToTransfer(data);
+}
+
+export async function deleteTransfer(id) {
+  const { error } = await supabase.from("transfers").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export function subscribeTransfers(onChange) {
+  const ch = supabase
+    .channel("transfers_rt")
+    .on("postgres_changes", { event: "*", schema: "public", table: "transfers" }, onChange)
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
 /* ---- SALES ---- */
 export async function fetchSales(limit = 500) {
   const { data, error } = await supabase
