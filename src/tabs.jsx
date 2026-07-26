@@ -2904,9 +2904,11 @@ export function ReceiptTab({ items, user }) {
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
   const [showPast, setShowPast] = useState(false);
-  // VAT is optional (off by default). Prices are VAT-INCLUSIVE, so when on we
-  // back-calculate the 16% portion out of the total rather than adding it on.
+  // VAT is optional (off by default). Two modes when on:
+  //  - "inclusive": prices already include VAT -> back-calculate it out (total unchanged)
+  //  - "exclusive": prices are pre-tax -> add VAT on top (total grows)
   const [vatOn, setVatOn] = useState(false);
+  const [vatMode, setVatMode] = useState("inclusive"); // "inclusive" | "exclusive"
   const vatRate = SHOP_INFO.vatRate || 0.16;
 
   useEffect(() => {
@@ -2922,10 +2924,20 @@ export function ReceiptTab({ items, user }) {
   const lineTotal = (l) => (Number(l.qty) || 0) * (Number(l.price) || 0);
   const gross = lines.reduce((s, l) => s + lineTotal(l), 0);
   const disc = Math.min(Number(discount) || 0, gross);
-  const grand = gross - disc;                         // VAT-inclusive total
-  // Split the grand total into net + VAT (prices already include VAT).
-  const vat = vatOn ? grand - grand / (1 + vatRate) : 0;
-  const netAmount = grand - vat;                      // taxable value (excl. VAT)
+  const afterDisc = gross - disc;                     // price total after discount
+  // VAT split depends on the mode:
+  //  - inclusive: VAT sits inside afterDisc -> net = afterDisc / 1.16, grand unchanged
+  //  - exclusive: VAT added on top -> net = afterDisc, grand = afterDisc + VAT
+  let vat = 0, netAmount = afterDisc, grand = afterDisc;
+  if (vatOn && vatMode === "inclusive") {
+    vat = afterDisc - afterDisc / (1 + vatRate);
+    netAmount = afterDisc - vat;
+    grand = afterDisc;
+  } else if (vatOn && vatMode === "exclusive") {
+    netAmount = afterDisc;
+    vat = afterDisc * vatRate;
+    grand = afterDisc + vat;
+  }
   const subtotal = gross;                             // pre-discount, kept for storage
   const paidNum = Number(paid) || 0;
   const change = paidNum > grand ? paidNum - grand : 0;
@@ -2945,8 +2957,8 @@ export function ReceiptTab({ items, user }) {
       const rc = await api.saveReceipt(
         {
           customer, phone, lines: filledLines, subtotal, discount: disc,
-          total: grand, paid: paidNum, method,
-          vat: vatOn ? vat : 0, vatRate: vatOn ? vatRate : 0,
+          total: Math.round(grand), paid: paidNum, method,
+          vat: vatOn ? Math.round(vat) : 0, vatRate: vatOn ? vatRate : 0,
           kraPin: vatOn ? SHOP_INFO.branch.kraPin : "",
         },
         user
@@ -3037,9 +3049,9 @@ export function ReceiptTab({ items, user }) {
   <div class="totals">
     <div><span>Subtotal</span><span>KES ${gross.toLocaleString()}</span></div>
     ${disc ? `<div><span>Discount</span><span>- KES ${disc.toLocaleString()}</span></div>` : ""}
-    ${vatOn ? `<div><span>Taxable (excl. VAT)</span><span>KES ${Math.round(netAmount).toLocaleString()}</span></div>
+    ${vatOn ? `<div><span>${vatMode === "exclusive" ? "Amount (excl. VAT)" : "Taxable (excl. VAT)"}</span><span>KES ${Math.round(netAmount).toLocaleString()}</span></div>
     <div><span>VAT ${vatPct}%</span><span>KES ${Math.round(vat).toLocaleString()}</span></div>` : ""}
-    <div class="grand"><span>Total${vatOn ? " (incl. VAT)" : ""}</span><span>KES ${grand.toLocaleString()}</span></div>
+    <div class="grand"><span>Total${vatOn ? " (incl. VAT)" : ""}</span><span>KES ${Math.round(grand).toLocaleString()}</span></div>
     <div class="paidbox">
       <div><span>Paid (${escapeHtml(method || "—")})</span><span>KES ${paidNum.toLocaleString()}</span></div>
       ${change ? `<div><span>Change</span><span>KES ${change.toLocaleString()}</span></div>` : ""}
@@ -3067,8 +3079,8 @@ export function ReceiptTab({ items, user }) {
       (customer ? `Customer: ${customer}\n` : "") +
       `\n${rows}\n\nSubtotal: KES ${gross.toLocaleString()}` +
       (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
-      (vatOn ? `\nVAT ${Math.round(vatRate * 100)}%: KES ${Math.round(vat).toLocaleString()}` : "") +
-      `\n*Total${vatOn ? " (incl. VAT)" : ""}: KES ${grand.toLocaleString()}*` +
+      (vatOn ? `\nVAT ${Math.round(vatRate * 100)}%${vatMode === "exclusive" ? " (added)" : " (incl.)"}: KES ${Math.round(vat).toLocaleString()}` : "") +
+      `\n*Total${vatOn ? " (incl. VAT)" : ""}: KES ${Math.round(grand).toLocaleString()}*` +
       `\nPaid (${method}): KES ${paidNum.toLocaleString()}` +
       (change ? `\nChange: KES ${change.toLocaleString()}` : "") +
       (balance ? `\nBalance due: KES ${balance.toLocaleString()}` : "") +
@@ -3204,12 +3216,29 @@ export function ReceiptTab({ items, user }) {
         </div>
         {vatOn && (
           <>
+            {/* Choose how VAT applies to the price. */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setVatMode("inclusive")}
+                className={`flex-1 text-xs font-semibold rounded-md py-2 border transition-colors ${vatMode === "inclusive" ? "bg-[#2563EB] text-white border-[#2563EB]" : "bg-[#FFFFFF] text-[#5A6472] border-[#DEE3E9]"}`}
+              >
+                VAT inside price
+              </button>
+              <button
+                type="button"
+                onClick={() => setVatMode("exclusive")}
+                className={`flex-1 text-xs font-semibold rounded-md py-2 border transition-colors ${vatMode === "exclusive" ? "bg-[#2563EB] text-white border-[#2563EB]" : "bg-[#FFFFFF] text-[#5A6472] border-[#DEE3E9]"}`}
+              >
+                Add VAT on top
+              </button>
+            </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-[#5A6472]">Taxable (excl. VAT)</span>
+              <span className="text-[#5A6472]">{vatMode === "exclusive" ? "Amount (excl. VAT)" : "Taxable (excl. VAT)"}</span>
               <span className="tabular-nums">KES {Math.round(netAmount).toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-[#5A6472]">VAT {Math.round(vatRate * 100)}%</span>
+              <span className="text-[#5A6472]">VAT {Math.round(vatRate * 100)}% {vatMode === "exclusive" ? "(added)" : "(included)"}</span>
               <span className="tabular-nums">KES {Math.round(vat).toLocaleString()}</span>
             </div>
             {!SHOP_INFO.branch.kraPin && (
@@ -3223,7 +3252,7 @@ export function ReceiptTab({ items, user }) {
 
         <div className="flex items-center justify-between border-t border-[#DEE3E9] pt-2">
           <span className="font-bold uppercase tracking-wide text-sm">Total{vatOn ? " (incl. VAT)" : ""}</span>
-          <span className="text-[#2563EB] font-extrabold text-xl tabular-nums">KES {grand.toLocaleString()}</span>
+          <span className="text-[#2563EB] font-extrabold text-xl tabular-nums">KES {Math.round(grand).toLocaleString()}</span>
         </div>
       </div>
 
