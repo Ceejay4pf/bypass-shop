@@ -213,7 +213,8 @@ function BypassShop({ session }) {
     run(() => api.addStock(code, amount, user, supplier), `+${amount} stock added to ${code}`);
   const handleSell = (sale) =>
     run(async () => { await api.sellItem(sale, user); setTab("notify"); },
-      `Sold ${sale.qty} × ${sale.code} — sent to Jaspare Auto`, sale.paid ? "ok" : "warn");
+      `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to Jaspare Auto`,
+      sale.paid ? "ok" : "warn");
   const handleAdjust = (code, newQty, reason) =>
     run(() => api.adjustQty(code, newQty, reason, user), `Adjusted ${code} → ${newQty}`);
   const handleDelete = (code) =>

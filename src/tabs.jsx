@@ -1821,14 +1821,20 @@ export function SellTab({ items, categories, onSell }) {
   const [buyer, setBuyer] = useState("");
   const [phone, setPhone] = useState("");
   const [payment, setPayment] = useState("Paid");
+  const [deduct, setDeduct] = useState(true);        // true = sold from THIS branch (reduce stock)
+  const [sourceBranch, setSourceBranch] = useState("");// where it came from when not deducting
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return items.filter((i) => matchesQuery(i, categories.find((c) => c.key === i.cat), q)).slice(0, 8);
   }, [items, categories, query]);
 
-  const n = selected ? Math.max(1, Math.min(Number(qty) || 1, selected.qty)) : 0;
+  // When deducting from this branch we cap at our stock; when the goods come
+  // from another branch there is no local cap.
+  const cap = deduct ? (selected ? selected.qty : 0) : Infinity;
+  const n = selected ? Math.max(1, Math.min(Number(qty) || 1, cap)) : 0;
   const total = selected ? n * Number(selected.price) : 0;
+  const reset = () => { setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); };
 
   return (
     <div className="bp-fade-up">
@@ -1856,8 +1862,35 @@ export function SellTab({ items, categories, onSell }) {
           <div className="mb-4">
             <ItemCard item={selected} categories={categories} />
           </div>
-          <Field label={`Quantity sold (max ${selected.qty})`}>
-            <input type="number" min="1" max={selected.qty} value={qty} onChange={(e) => setQty(e.target.value)} className={inputCls} />
+          <Field label="Where do the goods come from?">
+            <div className="flex gap-3">
+              {[
+                { on: true, title: "This branch", sub: "Deduct from our stock" },
+                { on: false, title: "Another branch", sub: "Don't deduct here" },
+              ].map((opt) => {
+                const active = deduct === opt.on;
+                return (
+                  <button
+                    key={String(opt.on)}
+                    onClick={() => { setDeduct(opt.on); if (opt.on) setSourceBranch(""); }}
+                    className={`flex-1 rounded-md py-2.5 px-2 text-sm border text-left ${
+                      active ? "bg-[#2563EB18] border-[#2563EB] text-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+                    }`}
+                  >
+                    <div className="font-semibold">{opt.title}</div>
+                    <div className="text-[11px] opacity-80">{opt.sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          {!deduct && (
+            <Field label="Which branch supplied it? (optional)">
+              <input value={sourceBranch} onChange={(e) => setSourceBranch(e.target.value)} placeholder="e.g. Jaspare Auto Main" className={inputCls} />
+            </Field>
+          )}
+          <Field label={deduct ? `Quantity sold (max ${selected.qty})` : "Quantity sold"}>
+            <input type="number" min="1" max={deduct ? selected.qty : undefined} value={qty} onChange={(e) => setQty(e.target.value)} className={inputCls} />
           </Field>
           <div className="flex gap-3">
             <div className="flex-1">
@@ -1898,18 +1931,23 @@ export function SellTab({ items, categories, onSell }) {
             Total:{" "}
             <span className="text-[#2563EB] font-bold">KES {total.toLocaleString()}</span>{" "}
             ({n} × {Number(selected.price).toLocaleString()})
+            {!deduct && (
+              <div className="mt-1 text-[12px] text-[#B45309]">
+                Stock here will NOT change — recorded as supplied by {sourceBranch || "another branch"}.
+              </div>
+            )}
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => { setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery(""); }}
+              onClick={reset}
               className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472]"
             >
               Cancel
             </button>
             <button
               onClick={() => {
-                onSell({ code: selected.code, qty: n, buyer, phone, paid: payment === "Paid", total });
-                setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery("");
+                onSell({ code: selected.code, qty: n, buyer, phone, paid: payment === "Paid", total, deduct, sourceBranch });
+                reset();
               }}
               className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"
             >

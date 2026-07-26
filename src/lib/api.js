@@ -136,12 +136,22 @@ export async function addStock(code, amount, byName, supplier = "") {
   return newQty;
 }
 
-export async function sellItem({ code, qty, buyer, phone, paid, total }, byName) {
-  const { data: newQty, error } = await supabase.rpc("sell_item", { p_code: code, p_qty: qty });
-  if (error) throw error;
+export async function sellItem({ code, qty, buyer, phone, paid, total, deduct = true, sourceBranch = "" }, byName) {
+  let newQty = null;
+  if (deduct) {
+    // Sold from THIS branch — atomically reduce our stock.
+    const { data, error } = await supabase.rpc("sell_item", { p_code: code, p_qty: qty });
+    if (error) throw error;
+    newQty = data;
+  } else {
+    // Sold from another branch — record the sale but leave our stock untouched.
+    const { data } = await supabase.from("inventory").select("qty").eq("code", code).single();
+    newQty = data?.qty ?? null;
+  }
   const name = await itemName(code);
+  const reason = deduct ? undefined : `From ${sourceBranch || "another branch"} — not deducted here`;
   await addNotification({ type: "sale", code, name, qty, by_name: byName, buyer, phone, paid, total, remaining: newQty });
-  await addMovement({ code, type: "sale", qty, by_name: byName, buyer, paid, remaining: newQty });
+  await addMovement({ code, type: "sale", qty, by_name: byName, buyer, paid, remaining: newQty, reason });
   await supabase.from("sales").insert({ code, name, qty, buyer, phone, paid, total, by_name: byName });
   emailAdmin(
     `Bypass Shop — stock sold: ${code}`,
