@@ -15,7 +15,11 @@ export const SHOP_INFO = {
     phone: "0724 450 852",
     phoneIntl: "254724450852",      // digits only, for WhatsApp / tel links
     email: "",                       // TODO: branch email (yet to be created)
+    kraPin: "",                      // TODO: KRA PIN once VAT-registered (e.g. P051234567X)
   },
+  // VAT: prices are entered VAT-INCLUSIVE, so the 16% is back-calculated
+  // out of the total. Optional per receipt (off by default until registered).
+  vatRate: 0.16,                     // Kenya standard rate = 16%
   // Head office this branch reports to.
   main: {
     name: "Jaspare Auto — Main Shop",

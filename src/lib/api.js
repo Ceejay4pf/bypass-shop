@@ -324,6 +324,9 @@ export function rowToReceipt(r) {
     total: Number(r.total) || 0,
     paid: Number(r.paid) || 0,
     method: r.method || "",
+    vat: Number(r.vat) || 0,
+    vatRate: Number(r.vat_rate) || 0,
+    kraPin: r.kra_pin || "",
     by: r.created_by || "",
   };
 }
@@ -359,6 +362,9 @@ export async function saveReceipt(rc, byName) {
     total: rc.total || 0,
     paid: rc.paid || 0,
     method: rc.method || null,
+    vat: rc.vat || 0,
+    vat_rate: rc.vatRate || 0,
+    kra_pin: rc.kraPin || null,
     created_by: byName || null,
   };
   const { data, error } = await supabase.from("receipts").insert(row).select().single();

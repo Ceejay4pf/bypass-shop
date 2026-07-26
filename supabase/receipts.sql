@@ -14,8 +14,16 @@ create table if not exists public.receipts (
   total       numeric default 0,
   paid        numeric default 0,
   method      text,
+  vat         numeric default 0,
+  vat_rate    numeric default 0,
+  kra_pin     text,
   created_by  text
 );
+
+-- Add the VAT columns to any receipts table created before this version.
+alter table public.receipts add column if not exists vat      numeric default 0;
+alter table public.receipts add column if not exists vat_rate numeric default 0;
+alter table public.receipts add column if not exists kra_pin  text;
 
 -- Sequence that feeds the human-friendly receipt number.
 create sequence if not exists public.receipt_seq start 1;
