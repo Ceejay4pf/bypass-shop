@@ -1,21 +1,19 @@
--- ============================================================
--- BYPASS SHOP — Receipts storage
--- Run once in: Supabase Dashboard → SQL Editor → New query → Run.
--- Safe to re-run. Adds a receipts table + a human-friendly number.
--- ============================================================
+-- BYPASS SHOP - Receipts storage
+-- Run once in Supabase -> SQL Editor -> New query -> Run. Safe to re-run.
+-- Adds a receipts table plus a human-friendly receipt number.
 
 create table if not exists public.receipts (
   id          uuid primary key default gen_random_uuid(),
-  number      text unique not null,          -- e.g. RCP-2026-0014
+  number      text unique not null,
   ts          timestamptz default now(),
   customer    text,
   phone       text,
-  lines       jsonb not null default '[]'::jsonb,  -- [{desc, qty, price}]
+  lines       jsonb not null default '[]'::jsonb,
   subtotal    numeric default 0,
   discount    numeric default 0,
   total       numeric default 0,
-  paid        numeric default 0,             -- amount tendered
-  method      text,                          -- Cash | M-PESA | Card | ...
+  paid        numeric default 0,
+  method      text,
   created_by  text
 );
 
@@ -31,6 +29,7 @@ $$;
 
 -- Signed-in staff have full access (same as quotes).
 alter table public.receipts enable row level security;
+
 do $$ begin
   create policy "receipts_all" on public.receipts
     for all to authenticated using (true) with check (true);
