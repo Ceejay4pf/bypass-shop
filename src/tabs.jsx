@@ -8,9 +8,10 @@ import {
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
-  UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil,
+  UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
 } from "lucide-react";
 import { CAPABILITIES } from "./lib/roles.js";
+import { SHOP_INFO } from "./lib/shopInfo.js";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
 } from "./lib/appLock.js";
@@ -2884,6 +2885,384 @@ export function QuotationTab({ items, user }) {
       </div>
       </>
       )}
+    </div>
+  );
+}
+
+/* ======================= RECEIPT ======================= */
+/* Create a proper receipt for a completed sale: shop header (branch + main
+   shop contacts, email, location), line items, totals, amount paid and
+   change. Save to get a number, then print/PDF or send on WhatsApp. */
+export function ReceiptTab({ items, user }) {
+  const [customer, setCustomer] = useState("");
+  const [phone, setPhone] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [method, setMethod] = useState("Cash");
+  const [paid, setPaid] = useState("");
+  const [lines, setLines] = useState([{ desc: "", qty: "1", price: "" }]);
+  const [savedNumber, setSavedNumber] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [past, setPast] = useState([]);
+  const [showPast, setShowPast] = useState(false);
+
+  useEffect(() => {
+    if (!showPast) return;
+    api.fetchReceipts().then(setPast).catch(() => setPast([]));
+  }, [showPast]);
+
+  const setLine = (idx, patch) =>
+    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const addLine = () => setLines((ls) => [...ls, { desc: "", qty: "1", price: "" }]);
+  const removeLine = (idx) => setLines((ls) => (ls.length > 1 ? ls.filter((_, i) => i !== idx) : ls));
+
+  const lineTotal = (l) => (Number(l.qty) || 0) * (Number(l.price) || 0);
+  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
+  const disc = Math.min(Number(discount) || 0, subtotal);
+  const grand = subtotal - disc;
+  const paidNum = Number(paid) || 0;
+  const change = paidNum > grand ? paidNum - grand : 0;
+  const balance = grand > paidNum ? grand - paidNum : 0;
+
+  const filledLines = lines.filter((l) => l.desc.trim() && lineTotal(l) > 0);
+
+  const resetForm = () => {
+    setCustomer(""); setPhone(""); setDiscount(""); setPaid(""); setMethod("Cash");
+    setLines([{ desc: "", qty: "1", price: "" }]);
+  };
+
+  const saveReceipt = async () => {
+    if (filledLines.length === 0 || saving) return;
+    setSaving(true);
+    try {
+      const rc = await api.saveReceipt(
+        { customer, phone, lines: filledLines, subtotal, discount: disc, total: grand, paid: paidNum, method },
+        user
+      );
+      setSavedNumber(rc.number);
+      openPdf(rc.number);
+      if (showPast) api.fetchReceipts().then(setPast).catch(() => {});
+    } catch (e) {
+      alert("Could not save receipt: " + (e.message || e) + "\n(Did you run supabase/receipts.sql?)");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // A4 receipt document: branch + main-shop header, items, totals, paid/change.
+  const openPdf = (number) => {
+    const b = SHOP_INFO.branch, m = SHOP_INFO.main;
+    const rows = filledLines
+      .map(
+        (l) => `<tr>
+          <td>${escapeHtml(l.desc)}</td>
+          <td class="c">${l.qty}</td>
+          <td class="r">${Number(l.price).toLocaleString()}</td>
+          <td class="r">${lineTotal(l).toLocaleString()}</td>
+        </tr>`
+      )
+      .join("");
+    const today = new Date().toLocaleString("en-KE", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const branchContacts = [
+      b.phone ? `Tel: ${escapeHtml(b.phone)}` : "",
+      b.email ? `Email: ${escapeHtml(b.email)}` : "Email: (to be advised)",
+      b.location ? escapeHtml(b.location) : "",
+    ].filter(Boolean).join(" &nbsp;·&nbsp; ");
+    const mainContacts = [
+      m.name ? escapeHtml(m.name) : "",
+      m.phone ? `Tel: ${escapeHtml(m.phone)}` : "",
+      m.email ? `Email: ${escapeHtml(m.email)}` : "",
+    ].filter(Boolean).join(" &nbsp;·&nbsp; ");
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>Receipt ${number || ""}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:32px; }
+  .wrap { max-width: 720px; margin:0 auto; }
+  .head { text-align:center; border-bottom:3px solid #2563EB; padding-bottom:14px; }
+  .brand { font-size:26px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#1B2430; }
+  .tag { color:#5A6472; font-size:12px; margin-top:2px; }
+  .contacts { color:#5A6472; font-size:12px; margin-top:6px; }
+  .doc { display:flex; justify-content:space-between; align-items:center; margin:18px 0; }
+  .doc .t { font-size:20px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:2px; }
+  .doc .m { color:#5A6472; font-size:13px; text-align:right; }
+  .meta { font-size:14px; margin-bottom:10px; }
+  .meta .lbl { color:#5A6472; font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+  th { background:#EEF2F6; text-align:left; padding:10px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#5A6472; }
+  th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
+  td { padding:10px; border-bottom:1px solid #DEE3E9; }
+  .totals { margin-top:16px; margin-left:auto; width:300px; font-size:14px; }
+  .totals div { display:flex; justify-content:space-between; padding:6px 0; }
+  .totals .grand { border-top:2px solid #1B2430; margin-top:6px; padding-top:10px; font-size:18px; font-weight:800; color:#2563EB; }
+  .paidbox { margin-top:6px; background:#E6F6EF; border:1px solid #15926A; border-radius:8px; padding:8px 12px; }
+  .paidbox div { display:flex; justify-content:space-between; padding:3px 0; font-size:13px; }
+  .foot { margin-top:34px; color:#5A6472; font-size:12px; border-top:1px solid #DEE3E9; padding-top:12px; text-align:center; }
+  .mainshop { margin-top:8px; color:#5A6472; font-size:11px; text-align:center; }
+  @media print { body { padding:0; } .wrap { max-width:none; } }
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div class="brand">${escapeHtml(b.name)}</div>
+    <div class="tag">${escapeHtml(b.tagline || "")}</div>
+    <div class="contacts">${branchContacts}</div>
+  </div>
+  <div class="doc">
+    <div class="t">Receipt</div>
+    <div class="m">${number ? `No. ${escapeHtml(number)}<br>` : ""}${today}<br>Served by: ${escapeHtml(user || "Staff")}</div>
+  </div>
+  <div class="meta">
+    <div class="lbl">Received from</div>
+    <div><b>${escapeHtml(customer) || "Walk-in customer"}</b>${phone ? ` — ${escapeHtml(phone)}` : ""}</div>
+  </div>
+  <table>
+    <thead><tr><th>Item / Description</th><th class="c">Qty</th><th class="r">Unit (KES)</th><th class="r">Amount (KES)</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <div><span>Subtotal</span><span>KES ${subtotal.toLocaleString()}</span></div>
+    ${disc ? `<div><span>Discount</span><span>- KES ${disc.toLocaleString()}</span></div>` : ""}
+    <div class="grand"><span>Total</span><span>KES ${grand.toLocaleString()}</span></div>
+    <div class="paidbox">
+      <div><span>Paid (${escapeHtml(method || "—")})</span><span>KES ${paidNum.toLocaleString()}</span></div>
+      ${change ? `<div><span>Change</span><span>KES ${change.toLocaleString()}</span></div>` : ""}
+      ${balance ? `<div><span>Balance due</span><span>KES ${balance.toLocaleString()}</span></div>` : ""}
+    </div>
+  </div>
+  <div class="foot">${escapeHtml(SHOP_INFO.footer || "")}</div>
+  <div class="mainshop">A branch reporting to ${mainContacts}</div>
+</div>
+<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to open the PDF."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
+  const shareWhatsApp = () => {
+    const b = SHOP_INFO.branch;
+    const rows = filledLines
+      .map((l) => `• ${l.desc} — ${l.qty} × ${Number(l.price).toLocaleString()} = KES ${lineTotal(l).toLocaleString()}`)
+      .join("\n");
+    const msg =
+      `*${b.name} — Receipt*${savedNumber ? ` (${savedNumber})` : ""}\n${b.location || ""}\n\n` +
+      (customer ? `Customer: ${customer}\n` : "") +
+      `\n${rows}\n\nSubtotal: KES ${subtotal.toLocaleString()}` +
+      (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
+      `\n*Total: KES ${grand.toLocaleString()}*` +
+      `\nPaid (${method}): KES ${paidNum.toLocaleString()}` +
+      (change ? `\nChange: KES ${change.toLocaleString()}` : "") +
+      (balance ? `\nBalance due: KES ${balance.toLocaleString()}` : "") +
+      `\n\nThank you for your business.`;
+    let p = phone.replace(/[^\d]/g, "");
+    if (p.startsWith("0")) p = "254" + p.slice(1);
+    const base = p ? `https://wa.me/${p}` : `https://wa.me/`;
+    window.open(`${base}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  };
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle
+        eyebrow="Issue a receipt for a completed sale"
+        title="Receipt"
+        right={
+          <button
+            onClick={() => setShowPast((v) => !v)}
+            className="text-[#2563EB] text-xs font-semibold border border-[#DEE3E9] rounded-md px-3 py-1.5 hover:bg-[#EEF2F6] flex items-center gap-1.5"
+          >
+            <FileText size={13} /> {showPast ? "New receipt" : "Past receipts"}
+          </button>
+        }
+      />
+
+      {showPast ? (
+        <PastReceipts past={past} />
+      ) : (
+      <>
+      {savedNumber && (
+        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-center gap-2">
+          <Check size={15} /> Saved as <span className="font-bold font-mono">{savedNumber}</span>. Starting a fresh receipt below.
+        </div>
+      )}
+
+      {!SHOP_INFO.branch.email && (
+        <div className="bg-[#FFF7E6] border border-[#E0A400] text-[#8A6400] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          The branch name &amp; email aren't set yet — receipts show placeholders. Edit
+          <span className="font-mono mx-1">src/lib/shopInfo.js</span> once the name &amp; email are confirmed.
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Field label="Customer name (optional)">
+            <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="e.g. James / ABC Garage" className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex-1">
+          <Field label="Phone (for WhatsApp)">
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07…" className={inputCls} />
+          </Field>
+        </div>
+      </div>
+
+      <div className="text-[#2563EB] text-[11px] font-bold tracking-[0.2em] uppercase mb-2">Items</div>
+      <div className="space-y-2 mb-3">
+        {lines.map((l, i) => (
+          <div key={i} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+            <div className="flex items-center gap-2">
+              <input
+                value={l.desc}
+                onChange={(e) => setLine(i, { desc: e.target.value })}
+                list="receipt-parts"
+                placeholder="Part / description"
+                className={inputCls + " flex-1"}
+              />
+              <button
+                onClick={() => removeLine(i)}
+                className="p-2 rounded text-[#5A6472] hover:text-[#DC3B2E] shrink-0"
+                title="Remove line"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <div className="w-20">
+                <input
+                  type="number" min="0" value={l.qty}
+                  onChange={(e) => setLine(i, { qty: e.target.value })}
+                  placeholder="Qty" className={inputCls + " text-center"}
+                />
+              </div>
+              <span className="text-[#5A6472] text-sm">×</span>
+              <div className="flex-1">
+                <input
+                  type="number" min="0" value={l.price}
+                  onChange={(e) => setLine(i, { price: e.target.value })}
+                  placeholder="Unit price (KES)" className={inputCls}
+                />
+              </div>
+              <div className="w-28 text-right text-sm font-semibold text-[#1B2430] tabular-nums shrink-0">
+                {lineTotal(l).toLocaleString()}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <datalist id="receipt-parts">
+        {items.slice(0, 300).map((it) => (
+          <option key={it.code} value={it.name || `${it.brand} ${it.model}`} />
+        ))}
+      </datalist>
+
+      <button
+        onClick={addLine}
+        className="w-full border border-dashed border-[#2563EB] text-[#2563EB] rounded-md py-2.5 font-semibold text-sm flex items-center justify-center gap-2 mb-4 hover:bg-[#2563EB11]"
+      >
+        <Plus size={16} /> Add item
+      </button>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-[#5A6472]">Subtotal</span>
+          <span className="font-semibold tabular-nums">KES {subtotal.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-[#5A6472]">Discount (KES)</span>
+          <input
+            type="number" min="0" value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
+            placeholder="0" className={inputCls + " w-28 text-right py-1.5"}
+          />
+        </div>
+        <div className="flex items-center justify-between border-t border-[#DEE3E9] pt-2">
+          <span className="font-bold uppercase tracking-wide text-sm">Total</span>
+          <span className="text-[#2563EB] font-extrabold text-xl tabular-nums">KES {grand.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <Field label="Payment method">
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}>
+            <option>Cash</option>
+            <option>M-PESA</option>
+            <option>Card</option>
+            <option>Bank transfer</option>
+            <option>Credit (unpaid)</option>
+          </select>
+        </Field>
+        <Field label="Amount paid (KES)">
+          <input
+            type="number" min="0" value={paid}
+            onChange={(e) => setPaid(e.target.value)}
+            placeholder="0" className={inputCls}
+          />
+        </Field>
+      </div>
+
+      {(change > 0 || balance > 0) && (
+        <div className={`rounded-md p-3 mb-2 text-sm font-semibold flex items-center justify-between ${change > 0 ? "bg-[#E6F6EF] text-[#15926A] border border-[#15926A]" : "bg-[#FBEAE8] text-[#DC3B2E] border border-[#DC3B2E]"}`}>
+          <span>{change > 0 ? "Change to give" : "Balance due"}</span>
+          <span className="tabular-nums">KES {(change > 0 ? change : balance).toLocaleString()}</span>
+        </div>
+      )}
+
+      <button
+        onClick={saveReceipt}
+        disabled={filledLines.length === 0 || saving}
+        className="w-full mt-3 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform"
+      >
+        <FileText size={16} /> {saving ? "Saving…" : "Save receipt (get number)"}
+      </button>
+
+      <div className="flex gap-3 mt-3">
+        <button
+          onClick={() => openPdf(savedNumber)}
+          disabled={filledLines.length === 0}
+          className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472] flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          <Printer size={16} /> PDF / Print
+        </button>
+        <button
+          onClick={shareWhatsApp}
+          disabled={filledLines.length === 0}
+          className="flex-1 bg-[#15926A] text-white font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform"
+        >
+          <MessageCircle size={16} /> Send on WhatsApp
+        </button>
+      </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+/* Read-only list of previously issued receipts. */
+function PastReceipts({ past }) {
+  if (past.length === 0) {
+    return <div className="text-[#5A6472] text-sm py-8 text-center">No receipts issued yet.</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {past.map((r) => (
+        <div key={r.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-sm font-bold text-[#2563EB]">{r.number}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-[#15926A22] text-[#15926A]">
+              {r.method || "Paid"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between mt-1 text-sm">
+            <span className="text-[#1B2430]">{r.customer || "Walk-in"}</span>
+            <span className="text-[#2563EB] font-bold tabular-nums">KES {r.total.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center justify-between mt-1 text-xs text-[#5A6472]">
+            <span>{r.lines.length} item(s){r.phone ? ` · ${r.phone}` : ""}</span>
+            <span>{fmtDateTime(r.ts)}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

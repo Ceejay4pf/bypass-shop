@@ -310,6 +310,62 @@ export async function setQuoteStatus(id, status) {
   if (error) throw error;
 }
 
+/* ---- RECEIPTS ---- */
+export function rowToReceipt(r) {
+  return {
+    id: r.id,
+    number: r.number,
+    ts: new Date(r.ts).getTime(),
+    customer: r.customer || "",
+    phone: r.phone || "",
+    lines: Array.isArray(r.lines) ? r.lines : [],
+    subtotal: Number(r.subtotal) || 0,
+    discount: Number(r.discount) || 0,
+    total: Number(r.total) || 0,
+    paid: Number(r.paid) || 0,
+    method: r.method || "",
+    by: r.created_by || "",
+  };
+}
+
+// Next human-friendly receipt number: RCP-<year>-<0000>.
+async function nextReceiptNumber() {
+  const { data, error } = await supabase.rpc("next_receipt_number");
+  if (!error && data) return data;
+  const year = new Date().getFullYear();
+  const { count } = await supabase.from("receipts").select("*", { count: "exact", head: true });
+  return `RCP-${year}-${String((count || 0) + 1).padStart(4, "0")}`;
+}
+
+export async function fetchReceipts(limit = 200) {
+  const { data, error } = await supabase
+    .from("receipts")
+    .select("*")
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data.map(rowToReceipt);
+}
+
+export async function saveReceipt(rc, byName) {
+  const number = await nextReceiptNumber();
+  const row = {
+    number,
+    customer: rc.customer || null,
+    phone: rc.phone || null,
+    lines: rc.lines || [],
+    subtotal: rc.subtotal || 0,
+    discount: rc.discount || 0,
+    total: rc.total || 0,
+    paid: rc.paid || 0,
+    method: rc.method || null,
+    created_by: byName || null,
+  };
+  const { data, error } = await supabase.from("receipts").insert(row).select().single();
+  if (error) throw error;
+  return rowToReceipt(data);
+}
+
 /* ---- SALES ---- */
 export async function fetchSales(limit = 500) {
   const { data, error } = await supabase
