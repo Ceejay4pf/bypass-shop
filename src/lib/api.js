@@ -337,6 +337,9 @@ export function rowToReceipt(r) {
     vat: Number(r.vat) || 0,
     vatRate: Number(r.vat_rate) || 0,
     kraPin: r.kra_pin || "",
+    docType: r.doc_type || "Receipt",
+    stamp: r.stamp || "",
+    customerType: r.customer_type || "",
     by: r.created_by || "",
   };
 }
@@ -375,6 +378,9 @@ export async function saveReceipt(rc, byName) {
     vat: rc.vat || 0,
     vat_rate: rc.vatRate || 0,
     kra_pin: rc.kraPin || null,
+    doc_type: rc.docType || "Receipt",
+    stamp: rc.stamp || null,
+    customer_type: rc.customerType || null,
     created_by: byName || null,
   };
   const { data, error } = await supabase.from("receipts").insert(row).select().single();

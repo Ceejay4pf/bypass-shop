@@ -2948,6 +2948,11 @@ export function ReceiptTab({ items, user }) {
   const [vatOn, setVatOn] = useState(false);
   const [vatMode, setVatMode] = useState("inclusive"); // "inclusive" | "exclusive"
   const vatRate = SHOP_INFO.vatRate || 0.16;
+  // What kind of document to print: a paid Receipt, an Invoice (request for
+  // payment), or a Delivery Note (goods handed over, no money shown).
+  const [docType, setDocType] = useState("Receipt"); // "Receipt" | "Invoice" | "Delivery Note"
+  // Who the customer is — walk-in, referred by someone, or a commission job.
+  const [customerType, setCustomerType] = useState("Walk-in"); // "Walk-in" | "Referred" | "Commission"
 
   useEffect(() => {
     if (!showPast) return;
@@ -2981,11 +2986,19 @@ export function ReceiptTab({ items, user }) {
   const change = paidNum > grand ? paidNum - grand : 0;
   const balance = grand > paidNum ? grand - paidNum : 0;
 
+  // The system decides the payment stamp — staff don't type it.
+  //  balance owing        -> ON CREDIT
+  //  fully paid + discount -> DISCOUNTED
+  //  fully paid, no disc   -> PAID
+  const stamp = balance > 0 ? "ON CREDIT" : disc > 0 ? "DISCOUNTED" : "PAID";
+  const stampColor = stamp === "PAID" ? "#15926A" : stamp === "DISCOUNTED" ? "#B45309" : "#DC3B2E";
+
   const filledLines = lines.filter((l) => l.desc.trim() && lineTotal(l) > 0);
 
   const resetForm = () => {
     setCustomer(""); setPhone(""); setDiscount(""); setPaid(""); setMethod("Cash");
     setLines([{ desc: "", qty: "1", price: "" }]);
+    setDocType("Receipt"); setCustomerType("Walk-in");
   };
 
   const saveReceipt = async () => {
@@ -2998,6 +3011,7 @@ export function ReceiptTab({ items, user }) {
           total: Math.round(grand), paid: paidNum, method,
           vat: vatOn ? Math.round(vat) : 0, vatRate: vatOn ? vatRate : 0,
           kraPin: vatOn ? SHOP_INFO.branch.kraPin : "",
+          docType, stamp, customerType,
         },
         user
       );
@@ -3014,13 +3028,14 @@ export function ReceiptTab({ items, user }) {
   // A4 receipt document: branch + main-shop header, items, totals, paid/change.
   const openPdf = (number) => {
     const b = SHOP_INFO.branch, m = SHOP_INFO.main;
+    const isDelivery = docType === "Delivery Note"; // delivery notes hide money
     const rows = filledLines
       .map(
         (l) => `<tr>
           <td>${escapeHtml(l.desc)}</td>
           <td class="c">${l.qty}</td>
-          <td class="r">${Number(l.price).toLocaleString()}</td>
-          <td class="r">${lineTotal(l).toLocaleString()}</td>
+          ${isDelivery ? "" : `<td class="r">${Number(l.price).toLocaleString()}</td>
+          <td class="r">${lineTotal(l).toLocaleString()}</td>`}
         </tr>`
       )
       .join("");
@@ -3035,7 +3050,8 @@ export function ReceiptTab({ items, user }) {
       m.phone ? `Tel: ${escapeHtml(m.phone)}` : "",
       m.email ? `Email: ${escapeHtml(m.email)}` : "",
     ].filter(Boolean).join(" &nbsp;·&nbsp; ");
-    const docTitle = vatOn ? "Tax Invoice" : "Receipt";
+    // A VAT sale is always titled "Tax Invoice"; otherwise use the chosen doc type.
+    const docTitle = vatOn ? "Tax Invoice" : docType;
     const vatPct = Math.round(vatRate * 100);
     const html = `<!doctype html><html><head><meta charset="utf-8">
 <title>${docTitle} ${number || ""}</title>
@@ -3063,6 +3079,8 @@ export function ReceiptTab({ items, user }) {
   .paidbox div { display:flex; justify-content:space-between; padding:3px 0; font-size:13px; }
   .foot { margin-top:34px; color:#5A6472; font-size:12px; border-top:1px solid #DEE3E9; padding-top:12px; text-align:center; }
   .mainshop { margin-top:8px; color:#5A6472; font-size:11px; text-align:center; }
+  .stamp { display:inline-block; margin-top:6px; border:3px solid ${stampColor}; color:${stampColor}; font-weight:800; font-size:20px; letter-spacing:3px; padding:4px 16px; border-radius:8px; transform:rotate(-4deg); text-transform:uppercase; }
+  .ctype { color:#5A6472; font-size:12px; margin-top:2px; }
   @media print { body { padding:0; } .wrap { max-width:none; } }
 </style></head>
 <body><div class="wrap">
@@ -3073,18 +3091,23 @@ export function ReceiptTab({ items, user }) {
     ${vatOn && b.kraPin ? `<div class="contacts">PIN: ${escapeHtml(b.kraPin)}</div>` : ""}
   </div>
   <div class="doc">
-    <div class="t">${docTitle}</div>
+    <div>
+      <div class="t">${docTitle}</div>
+      ${isDelivery ? "" : `<div class="stamp">${stamp}</div>`}
+    </div>
     <div class="m">${number ? `No. ${escapeHtml(number)}<br>` : ""}${today}<br>Served by: ${escapeHtml(user || "Staff")}</div>
   </div>
   <div class="meta">
-    <div class="lbl">Received from</div>
+    <div class="lbl">${isDelivery ? "Delivered to" : "Received from"}</div>
     <div><b>${escapeHtml(customer) || "Walk-in customer"}</b>${phone ? ` — ${escapeHtml(phone)}` : ""}</div>
+    <div class="ctype">Customer: ${escapeHtml(customerType)}</div>
   </div>
   <table>
-    <thead><tr><th>Item / Description</th><th class="c">Qty</th><th class="r">Unit (KES)</th><th class="r">Amount (KES)</th></tr></thead>
+    <thead><tr><th>Item / Description</th><th class="c">Qty</th>${isDelivery ? "" : `<th class="r">Unit (KES)</th><th class="r">Amount (KES)</th>`}</tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <div class="totals">
+  ${isDelivery ? `<div class="totals"><div class="grand"><span>Total items</span><span>${filledLines.reduce((s, l) => s + (Number(l.qty) || 0), 0)}</span></div></div>
+  <div class="foot" style="margin-top:24px;text-align:left;border:none;">Received the above goods in good order:<br><br>Name: __________________________  Sign: __________________________</div>` : `<div class="totals">
     <div><span>Subtotal</span><span>KES ${gross.toLocaleString()}</span></div>
     ${disc ? `<div><span>Discount</span><span>- KES ${disc.toLocaleString()}</span></div>` : ""}
     ${vatOn ? `<div><span>${vatMode === "exclusive" ? "Amount (excl. VAT)" : "Taxable (excl. VAT)"}</span><span>KES ${Math.round(netAmount).toLocaleString()}</span></div>
@@ -3095,7 +3118,7 @@ export function ReceiptTab({ items, user }) {
       ${change ? `<div><span>Change</span><span>KES ${change.toLocaleString()}</span></div>` : ""}
       ${balance ? `<div><span>Balance due</span><span>KES ${balance.toLocaleString()}</span></div>` : ""}
     </div>
-  </div>
+  </div>`}
   <div class="foot">${escapeHtml(SHOP_INFO.footer || "")}</div>
   <div class="mainshop">A branch reporting to ${mainContacts}</div>
 </div>
@@ -3109,20 +3132,30 @@ export function ReceiptTab({ items, user }) {
 
   const shareWhatsApp = () => {
     const b = SHOP_INFO.branch;
+    const deliveryNote = docType === "Delivery Note";
     const rows = filledLines
-      .map((l) => `• ${l.desc} — ${l.qty} × ${Number(l.price).toLocaleString()} = KES ${lineTotal(l).toLocaleString()}`)
+      .map((l) => deliveryNote
+        ? `• ${l.desc} — qty ${l.qty}`
+        : `• ${l.desc} — ${l.qty} × ${Number(l.price).toLocaleString()} = KES ${lineTotal(l).toLocaleString()}`)
       .join("\n");
-    const msg =
-      `*${b.name} — Receipt*${savedNumber ? ` (${savedNumber})` : ""}\n${b.location || ""}\n\n` +
-      (customer ? `Customer: ${customer}\n` : "") +
-      `\n${rows}\n\nSubtotal: KES ${gross.toLocaleString()}` +
-      (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
-      (vatOn ? `\nVAT ${Math.round(vatRate * 100)}%${vatMode === "exclusive" ? " (added)" : " (incl.)"}: KES ${Math.round(vat).toLocaleString()}` : "") +
-      `\n*Total${vatOn ? " (incl. VAT)" : ""}: KES ${Math.round(grand).toLocaleString()}*` +
-      `\nPaid (${method}): KES ${paidNum.toLocaleString()}` +
-      (change ? `\nChange: KES ${change.toLocaleString()}` : "") +
-      (balance ? `\nBalance due: KES ${balance.toLocaleString()}` : "") +
-      `\n\nThank you for your business.`;
+    const isDelivery = docType === "Delivery Note";
+    const heading = vatOn ? "Tax Invoice" : docType;
+    const msg = isDelivery
+      ? `*${b.name} — Delivery Note*${savedNumber ? ` (${savedNumber})` : ""}\n${b.location || ""}\n\n` +
+        (customer ? `Delivered to: ${customer}\n` : "") +
+        `\n${rows}\n\nTotal items: ${filledLines.reduce((s, l) => s + (Number(l.qty) || 0), 0)}` +
+        `\n\nPlease confirm goods received in good order.`
+      : `*${b.name} — ${heading}*${savedNumber ? ` (${savedNumber})` : ""}\n${b.location || ""}\n\n` +
+        (customer ? `Customer: ${customer}\n` : "") +
+        `Status: ${stamp}\n` +
+        `\n${rows}\n\nSubtotal: KES ${gross.toLocaleString()}` +
+        (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
+        (vatOn ? `\nVAT ${Math.round(vatRate * 100)}%${vatMode === "exclusive" ? " (added)" : " (incl.)"}: KES ${Math.round(vat).toLocaleString()}` : "") +
+        `\n*Total${vatOn ? " (incl. VAT)" : ""}: KES ${Math.round(grand).toLocaleString()}*` +
+        `\nPaid (${method}): KES ${paidNum.toLocaleString()}` +
+        (change ? `\nChange: KES ${change.toLocaleString()}` : "") +
+        (balance ? `\nBalance due: KES ${balance.toLocaleString()}` : "") +
+        `\n\nThank you for your business.`;
     let p = phone.replace(/[^\d]/g, "");
     if (p.startsWith("0")) p = "254" + p.slice(1);
     const base = p ? `https://wa.me/${p}` : `https://wa.me/`;
@@ -3162,6 +3195,25 @@ export function ReceiptTab({ items, user }) {
         </div>
       )}
 
+      {/* Document type — what to print. */}
+      <Field label="Document type">
+        <div className="flex gap-2">
+          {["Receipt", "Invoice", "Delivery Note"].map((d) => {
+            const active = docType === d;
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDocType(d)}
+                className={`flex-1 rounded-md py-2.5 text-sm font-semibold border ${active ? "bg-[#2563EB] text-white border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"}`}
+              >
+                {d}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+
       <div className="flex gap-3">
         <div className="flex-1">
           <Field label="Customer name (optional)">
@@ -3174,6 +3226,25 @@ export function ReceiptTab({ items, user }) {
           </Field>
         </div>
       </div>
+
+      {/* Customer type — walk-in, referred, or a commission job. */}
+      <Field label="Customer type">
+        <div className="flex gap-2">
+          {["Walk-in", "Referred", "Commission"].map((t) => {
+            const active = customerType === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setCustomerType(t)}
+                className={`flex-1 rounded-md py-2 text-sm font-semibold border ${active ? "bg-[#7C5CD6] text-white border-[#7C5CD6]" : "border-[#DEE3E9] text-[#5A6472]"}`}
+              >
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
 
       <div className="text-[#2563EB] text-[11px] font-bold tracking-[0.2em] uppercase mb-2">Items</div>
       <div className="space-y-2 mb-3">
@@ -3292,6 +3363,17 @@ export function ReceiptTab({ items, user }) {
           <span className="font-bold uppercase tracking-wide text-sm">Total{vatOn ? " (incl. VAT)" : ""}</span>
           <span className="text-[#2563EB] font-extrabold text-xl tabular-nums">KES {Math.round(grand).toLocaleString()}</span>
         </div>
+        {docType !== "Delivery Note" && (
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[11px] text-[#5A6472] uppercase tracking-wide">Status (auto)</span>
+            <span
+              className="text-xs font-extrabold uppercase tracking-widest px-2.5 py-1 rounded border"
+              style={{ color: stampColor, borderColor: stampColor, background: stampColor + "18" }}
+            >
+              {stamp}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 mt-3">
@@ -3357,24 +3439,40 @@ function PastReceipts({ past }) {
   }
   return (
     <div className="space-y-2">
-      {past.map((r) => (
+      {past.map((r) => {
+        const stampCls = r.stamp === "ON CREDIT"
+          ? "bg-[#DC3B2E22] text-[#DC3B2E]"
+          : r.stamp === "DISCOUNTED"
+          ? "bg-[#B4530922] text-[#B45309]"
+          : "bg-[#15926A22] text-[#15926A]";
+        return (
         <div key={r.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="font-mono text-sm font-bold text-[#2563EB]">{r.number}</span>
-            <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-[#15926A22] text-[#15926A]">
-              {r.method || "Paid"}
-            </span>
+            <div className="flex items-center gap-1.5">
+              {r.docType && r.docType !== "Receipt" && (
+                <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-[#2563EB22] text-[#2563EB]">
+                  {r.docType}
+                </span>
+              )}
+              {r.stamp && (
+                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${stampCls}`}>
+                  {r.stamp}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center justify-between mt-1 text-sm">
-            <span className="text-[#1B2430]">{r.customer || "Walk-in"}</span>
+            <span className="text-[#1B2430]">{r.customer || "Walk-in"}{r.customerType && r.customerType !== "Walk-in" ? ` · ${r.customerType}` : ""}</span>
             <span className="text-[#2563EB] font-bold tabular-nums">KES {r.total.toLocaleString()}</span>
           </div>
           <div className="flex items-center justify-between mt-1 text-xs text-[#5A6472]">
-            <span>{r.lines.length} item(s){r.phone ? ` · ${r.phone}` : ""}</span>
+            <span>{r.lines.length} item(s){r.method ? ` · ${r.method}` : ""}{r.phone ? ` · ${r.phone}` : ""}</span>
             <span>{fmtDateTime(r.ts)}</span>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

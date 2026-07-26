@@ -25,6 +25,13 @@ alter table public.receipts add column if not exists vat      numeric default 0;
 alter table public.receipts add column if not exists vat_rate numeric default 0;
 alter table public.receipts add column if not exists kra_pin  text;
 
+-- Document type (Receipt / Invoice / Delivery Note), the system-generated
+-- payment stamp (PAID / DISCOUNTED / ON CREDIT), and the customer type
+-- (walk-in / referred / commission). Older tables get them added here too.
+alter table public.receipts add column if not exists doc_type      text default 'Receipt';
+alter table public.receipts add column if not exists stamp         text;
+alter table public.receipts add column if not exists customer_type text;
+
 -- Sequence that feeds the human-friendly receipt number.
 create sequence if not exists public.receipt_seq start 1;
 
