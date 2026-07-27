@@ -10,13 +10,42 @@
    Real emails (like the owner's) are matched directly.
 --------------------------------------------------------- */
 const ADMIN_EMAILS = [
-  "admin@bypassshop.co",     // login name "admin"
-  "addamsjmk@gmail.com",     // owner
+  "admin@bypassshop.co",       // role login "Admin"
+  "management@bypassshop.co",  // role login "Management"
+  "addamsjmk@gmail.com",       // owner
 ];
 
 export function isAdmin(session) {
   const email = session?.user?.email?.toLowerCase() || "";
   return ADMIN_EMAILS.includes(email);
+}
+
+// The four shared role accounts are pre-trusted: they never sit in the
+// approval queue, since the password itself is the authorisation.
+const ROLE_EMAILS = [
+  "admin@bypassshop.co",
+  "management@bypassshop.co",
+  "sales@bypassshop.co",
+  "staff@bypassshop.co",
+];
+
+export function isRoleAccount(session) {
+  const email = session?.user?.email?.toLowerCase() || "";
+  return ROLE_EMAILS.includes(email);
+}
+
+/* Capabilities baked into each shared role, so a role login works the
+   moment it's used — no admin has to tick boxes first. Admin and
+   management are admins already, so they aren't listed. */
+const ROLE_PERMISSIONS = {
+  sales: ["quick"],
+  staff: ["additem", "edit", "quick"],
+};
+
+export function rolePermissions(session) {
+  const email = session?.user?.email?.toLowerCase() || "";
+  const key = email.split("@")[0];
+  return ROLE_PERMISSIONS[key] || [];
 }
 
 // Owner inbox that gets the login-alert email.

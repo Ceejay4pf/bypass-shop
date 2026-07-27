@@ -14,7 +14,8 @@ import { isLockEnabled, isUnlocked, markUnlocked, lockNow } from "./lib/appLock.
 import { supabase, isConfigured } from "./lib/supabase.js";
 import { useInventory, useNotifications, useAuth } from "./lib/hooks.js";
 import { getProfileName, signOut } from "./lib/auth.js";
-import { isAdmin, hasCap } from "./lib/roles.js";
+import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
+import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
 import * as api from "./lib/api.js";
 import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
 import {
@@ -81,12 +82,18 @@ function BypassShop({ session }) {
   const { items, loading: itemsLoading, error } = useInventory();
   const { notifications } = useNotifications();
   const admin = isAdmin(session);
+  // Shared role logins are pre-trusted — the role password is the
+  // authorisation, so they never sit in the approval queue.
+  const roleLogin = isRoleAccount(session);
   const [user, setUser] = useState(session.user.user_metadata?.full_name || "Staff");
   const [tab, setTab] = useState("dashboard");
   const [history, setHistory] = useState([]); // screens visited, for the Back button
   const [toast, setToast] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   const [ledgerCode, setLedgerCode] = useState("");
+  // A part chosen from the Search long-press menu, carried to the target screen.
+  // { code, action } — action is "sell" | "quote" | "edit" | "info" | "stock".
+  const [picked, setPicked] = useState(null);
   // Biometric app-lock: gate the app until unlocked this session.
   const [locked, setLocked] = useState(() => isLockEnabled() && !isUnlocked());
   // Show the welcome guide until this device has seen it once.
@@ -96,12 +103,12 @@ function BypassShop({ session }) {
   const now = useClock();
   // Admin-approval gate: null = still checking, true/false = known.
   // Admins are always allowed; only non-admin accounts can be held pending.
-  const [approved, setApproved] = useState(admin ? true : null);
+  const [approved, setApproved] = useState(admin || roleLogin ? true : null);
   // This staff account's granted capabilities (admins have all implicitly).
-  const [myPerms, setMyPerms] = useState([]);
+  const [myPerms, setMyPerms] = useState(() => rolePermissions(session));
 
   useEffect(() => {
-    if (admin) { setApproved(true); return; }
+    if (admin || roleLogin) { setApproved(true); return; }
     let alive = true;
     // Baseline force-logout time seen at load; a newer one means an admin
     // signed us out since. null until first read so we don't sign out on boot.
@@ -121,7 +128,7 @@ function BypassShop({ session }) {
     // without a refresh.
     const unsub = api.subscribeProfiles(check);
     return () => { alive = false; unsub(); };
-  }, [admin, session.user.id]);
+  }, [admin, roleLogin, session.user.id]);
 
   const can = useCallback(
     (cap) => hasCap(cap, { admin, permissions: myPerms }),
@@ -158,10 +165,15 @@ function BypassShop({ session }) {
     setShowWelcome(false);
   };
 
-  // Resolve the staff display name from the profiles table.
+  // Resolve the staff display name. On a shared role login the profile name
+  // belongs to whoever logged in last, so trust the name typed on this device.
   useEffect(() => {
+    if (roleLogin) {
+      const mine = getRolePersonName();
+      if (mine) { setUser(mine); return; }
+    }
     getProfileName(session.user.id, session.user.email).then((n) => n && setUser(n));
-  }, [session.user.id]);
+  }, [roleLogin, session.user.id]);
 
   // Log this login once per session so the main shop sees who signed in.
   useEffect(() => {
@@ -176,6 +188,25 @@ function BypassShop({ session }) {
     setLedgerCode(code);
     go("ledger");
   };
+
+  /* The code to preselect on a screen, but only for the action that asked
+     for it — so returning to Sell later starts clean. */
+  const pickFor = (action) => (picked?.action === action ? picked.code : "");
+
+  /* A part was long-pressed in Search and an action chosen. Carry the part
+     over to the right screen so staff don't have to search for it twice. */
+  const handlePick = (action, item) => {
+    if (action === "ledger") { openLedger(item.code); return; }
+    const target = action === "info" ? "edit" : action;
+    setPicked({ code: item.code, action, tab: target });
+    go(target);
+  };
+
+  // Once the person leaves the screen we sent them to, forget the pick so
+  // opening that screen again from the menu starts fresh.
+  useEffect(() => {
+    if (picked && tab !== picked.tab) setPicked(null);
+  }, [tab, picked]);
   // Step back to the previous screen. Also driven by the phone's hardware/
   // gesture back button via the popstate listener below.
   const goBack = useCallback(() => {
@@ -243,7 +274,7 @@ function BypassShop({ session }) {
     else if (t.kind === "adjust") handleAdjust(t.code, t.newQty, t.reason);
   };
 
-  const handleLogout = async () => { await signOut(); };
+  const handleLogout = async () => { clearRoleSession(); await signOut(); };
 
   const lowStockCount = useMemo(
     () => items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD)).length,
@@ -273,8 +304,9 @@ function BypassShop({ session }) {
     return <LockScreen user={user} onUnlocked={() => { markUnlocked(); setLocked(false); }} />;
   }
 
-  // Hold non-admin accounts on the pending screen until an admin approves them.
-  if (!admin && approved === false) {
+  // Hold personal (non-admin, non-role) accounts on the pending screen until
+  // an admin approves them. Role logins are already authorised by password.
+  if (!admin && !roleLogin && approved === false) {
     return <PendingGate user={user} onSignOut={handleLogout} />;
   }
 
@@ -396,7 +428,15 @@ function BypassShop({ session }) {
           {tab === "quick" && can("quick") && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
           )}
-          {tab === "search" && <SearchTab items={items} categories={CATEGORIES} onDelete={can("delete") ? handleDelete : undefined} />}
+          {tab === "search" && (
+            <SearchTab
+              items={items}
+              categories={CATEGORIES}
+              onDelete={can("delete") ? handleDelete : undefined}
+              onPick={handlePick}
+              canEdit={can("edit")}
+            />
+          )}
           {tab === "inventory" && (
             <InventoryTab
               items={items}
@@ -411,10 +451,37 @@ function BypassShop({ session }) {
           {tab === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={can("delete") ? handleDelete : undefined} />}
           {tab === "add" && can("additem") && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
-          {tab === "edit" && can("edit") && <EditPartsTab items={items} categories={CATEGORIES} onSave={handleEditItem} />}
-          {tab === "stock" && <AddStockTab items={items} categories={CATEGORIES} onAddStock={handleAddStock} />}
-          {tab === "sell" && <SellTab items={items} categories={CATEGORIES} onSell={handleSell} />}
-          {tab === "quote" && <QuotationTab items={items} user={user} />}
+          {tab === "edit" && can("edit") && (
+            <EditPartsTab
+              key={pickFor("edit") || pickFor("info") || "edit"}
+              items={items}
+              categories={CATEGORIES}
+              onSave={handleEditItem}
+              initialCode={pickFor("edit") || pickFor("info")}
+              focusInfo={Boolean(pickFor("info"))}
+            />
+          )}
+          {tab === "stock" && (
+            <AddStockTab
+              key={pickFor("stock") || "stock"}
+              items={items}
+              categories={CATEGORIES}
+              onAddStock={handleAddStock}
+              initialCode={pickFor("stock")}
+            />
+          )}
+          {tab === "sell" && (
+            <SellTab
+              key={pickFor("sell") || "sell"}
+              items={items}
+              categories={CATEGORIES}
+              onSell={handleSell}
+              initialCode={pickFor("sell")}
+            />
+          )}
+          {tab === "quote" && (
+            <QuotationTab key={pickFor("quote") || "quote"} items={items} user={user} initialCode={pickFor("quote")} />
+          )}
           {tab === "receipt" && <ReceiptTab items={items} user={user} />}
           {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
           {tab === "transfers" && <TransfersTab items={items} user={user} />}

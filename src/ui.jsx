@@ -1,8 +1,8 @@
 /* ---------------------------------------------------------
    BYPASS SHOP — shared UI primitives & helpers
 --------------------------------------------------------- */
-import React from "react";
-import { MapPin, Trash2 } from "lucide-react";
+import React, { useState } from "react";
+import { MapPin, Trash2, ImagePlus, X } from "lucide-react";
 import { condColor, LOW_STOCK_THRESHOLD } from "./data.js";
 
 export const inputCls =
@@ -49,12 +49,67 @@ export function StockBadge({ item }) {
   );
 }
 
+/* Full-screen image viewer. Pass images (array of URLs), a start index, and onClose. */
+export function ImageLightbox({ images, index = 0, onClose }) {
+  const [i, setI] = useState(index);
+  if (!images || images.length === 0) return null;
+  const many = images.length > 1;
+  const go = (d) => (e) => { e.stopPropagation(); setI((p) => (p + d + images.length) % images.length); };
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+    >
+      <button onClick={onClose} className="absolute top-4 right-4 text-white/80 hover:text-white p-2" title="Close">
+        <X size={28} />
+      </button>
+      <img
+        src={images[i]}
+        alt="Part"
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[85vh] max-w-full rounded-lg object-contain"
+      />
+      {many && (
+        <>
+          <button onClick={go(-1)} className="absolute left-4 text-white/80 hover:text-white text-4xl font-light px-3">‹</button>
+          <button onClick={go(1)} className="absolute right-4 text-white/80 hover:text-white text-4xl font-light px-3">›</button>
+          <div className="absolute bottom-6 text-white/80 text-sm">{i + 1} / {images.length}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* Compact item card used across search / stock / sell. */
 export function ItemCard({ item, categories, onDelete }) {
   const cat = categories.find((c) => c.key === item.cat) || categories[0] || {};
+  const images = Array.isArray(item.images) ? item.images.filter(Boolean) : [];
+  const [showImg, setShowImg] = useState(false);
   return (
     <div className="group flex items-stretch bg-[#FFFFFF] border border-[#DEE3E9] rounded-md overflow-hidden hover:border-[#C2CAD3] transition-colors">
       <div className="w-2 shrink-0" style={{ backgroundColor: cat.color || "#6B7480" }} />
+      {/* Photo thumbnail — tap to view full size. Placeholder if none yet. */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); if (images.length) setShowImg(true); }}
+        className={`relative w-16 sm:w-20 shrink-0 bg-[#EEF2F6] flex items-center justify-center overflow-hidden ${images.length ? "cursor-zoom-in" : "cursor-default"}`}
+        title={images.length ? "View photo" : "No photo yet"}
+        aria-label={images.length ? "View photo" : "No photo"}
+      >
+        {images.length ? (
+          <>
+            <img src={images[0]} alt={item.name || item.code} className="w-full h-full object-cover" />
+            {images.length > 1 && (
+              <span className="absolute bottom-1 right-1 text-[10px] font-bold text-white bg-black/60 px-1.5 rounded">
+                +{images.length - 1}
+              </span>
+            )}
+          </>
+        ) : (
+          <ImagePlus size={20} className="text-[#B4BCC7]" />
+        )}
+      </button>
+      {showImg && <ImageLightbox images={images} onClose={() => setShowImg(false)} />}
       <div className="flex-1 p-3 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <span className="font-mono text-xs sm:text-sm tracking-wider text-[#1B2430] bg-[#EEF2F6] border border-[#DEE3E9] px-2 py-0.5 rounded">

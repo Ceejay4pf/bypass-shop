@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Boxes, Lock, User, AlertTriangle, ArrowRight, Loader2, Phone, CheckCircle2 } from "lucide-react";
+import { Boxes, Lock, User, AlertTriangle, ArrowRight, Loader2, Phone, CheckCircle2, ShieldCheck, HelpCircle } from "lucide-react";
 import { Field, inputCls } from "./ui.jsx";
-import { signIn, signUp } from "./lib/auth.js";
+import { signIn, signUp, signInRole } from "./lib/auth.js";
+import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { isConfigured } from "./lib/supabase.js";
 
 /* ---------------------------------------------------------
@@ -28,6 +29,8 @@ function SparePartIcon() {
 }
 
 export default function LoginGate() {
+  // Which login method: the 4 shared role logins, or a personal account.
+  const [tab, setTab] = useState("role");      // role | own
   const [mode, setMode] = useState("signin"); // signin | signup
   const [name, setName] = useState("");        // name OR phone/email — the login id
   const [contact, setContact] = useState("");  // optional phone or email (signup only)
@@ -35,6 +38,40 @@ export default function LoginGate() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  // Role-login fields.
+  const [roleKey, setRoleKey] = useState("");
+  const [rolePass, setRolePass] = useState("");
+  const [personName, setPersonName] = useState("");
+  const [showHelp, setShowHelp] = useState(false);
+
+  const chosenRole = ROLE_ACCOUNTS.find((r) => r.key === roleKey) || null;
+
+  const submitRole = async () => {
+    setError("");
+    setNotice("");
+    if (!chosenRole) { setError("Pick your role first."); return; }
+    if (!personName.trim()) { setError("Type your own name so your work is recorded under you."); return; }
+    if (!rolePass) { setError("Enter the role password."); return; }
+    setBusy(true);
+    try {
+      await signInRole(chosenRole, rolePass, personName.trim());
+      setRoleSession(chosenRole.key, personName.trim());
+      // useAuth() in App picks up the session automatically.
+    } catch (e) {
+      const msg = e.message || "Login failed.";
+      if (/invalid login credentials|wrong password/i.test(msg)) {
+        setError(`Wrong password for ${chosenRole.label}. Ask the admin to reset it.`);
+      } else if (/email not confirmed/i.test(msg)) {
+        setError("Turn off Supabase → Authentication → “Confirm email”, then try again.");
+      } else if (/password/i.test(msg) && /6/.test(msg)) {
+        setError("The role password must be at least 6 characters.");
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     setError("");
@@ -117,6 +154,120 @@ export default function LoginGate() {
         )}
 
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-5 shadow-xl">
+          {/* Two ways in: a shared role login, or your own account. */}
+          <div className="flex gap-2 mb-4 bg-[#EEF2F6] rounded-md p-1">
+            {[
+              { k: "role", label: "Role login" },
+              { k: "own", label: "My own account" },
+            ].map((t) => (
+              <button
+                key={t.k}
+                onClick={() => { setTab(t.k); setError(""); setNotice(""); }}
+                className={`flex-1 rounded py-2 text-xs font-bold uppercase tracking-wide transition-colors ${
+                  tab === t.k ? "bg-white text-[#2563EB] shadow-sm" : "text-[#5A6472]"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "role" ? (
+            <>
+              <div className="flex items-center gap-2 mb-3 text-[#1B2430] font-semibold">
+                <ShieldCheck size={16} className="text-[#2563EB]" /> Pick your role
+              </div>
+
+              {/* The four shared logins. */}
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {ROLE_ACCOUNTS.map((r) => {
+                  const active = roleKey === r.key;
+                  return (
+                    <button
+                      key={r.key}
+                      onClick={() => { setRoleKey(r.key); setError(""); }}
+                      className={`rounded-md border px-3 py-2.5 text-left transition-colors ${
+                        active ? "border-transparent text-white" : "border-[#DEE3E9] text-[#1B2430] hover:border-[#C2CAD3]"
+                      }`}
+                      style={active ? { backgroundColor: r.color } : undefined}
+                    >
+                      <div className="text-sm font-bold">{r.label}</div>
+                      <div className={`text-[10px] leading-tight mt-0.5 ${active ? "text-white/80" : "text-[#5A6472]"}`}>
+                        {r.desc}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {chosenRole && (
+                <>
+                  <Field label="Your own name (so your work is recorded under you)">
+                    <div className="relative">
+                      <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
+                      <input
+                        value={personName}
+                        onChange={(e) => setPersonName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && submitRole()}
+                        placeholder="e.g. Peter Njoroge"
+                        className={inputCls + " pl-9"}
+                        autoFocus
+                      />
+                    </div>
+                  </Field>
+
+                  <Field label={`${chosenRole.label} password`}>
+                    <input
+                      type="password"
+                      value={rolePass}
+                      onChange={(e) => setRolePass(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && submitRole()}
+                      placeholder="••••••••"
+                      className={inputCls}
+                    />
+                  </Field>
+
+                  <button
+                    onClick={() => setShowHelp((v) => !v)}
+                    className="text-[#5A6472] text-[11px] mb-3 flex items-center gap-1 hover:text-[#2563EB]"
+                  >
+                    <HelpCircle size={12} /> Forgot the password?
+                  </button>
+                  {showHelp && (
+                    <div className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 text-[11px] text-[#5A6472] mb-3 leading-relaxed">
+                      Ask the admin — they can view and change every role password
+                      under <span className="font-semibold text-[#1B2430]">Settings → Role Passwords</span>.
+                      The starting password for each role is its name + 123
+                      (e.g. <span className="font-mono">{defaultRolePassword(chosenRole.key)}</span>).
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="text-[#DC3B2E] text-sm mb-3 flex items-start gap-1.5">
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={submitRole}
+                    disabled={busy || !isConfigured}
+                    className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+                  >
+                    {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                    Log in as {chosenRole.label}
+                  </button>
+                </>
+              )}
+
+              {!chosenRole && (
+                <p className="text-[#5A6472] text-[11px] text-center leading-relaxed">
+                  Tap a role above. You'll then type your own name and the role
+                  password — no sign-up and no waiting for approval.
+                </p>
+              )}
+            </>
+          ) : (
+          <>
           <div className="flex items-center gap-2 mb-4 text-[#1B2430] font-semibold">
             <Lock size={16} className="text-[#2563EB]" />
             {mode === "signin" ? "Staff Login" : "Create Staff Account"}
@@ -194,8 +345,9 @@ export default function LoginGate() {
             className="w-full text-[#5A6472] text-xs mt-3 hover:text-[#2563EB]"
           >
             {mode === "signin" ? "New staff member? Create an account" : "Already have an account? Sign in"}
-
           </button>
+          </>
+          )}
         </div>
 
         <p className="text-center text-[11px] text-[#5A6472] mt-4">

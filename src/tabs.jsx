@@ -12,6 +12,8 @@ import {
   Wallet, CreditCard, ArrowRightLeft, Building2, User,
 } from "lucide-react";
 import { CAPABILITIES } from "./lib/roles.js";
+import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
+import { changeRolePassword } from "./lib/auth.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
@@ -24,6 +26,39 @@ import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
   timeAgo, fmtDateTime, BarChart, TrendChart, DonutChart,
 } from "./ui.jsx";
+
+// Read an image File and return a compressed JPEG data URL. Phone photos are
+// several MB; we downscale to <=1000px and re-encode so items stay light in
+// the database and load fast on other devices. Falls back to the raw file if
+// anything goes wrong.
+function readImageCompressed(file, maxSide = 1000, quality = 0.7) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > maxSide || height > maxSide) {
+            const scale = maxSide / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        } catch {
+          resolve(reader.result); // fall back to original
+        }
+      };
+      img.onerror = () => resolve(reader.result);
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // Escape user text before dropping it into the generated PDF HTML.
 const escapeHtml = (s) =>
@@ -275,11 +310,99 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
 }
 
 /* ======================= SEARCH ======================= */
-export function SearchTab({ items, categories, onDelete }) {
+
+/* Long-press (press-and-hold) detection that works on phone and desktop.
+   Returns props to spread on an element; after ~500ms of holding it fires
+   onLongPress and suppresses the click that would otherwise follow. */
+function useLongPress(onLongPress, ms = 500) {
+  const timer = React.useRef(null);
+  const fired = React.useRef(false);
+
+  const start = () => {
+    fired.current = false;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => { fired.current = true; onLongPress(); }, ms);
+  };
+  const cancel = () => clearTimeout(timer.current);
+
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+
+  return {
+    onTouchStart: start,
+    onTouchEnd: cancel,
+    onTouchMove: cancel,
+    onTouchCancel: cancel,
+    onMouseDown: (e) => { if (e.button === 0) start(); },
+    onMouseUp: cancel,
+    onMouseLeave: cancel,
+    // Stop the browser's own text-selection / context menu on a long hold.
+    onContextMenu: (e) => { e.preventDefault(); if (!fired.current) { cancel(); fired.current = true; onLongPress(); } },
+    onClickCapture: (e) => { if (fired.current) { e.preventDefault(); e.stopPropagation(); fired.current = false; } },
+  };
+}
+
+/* The action sheet shown after a long-press on a search result. */
+function ItemActionSheet({ item, categories, onClose, actions }) {
+  const cat = categories.find((c) => c.key === item.cat);
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl bp-pop"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-[#DEE3E9] flex items-start gap-3">
+          <span className="w-3 h-3 rounded-full mt-1 shrink-0" style={{ backgroundColor: cat?.color || "#5A6472" }} />
+          <div className="min-w-0 flex-1">
+            <div className="font-bold text-sm text-[#1B2430] leading-snug">{item.name || item.code}</div>
+            <div className="text-[11px] text-[#5A6472] font-mono mt-0.5">{item.code}</div>
+            <div className="text-[11px] text-[#5A6472] mt-0.5">
+              KSh {Number(item.price).toLocaleString()} · {item.qty} in stock
+            </div>
+          </div>
+          <button onClick={onClose} className="text-[#5A6472] p-1 shrink-0">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-2">
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              onClick={() => { onClose(); a.run(); }}
+              disabled={a.disabled}
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-md text-left hover:bg-[#EEF2F6] transition-colors disabled:opacity-40"
+            >
+              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${a.color}22`, color: a.color }}>
+                <a.icon size={17} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-[#1B2430]">{a.label}</span>
+                <span className="block text-[11px] text-[#5A6472] leading-tight">
+                  {a.disabled ? a.disabledNote || "Not available" : a.desc}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <button onClick={onClose} className="w-full py-3 text-sm font-semibold text-[#5A6472] border-t border-[#DEE3E9] hover:bg-[#EEF2F6]">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function SearchTab({ items, categories, onDelete, onPick, canEdit = false }) {
   // Step 1: pick a category (or "All"). Step 2: search within it.
   // null = nothing chosen yet (show the category picker first).
   const [cat, setCat] = useState(null); // "__all__" | category key | null
   const [query, setQuery] = useState("");
+  // The result being long-pressed, if any — drives the action sheet.
+  const [held, setHeld] = useState(null);
 
   // How many items sit in each category, for the picker counts.
   const counts = useMemo(() => {
@@ -361,17 +484,96 @@ export function SearchTab({ items, categories, onDelete }) {
           </button>
         )}
       </div>
-      <div className="text-[#5A6472] text-xs mb-2">
-        {results.length} result{results.length !== 1 ? "s" : ""}
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <div className="text-[#5A6472] text-xs">
+          {results.length} result{results.length !== 1 ? "s" : ""}
+        </div>
+        {results.length > 0 && (
+          <div className="text-[#5A6472] text-[11px] italic">Press and hold a part for options</div>
+        )}
       </div>
       <div className="space-y-2">
         {results.map((it) => (
-          <ItemCard key={it.code} item={it} categories={categories} onDelete={onDelete} />
+          <SearchResultRow
+            key={it.code}
+            item={it}
+            categories={categories}
+            onDelete={onDelete}
+            onHold={() => setHeld(it)}
+          />
         ))}
         {results.length === 0 && (
           <div className="text-[#5A6472] text-sm py-8 text-center">No part matches that search.</div>
         )}
       </div>
+
+      {held && (
+        <ItemActionSheet
+          item={held}
+          categories={categories}
+          onClose={() => setHeld(null)}
+          actions={[
+            {
+              label: "Sell this part",
+              desc: "Record a sale — opens Sell Item with this part ready.",
+              icon: ShoppingCart,
+              color: "#15926A",
+              disabled: held.qty === 0,
+              disabledNote: "Out of stock — add stock first.",
+              run: () => onPick?.("sell", held),
+            },
+            {
+              label: "Add to a quotation",
+              desc: "Open Quotation with this part as the first line.",
+              icon: FileText,
+              color: "#2563EB",
+              run: () => onPick?.("quote", held),
+            },
+            {
+              label: "Edit this part",
+              desc: "Change the name, price, vehicle and other details.",
+              icon: Pencil,
+              color: "#7C5CD6",
+              disabled: !canEdit,
+              disabledNote: "Admin only — ask the admin to grant Edit parts.",
+              run: () => onPick?.("edit", held),
+            },
+            {
+              label: "Add information",
+              desc: "Add notes, photos, location or supplier to this part.",
+              icon: ImagePlus,
+              color: "#B45309",
+              disabled: !canEdit,
+              disabledNote: "Admin only — ask the admin to grant Edit parts.",
+              run: () => onPick?.("info", held),
+            },
+            {
+              label: "Add new stock",
+              desc: "Increase the quantity held for this part.",
+              icon: PackagePlus,
+              color: "#0E7490",
+              run: () => onPick?.("stock", held),
+            },
+            {
+              label: "View its history",
+              desc: "Every add, sale and adjustment for this part.",
+              icon: Layers,
+              color: "#5A6472",
+              run: () => onPick?.("ledger", held),
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+/* One search result — a normal card that opens the action sheet when held. */
+function SearchResultRow({ item, categories, onDelete, onHold }) {
+  const press = useLongPress(onHold);
+  return (
+    <div {...press} className="select-none" style={{ WebkitTouchCallout: "none" }}>
+      <ItemCard item={item} categories={categories} onDelete={onDelete} />
     </div>
   );
 }
@@ -1301,16 +1503,9 @@ export function AddItemTab({ items, categories, onAdd }) {
 
   const onFiles = (fileList) => {
     const files = Array.from(fileList).slice(0, 4);
-    Promise.all(
-      files.map(
-        (f) =>
-          new Promise((res) => {
-            const r = new FileReader();
-            r.onload = () => res(r.result);
-            r.readAsDataURL(f);
-          })
-      )
-    ).then((urls) => setImages((prev) => [...prev, ...urls].slice(0, 4)));
+    Promise.all(files.map(readImageCompressed)).then((urls) =>
+      setImages((prev) => [...prev, ...urls].slice(0, 4))
+    );
   };
 
   const submit = () => {
@@ -1479,7 +1674,7 @@ export function AddItemTab({ items, categories, onAdd }) {
 
       <Field label="Images (main / back / damage / extra — up to 4)">
         <label className="flex items-center gap-2 cursor-pointer bg-[#FFFFFF] border border-dashed border-[#DEE3E9] rounded-md px-3 py-3 text-[#5A6472] hover:border-[#2563EB]">
-          <ImagePlus size={16} /> <span className="text-sm">Upload images</span>
+          <ImagePlus size={16} /> <span className="text-sm">Take or upload images</span>
           <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
         </label>
         {images.length > 0 && (
@@ -1527,9 +1722,12 @@ export function AddItemTab({ items, categories, onAdd }) {
 }
 
 /* ======================= ADD STOCK ======================= */
-export function AddStockTab({ items, categories, onAddStock }) {
+export function AddStockTab({ items, categories, onAddStock, initialCode = "" }) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(null);
+  // A part long-pressed in Search arrives already chosen.
+  const [selected, setSelected] = useState(
+    () => (initialCode ? items.find((i) => i.code === initialCode) || null : null)
+  );
   const [amount, setAmount] = useState("");
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1590,9 +1788,12 @@ export function AddStockTab({ items, categories, onAddStock }) {
 /* ======================= EDIT PARTS (admin) ======================= */
 // Admin-only: browse the list, pick a part, edit its details & price.
 // Quantity is intentionally NOT editable here — that stays with Add Stock / Sell.
-export function EditPartsTab({ items, categories, onSave }) {
+export function EditPartsTab({ items, categories, onSave, initialCode = "", focusInfo = false }) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(null);
+  // A part long-pressed in Search arrives already open for editing.
+  const [selected, setSelected] = useState(
+    () => (initialCode ? items.find((i) => i.code === initialCode) || null : null)
+  );
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1608,6 +1809,7 @@ export function EditPartsTab({ items, categories, onSave }) {
         key={selected.code}
         item={selected}
         categories={categories}
+        focusInfo={focusInfo}
         onCancel={() => setSelected(null)}
         onSave={async (patch) => {
           const ok = await onSave(selected.code, patch);
@@ -1652,7 +1854,7 @@ export function EditPartsTab({ items, categories, onSave }) {
   );
 }
 
-function EditPartForm({ item, categories, onCancel, onSave }) {
+function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false }) {
   const [cat, setCat] = useState(item.cat || categories[0]?.key || "");
   const [brand, setBrand] = useState(item.brand || "");
   const [model, setModel] = useState(item.model || "");
@@ -1668,10 +1870,28 @@ function EditPartForm({ item, categories, onCancel, onSave }) {
   const [location, setLocation] = useState(item.location || "");
   const [supplier, setSupplier] = useState(item.supplier || "");
   const [notes, setNotes] = useState(item.notes || "");
+  const [images, setImages] = useState(Array.isArray(item.images) ? item.images.filter(Boolean) : []);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // "Add information" from the search long-press jumps straight to the
+  // location / supplier / notes / photos block.
+  const infoRef = React.useRef(null);
+  React.useEffect(() => {
+    if (focusInfo && infoRef.current) {
+      infoRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [focusInfo]);
+
   const brandModels = BRANDS.find((b) => b.name.toLowerCase() === brand.toLowerCase())?.models || [];
+
+  // Read picked files as data URLs (compressed) and add to the gallery (max 4).
+  const onFiles = (fileList) => {
+    const files = Array.from(fileList).slice(0, 4);
+    Promise.all(files.map(readImageCompressed)).then((urls) =>
+      setImages((prev) => [...prev, ...urls].slice(0, 4))
+    );
+  };
 
   const submit = async () => {
     if (!brand.trim() || !model.trim() || price === "") {
@@ -1697,6 +1917,7 @@ function EditPartForm({ item, categories, onCancel, onSave }) {
         location: location.trim(),
         supplier: supplier.trim(),
         notes: notes.trim(),
+        images,
       });
     } finally {
       setSaving(false);
@@ -1788,9 +2009,39 @@ function EditPartForm({ item, categories, onCancel, onSave }) {
         </div>
       </div>
 
-      <Field label="Location"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="A / Rack 03 / Shelf 02 / Bin 05" className={inputCls} /></Field>
-      <Field label="Supplier"><input value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputCls} /></Field>
-      <Field label="Notes"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputCls} /></Field>
+      <div ref={infoRef} className={focusInfo ? "scroll-mt-20 rounded-lg ring-2 ring-[#B45309] ring-offset-2 p-3 -m-1 mb-2" : ""}>
+        {focusInfo && (
+          <div className="text-[11px] font-bold uppercase tracking-wide text-[#B45309] mb-2">
+            Extra information
+          </div>
+        )}
+        <Field label="Location"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="A / Rack 03 / Shelf 02 / Bin 05" className={inputCls} /></Field>
+        <Field label="Supplier"><input value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputCls} /></Field>
+        <Field label="Notes"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputCls} /></Field>
+
+      <Field label="Photos (up to 4 — helps staff identify the part)">
+        <label className="flex items-center gap-2 cursor-pointer bg-[#FFFFFF] border border-dashed border-[#DEE3E9] rounded-md px-3 py-3 text-[#5A6472] hover:border-[#2563EB]">
+          <ImagePlus size={16} /> <span className="text-sm">{images.length ? "Add / change photos" : "Take or upload photos"}</span>
+          <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
+        </label>
+        {images.length > 0 && (
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {images.map((src, i) => (
+              <div key={i} className="relative">
+                <img src={src} alt="" className="w-16 h-16 object-cover rounded border border-[#DEE3E9]" />
+                <button
+                  type="button"
+                  onClick={() => setImages(images.filter((_, j) => j !== i))}
+                  className="absolute -top-1.5 -right-1.5 bg-[#DC3B2E] text-white rounded-full w-5 h-5 flex items-center justify-center"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Field>
+      </div>
 
       {err && (
         <div className="text-[#DC3B2E] text-sm mb-3 flex items-center gap-1.5">
@@ -1815,9 +2066,12 @@ function EditPartForm({ item, categories, onCancel, onSave }) {
 }
 
 /* ======================= SELL ======================= */
-export function SellTab({ items, categories, onSell }) {
+export function SellTab({ items, categories, onSell, initialCode = "" }) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(null);
+  // A part long-pressed in Search arrives already chosen.
+  const [selected, setSelected] = useState(
+    () => (initialCode ? items.find((i) => i.code === initialCode) || null : null)
+  );
   const [qty, setQty] = useState("1");
   const [buyer, setBuyer] = useState("");
   const [phone, setPhone] = useState("");
@@ -2524,6 +2778,133 @@ function StaffDirectoryCard({ admin }) {
   );
 }
 
+/* Role Passwords — the admin's control panel for the 4 shared logins.
+   Each role starts on "<role>123"; the admin can set anything else here.
+   The change runs on a throwaway Supabase client, so the admin stays
+   signed in as themselves. */
+function RolePasswordsCard({ admin }) {
+  const [openKey, setOpenKey] = useState("");
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // {ok, text}
+
+  if (!admin) return null;
+
+  const open = (key) => {
+    setOpenKey(openKey === key ? "" : key);
+    setCurrent(""); setNext(""); setConfirm(""); setMsg(null);
+  };
+
+  const save = async (role) => {
+    setMsg(null);
+    if (!current) { setMsg({ ok: false, text: "Enter the current password for this role." }); return; }
+    if (next.length < 6) { setMsg({ ok: false, text: "The new password must be at least 6 characters." }); return; }
+    if (next !== confirm) { setMsg({ ok: false, text: "The two new passwords don't match." }); return; }
+    setBusy(true);
+    try {
+      await changeRolePassword(role, current, next);
+      setMsg({ ok: true, text: `${role.label} password changed. Tell the team the new one.` });
+      setCurrent(""); setNext(""); setConfirm("");
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "Could not change the password." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="text-sm font-bold uppercase tracking-wide mb-1 flex items-center gap-2">
+        <Lock size={15} className="text-[#2563EB]" /> Role Passwords
+      </div>
+      <p className="text-xs text-[#5A6472] mb-3 leading-relaxed">
+        The four shared logins. Anyone who knows a role password can log in with
+        it and then types their own name, so work is still stamped to the person.
+        If someone forgets a password, reset it here.
+      </p>
+
+      <div className="space-y-2">
+        {ROLE_ACCOUNTS.map((r) => {
+          const isOpen = openKey === r.key;
+          return (
+            <div key={r.key} className="border border-[#DEE3E9] rounded-md overflow-hidden">
+              <button
+                onClick={() => open(r.key)}
+                className="w-full flex items-center gap-3 p-3 text-left hover:bg-[#EEF2F6] transition-colors"
+              >
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+                <span className="flex-1 min-w-0">
+                  <span className="block font-semibold text-sm">{r.label}</span>
+                  <span className="block text-[11px] text-[#5A6472]">
+                    Default: <span className="font-mono">{defaultRolePassword(r.key)}</span>
+                  </span>
+                </span>
+                <ChevronRight size={16} className={`text-[#5A6472] shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+              </button>
+
+              {isOpen && (
+                <div className="border-t border-[#DEE3E9] p-3 bg-[#F8FAFC]">
+                  <Field label={`Current ${r.label} password`}>
+                    <input
+                      type="password"
+                      value={current}
+                      onChange={(e) => setCurrent(e.target.value)}
+                      placeholder={defaultRolePassword(r.key)}
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="New password (6+ characters)">
+                    <input
+                      type="password"
+                      value={next}
+                      onChange={(e) => setNext(e.target.value)}
+                      placeholder="••••••••"
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Type the new password again">
+                    <input
+                      type="password"
+                      value={confirm}
+                      onChange={(e) => setConfirm(e.target.value)}
+                      placeholder="••••••••"
+                      className={inputCls}
+                    />
+                  </Field>
+
+                  {msg && (
+                    <div className={`text-xs mb-3 flex items-start gap-1.5 ${msg.ok ? "text-[#15926A]" : "text-[#DC3B2E]"}`}>
+                      {msg.ok ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                      {msg.text}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => save(r)}
+                    disabled={busy}
+                    className="w-full text-white text-sm font-bold uppercase tracking-wide rounded-md py-2.5 disabled:opacity-50"
+                    style={{ backgroundColor: r.color }}
+                  >
+                    {busy ? "Changing…" : `Change ${r.label} password`}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[11px] text-[#5A6472] mt-3 flex items-start gap-1.5">
+        <AlertTriangle size={13} className="text-[#B45309] mt-0.5 shrink-0" />
+        A role password is shared by everyone using that role — change it whenever
+        someone leaves the shop.
+      </p>
+    </div>
+  );
+}
+
 export function SettingsTab({ categories, user, email, admin }) {
   return (
     <div className="bp-fade-up">
@@ -2588,6 +2969,8 @@ export function SettingsTab({ categories, user, email, admin }) {
         </div>
       </div>
 
+      <RolePasswordsCard admin={admin} />
+
       <StaffDirectoryCard admin={admin} />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
@@ -2640,11 +3023,16 @@ export function SettingsTab({ categories, user, email, admin }) {
 /* Staff type each line (part + qty + unit price they set manually); the
    system does the arithmetic — line totals, subtotal, discount and grand
    total — and can share the finished quote on WhatsApp or print it. */
-export function QuotationTab({ items, user }) {
+export function QuotationTab({ items, user, initialCode = "" }) {
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
   const [discount, setDiscount] = useState("");
-  const [lines, setLines] = useState([{ desc: "", qty: "1", price: "" }]);
+  // A part long-pressed in Search arrives as the first line, prefilled.
+  const [lines, setLines] = useState(() => {
+    const it = initialCode ? items.find((i) => i.code === initialCode) : null;
+    if (!it) return [{ desc: "", qty: "1", price: "" }];
+    return [{ desc: it.name || it.code, qty: "1", price: String(it.price || "") }];
+  });
   const [savedNumber, setSavedNumber] = useState(""); // set after a successful save
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
@@ -3041,11 +3429,8 @@ export function ReceiptTab({ items, user }) {
       )
       .join("");
     const today = new Date().toLocaleString("en-KE", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    const branchContacts = [
-      b.phone ? `Tel: ${escapeHtml(b.phone)}` : "",
-      b.email ? `Email: ${escapeHtml(b.email)}` : "Email: (to be advised)",
-      b.location ? escapeHtml(b.location) : "",
-    ].filter(Boolean).join(" &nbsp;·&nbsp; ");
+    // Both shop emails sit on the header so customers can reach either desk.
+    const emails = [b.email, m.email].filter(Boolean).map(escapeHtml).join(" &nbsp;·&nbsp; ");
     const mainContacts = [
       m.name ? escapeHtml(m.name) : "",
       m.phone ? `Tel: ${escapeHtml(m.phone)}` : "",
@@ -3062,8 +3447,11 @@ export function ReceiptTab({ items, user }) {
   .wrap { max-width: 720px; margin:0 auto; }
   .head { text-align:center; border-bottom:3px solid #2563EB; padding-bottom:14px; }
   .brand { font-size:26px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#1B2430; }
-  .tag { color:#5A6472; font-size:12px; margin-top:2px; }
-  .contacts { color:#5A6472; font-size:12px; margin-top:6px; }
+  .loc { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:#2563EB; margin-top:2px; }
+  .tag { color:#1B2430; font-size:12px; font-weight:600; margin-top:5px; }
+  .makes { color:#5A6472; font-size:11px; margin-top:2px; }
+  .parts { color:#5A6472; font-size:11px; margin-top:1px; }
+  .contacts { color:#5A6472; font-size:12px; margin-top:5px; }
   .doc { display:flex; justify-content:space-between; align-items:center; margin:18px 0; }
   .doc .t { font-size:20px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:2px; }
   .doc .m { color:#5A6472; font-size:13px; text-align:right; }
@@ -3087,8 +3475,12 @@ export function ReceiptTab({ items, user }) {
 <body><div class="wrap">
   <div class="head">
     <div class="brand">${escapeHtml(b.name)}</div>
+    ${b.location ? `<div class="loc">${escapeHtml(b.location)}</div>` : ""}
     <div class="tag">${escapeHtml(b.tagline || "")}</div>
-    <div class="contacts">${branchContacts}</div>
+    ${b.makes ? `<div class="makes">${escapeHtml(b.makes)}</div>` : ""}
+    ${b.parts ? `<div class="parts">in ${escapeHtml(b.parts)}</div>` : ""}
+    <div class="contacts"><b>Tel:</b> ${escapeHtml(b.phone || "")}</div>
+    ${emails ? `<div class="contacts">${emails}</div>` : ""}
     ${vatOn && b.kraPin ? `<div class="contacts">PIN: ${escapeHtml(b.kraPin)}</div>` : ""}
   </div>
   <div class="doc">
@@ -3141,11 +3533,13 @@ export function ReceiptTab({ items, user }) {
       .join("\n");
     const isDelivery = docType === "Delivery Note";
     const heading = vatOn ? "Tax Invoice" : docType;
+    // Shop identity block repeated on every shared document.
+    const sig = `\n\n${b.name}\n${b.location || ""}\nTel: ${b.phone || ""}${b.email ? `\n${b.email}` : ""}`;
     const msg = isDelivery
       ? `*${b.name} — Delivery Note*${savedNumber ? ` (${savedNumber})` : ""}\n${b.location || ""}\n\n` +
         (customer ? `Delivered to: ${customer}\n` : "") +
         `\n${rows}\n\nTotal items: ${filledLines.reduce((s, l) => s + (Number(l.qty) || 0), 0)}` +
-        `\n\nPlease confirm goods received in good order.`
+        `\n\nPlease confirm goods received in good order.` + sig
       : `*${b.name} — ${heading}*${savedNumber ? ` (${savedNumber})` : ""}\n${b.location || ""}\n\n` +
         (customer ? `Customer: ${customer}\n` : "") +
         `Status: ${stamp}\n` +
@@ -3156,7 +3550,7 @@ export function ReceiptTab({ items, user }) {
         `\nPaid (${method}): KES ${paidNum.toLocaleString()}` +
         (change ? `\nChange: KES ${change.toLocaleString()}` : "") +
         (balance ? `\nBalance due: KES ${balance.toLocaleString()}` : "") +
-        `\n\nThank you for your business.`;
+        `\n\nThank you for your business.` + sig;
     let p = phone.replace(/[^\d]/g, "");
     if (p.startsWith("0")) p = "254" + p.slice(1);
     const base = p ? `https://wa.me/${p}` : `https://wa.me/`;
@@ -3185,14 +3579,6 @@ export function ReceiptTab({ items, user }) {
       {savedNumber && (
         <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-center gap-2">
           <Check size={15} /> Saved as <span className="font-bold font-mono">{savedNumber}</span>. Starting a fresh receipt below.
-        </div>
-      )}
-
-      {!SHOP_INFO.branch.email && (
-        <div className="bg-[#FFF7E6] border border-[#E0A400] text-[#8A6400] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          The branch name &amp; email aren't set yet — receipts show placeholders. Edit
-          <span className="font-mono mx-1">src/lib/shopInfo.js</span> once the name &amp; email are confirmed.
         </div>
       )}
 
@@ -3681,7 +4067,7 @@ function CreditStatement({ account, user, admin, onBack, onChanged }) {
 <body><div class="wrap">
   <div class="head">
     <div class="brand">${escapeHtml(b.name)}</div>
-    <div class="contacts">${b.location ? escapeHtml(b.location) : ""}${b.phone ? " · Tel: " + escapeHtml(b.phone) : ""}</div>
+    <div class="contacts">${b.location ? escapeHtml(b.location) : ""}${b.phone ? " · Tel: " + escapeHtml(b.phone) : ""}${b.email ? " · " + escapeHtml(b.email) : ""}</div>
   </div>
   <div class="doc">
     <div class="t">Account Statement</div>
