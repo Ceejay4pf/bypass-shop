@@ -1,10 +1,120 @@
-#in your Supabase URL + anon key.
+# Bypass Shop — Branch Inventory & Sales System
+
+**Jaspare Auto Bypass Shop** · Near Total Northlands · a branch of
+**Jaspare Auto (Main Shop)**
+
+## What this system is about
+
+Bypass Shop sells second-hand and new **Japanese car body parts** — headlights,
+taillights, bumpers, boots, shocks, doors, grilles, bonnets and side mirrors —
+for Suzuki, Toyota, Daihatsu, Subaru, Mitsubishi, Nissan, Honda, Mazda and Isuzu.
+
+This system replaces the exercise book. It answers, at any moment and from any
+phone in the shop:
+
+- **What do we have?** Every part carries a generated code, the exact vehicle it
+  fits (brand, model, series, year range), its condition, side, colour, price,
+  quantity, shelf location and up to four photos — so a new staff member can
+  identify the right bumper without asking anyone.
+- **Where is it?** Warehouse location down to rack, shelf and bin. Search matches
+  code, part name, vehicle, year, colour, side or location.
+- **What moved, and who moved it?** Every add, sale and adjustment is written to
+  a ledger with the staff member's name and the time. Nothing changes silently.
+- **What do we owe and who owes us?** Garages that buy on credit have running
+  accounts; payments by cash, cheque or paybill are posted against the balance.
+- **What did we sell?** Receipts, invoices, delivery notes and quotations print
+  or send on WhatsApp, on the shop's letterhead, with optional VAT.
+- **What's running out?** Low-stock warnings per part, plus a printable stock
+  list for a physical count.
+
+It reports upward too: activity flows into a notifications feed that the main
+shop can read, so the branch's day is visible without a phone call.
+
+Runs in any modern browser — phone, tablet or desktop. Data lives in the cloud
+and syncs live, so two staff on two phones always see the same stock.
+
+## What it does, screen by screen
+
+**Stock**
+- **Dashboard** — stat cards, stock by category, 7-day sales trend, low stock, recent activity.
+- **Search Inventory** — pick a category or search everything. Press and hold a
+  result for a menu: sell it, quote it, edit it, add information, add stock, or
+  view its history.
+- **Inventory** — grouped by category, multi-select for bulk add-stock or delete.
+- **Low Stock** — everything at or below its own low-stock level.
+- **Inventory Ledger** — the full movement history of any part.
+- **Add New Item** — auto code (e.g. `FBM-MZD-AXL-18-0001`), photos, location, condition, side, colour, low-stock level.
+- **Edit Parts** — correct details, price and photos after the fact.
+- **Add New Stock** — find a part, increase the quantity, logged with who and when.
+- **Print Stock** — a printable list for counting.
+
+**Selling**
+- **Sell Item** — quantity, customer, phone, paid or pending. Choose per sale
+  whether the goods leave *this* branch's stock or were supplied by another
+  branch (in which case our count is untouched).
+- **Quick Transaction** — one fast screen for add / sell / adjust.
+- **Quotation** — priced quotes, printable or sent on WhatsApp.
+- **Receipt** — receipt, invoice or delivery note; automatic **PAID /
+  DISCOUNTED / ON CREDIT** stamp; walk-in, referred or commission customer;
+  optional 16% VAT either inside the price or added on top.
+- **Credit Accounts** — a running balance per garage, with every charge and
+  payment (cash, cheque, paybill) itemised on a statement.
+- **Branch Transfers** — a record of stock taken to or received from another branch.
+
+**People and oversight**
+- **Staff Feed** — shop-floor messages.
+- **Notifications** — the activity log that reports to the main shop.
+- **Reports** — daily, weekly, monthly, yearly; top sellers; inventory summary; low stock.
+- **Staff Approvals / My Permissions** — an admin decides who may delete, edit,
+  add items or use Quick Transaction.
+- **Settings** — role passwords, staff directory, biometric app lock, shop
+  contacts, categories.
+
+## Who logs in
+
+Two ways, both real Supabase Auth accounts:
+
+1. **Role login** — tap **Admin**, **Management**, **Sales** or **Staff**, type
+   **your own name**, enter the role password (starts as `admin123`,
+   `management123`, `sales123`, `staff123`). Your name — not the role — is
+   stamped on everything you do, so accountability survives a shared password.
+   An admin can change any role password in **Settings → Role Passwords**.
+2. **Personal account** — a staff member signs up with their own name and
+   password, and an admin approves them before they get in.
+
+Admin and Management have full access. Sales and Staff get sensible defaults,
+which an admin can widen or narrow per person.
+
+## Security
+
+Passwords are hashed server-side by Supabase and never touch this code. Sessions
+are server-issued. Row Level Security means only a signed-in account can read or
+write. Every login is recorded, and every stock change carries a name and a
+timestamp. An optional biometric lock guards the app on a shared phone.
+
+## Built with
+
+React + Vite + Tailwind CSS on the front end; **Supabase** (Postgres, Auth,
+Realtime, Row Level Security) for data; hosted on **Vercel**.
+
+## Run it locally
+
+1. Set up Supabase and your keys — see **[DEPLOYMENT.md](DEPLOYMENT.md)** (Steps 1–3).
+2. Copy `.env.example` to `.env` and fill in your Supabase URL + anon key.
 3. Then:
    ```bash
    npm install
    npm run dev
    ```
+
 Open the printed URL. On your phone (same Wi-Fi), open the **Network** URL.
+
+Production bundle:
+
+```bash
+npm run build
+npm run preview
+```
 
 ## Put it online (free, always-on)
 
@@ -13,58 +123,25 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 
 ## Project structure
 
+- `src/App.jsx` — navigation, permissions and the screen router
+- `src/tabs.jsx` — every feature screen
+- `src/ui.jsx` — shared pieces (item cards, fields, charts)
+- `src/LoginGate.jsx` — the login screen (role + personal)
 - `src/lib/supabase.js` — the cloud connection
-- `src/lib/types.ts` — the shape of every database table
-- `src/lib/api.js` — all reads/writes (inventory, sales, movements, notifications)
-- `src/lib/auth.js` — sign in / sign up / sessions
+- `src/lib/api.js` — all reads and writes
+- `src/lib/auth.js` — sign in, sign up, sessions, role passwords
+- `src/lib/roles.js`, `src/lib/roleAccounts.js` — who may do what
+- `src/lib/shopInfo.js` — the shop details printed on every document
 - `src/lib/hooks.js` — live data hooks with realtime subscriptions
-- `supabase/schema.sql` — run this once to build your database
-- `supabase/seed.sql` — optional demo data
+- `supabase/schema.sql` — run this once to build the database
+- `supabase/receipts.sql`, `credit_accounts.sql`, `transfers.sql` — the later tables
 
-Build a production bundle:
+## Still to come
 
-```bash
-npm run build
-npm run preview
-```
+M-PESA integration, barcode/QR scanning, supplier management, a customer
+database, AI stock predictions and purchase history. The data model already
+leaves room for these.
 
-## Login
+---
 
-Real accounts via Supabase Auth. Create the first staff account from the login
-screen (“New staff member? Create an account”) or in the Supabase dashboard →
-Authentication → Users. Your name is attached to every action you take.
-
-## Features
-
-- **Dashboard** — stat cards, stock-by-category chart, 7-day sales trend, low-stock summary, recent activity.
-- **Search** — matches code, part name, brand, model, series, year, condition, colour, side, location.
-- **Inventory** — grouped by category, delete items.
-- **Add New Item** — rich auto code (e.g. `FBM-MZD-AXL-18-0001`), image upload, warehouse location, condition, side, colour, low-stock level.
-- **Add New Stock** — find a part, increase quantity, logged with who/when.
-- **Sell Item** — quantity, customer name, phone, Paid/Pending, auto stock decrement.
-- **Notifications** — activity feed (the "reports to main shop" log), filterable.
-- **Reports** — daily/weekly/monthly/yearly, top sellers, inventory summary, low-stock report.
-- **Settings** — manage categories & locations, JSON backup/restore, future-feature placeholders.
-
-## Security
-
-Authentication is real: Supabase hashes passwords server-side, issues sessions,
-and Row Level Security means only signed-in staff can read or write data. Each
-staff member has their own account, so "who did what" is authenticated.
-
-## Out of scope (placeholders only)
-
-Multi-branch sync, M-PESA, barcode/QR scanning, supplier management, customer
-database, AI predictions, purchase history — the data model leaves room for
-these without restructuring.
- Bypass Shop — Branch Inventory & Sales System
-
-A dark, professional inventory & sales system for **Bypass Shop**, a branch of
-**Jaspare Auto (Main Shop)**. Runs in any modern browser — desktop, tablet, or
-phone. Built with **React + Vite + Tailwind + Supabase**. Data lives in the
-cloud with **real login** and **realtime sync** across every device.
-
-## Run it locally
-
-1. Set up Supabase and your keys — see **[DEPLOYMENT.md](DEPLOYMENT.md)** (Steps 1–3).
-2. Copy `.env.example` to `.env` and fill 
+Developed by **Josphat Mbugua Kagiri**
