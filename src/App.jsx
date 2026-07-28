@@ -44,7 +44,7 @@ const NAV = [
   { id: "credit", label: "Credit Accounts", icon: Wallet },
   { id: "transfers", label: "Branch Transfers", icon: ArrowRightLeft },
   { id: "feed", label: "Staff Feed", icon: MessageCircle },
-  { id: "notify", label: "Notifications", icon: Bell },
+  { id: "notify", label: "Notifications", icon: Bell, admin: true },
   { id: "print", label: "Print Stock", icon: Printer },
   { id: "reports", label: "Reports", icon: FileBarChart },
   { id: "permissions", label: "My Permissions", icon: ShieldCheck, staffOnly: true },
@@ -245,7 +245,7 @@ function BypassShop({ session }) {
   const handleAddStock = (code, amount, supplier = "") =>
     run(() => api.addStock(code, amount, user, supplier), `+${amount} stock added to ${code}`);
   const handleSell = (sale) =>
-    run(async () => { await api.sellItem(sale, user); setTab("notify"); },
+    run(async () => { await api.sellItem(sale, user); setTab(admin ? "notify" : "dashboard"); },
       `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to Jaspare Auto`,
       sale.paid ? "ok" : "warn");
   const handleAdjust = (code, newQty, reason) =>
@@ -423,7 +423,7 @@ function BypassShop({ session }) {
           )}
 
           {tab === "dashboard" && (
-            <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} onOpenLedger={openLedger} />
+            <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} onOpenLedger={openLedger} admin={admin} />
           )}
           {tab === "quick" && can("quick") && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
@@ -486,7 +486,7 @@ function BypassShop({ session }) {
           {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
           {tab === "transfers" && <TransfersTab items={items} user={user} />}
           {tab === "feed" && <StaffFeedTab userId={session.user.id} user={user} admin={admin} />}
-          {tab === "notify" && <NotifyTab notifications={notifications} />}
+          {tab === "notify" && admin && <NotifyTab notifications={notifications} />}
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
           {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
           {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}

@@ -83,25 +83,28 @@ const matchesQuery = (i, cat, q) => {
 };
 
 /* ======================= DASHBOARD ======================= */
-export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger }) {
+export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger, admin = false }) {
   const totalItems = items.length;
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
   const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
 
-  // Live list of shop staff (names) for the team panel.
+  // Live list of shop staff (names) for the team panel. Admin-only, so we
+  // don't even fetch it for regular staff.
   const [staff, setStaff] = useState([]);
   useEffect(() => {
+    if (!admin) { setStaff([]); return; }
     let alive = true;
     api.fetchProfiles().then((p) => { if (alive) setStaff(p); }).catch(() => {});
     const unsub = api.subscribeProfiles
       ? api.subscribeProfiles(() => api.fetchProfiles().then((p) => alive && setStaff(p)).catch(() => {}))
       : null;
     return () => { alive = false; if (unsub) unsub(); };
-  }, []);
+  }, [admin]);
 
-  // Live directory contacts (admin-typed names + phone numbers).
+  // Live directory contacts (admin-typed names + phone numbers). Admin-only.
   const [contacts, setContacts] = useState([]);
   useEffect(() => {
+    if (!admin) { setContacts([]); return; }
     let alive = true;
     if (!api.fetchStaffContacts) return;
     api.fetchStaffContacts().then((c) => { if (alive) setContacts(c); }).catch(() => {});
@@ -109,7 +112,7 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       ? api.subscribeStaffContacts(() => api.fetchStaffContacts().then((c) => alive && setContacts(c)).catch(() => {}))
       : null;
     return () => { alive = false; if (unsub) unsub(); };
-  }, []);
+  }, [admin]);
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -170,7 +173,9 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
         <StatCard icon={ShoppingCart} label="Items Sold Today" value={soldToday} tone="green" onClick={() => onNav("sell")} />
         <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="yellow" onClick={() => onNav("reports")} />
         <StatCard icon={AlertTriangle} label="Low Stock Items" value={lowStock.length} tone="red" onClick={() => onNav("reports")} />
-        <StatCard icon={Bell} label="Total Activity" value={notifications.length} tone="purple" onClick={() => onNav("notify")} />
+        {admin && (
+          <StatCard icon={Bell} label="Total Activity" value={notifications.length} tone="purple" onClick={() => onNav("notify")} />
+        )}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 mb-4">
@@ -195,13 +200,17 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
         <TrendChart points={trend} />
       </div>
 
-      {/* Team + shops */}
-      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+      {/* Team + shops. The team list is admin-only; shop contacts are for everyone. */}
+      <div className={`grid gap-4 mb-4 ${admin ? "lg:grid-cols-2" : ""}`}>
+        {admin && (
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
               <UserCheck size={15} className="text-[#2563EB]" /> Shop Team ({staff.length})
             </div>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[#7C5CD6] bg-[#7C5CD622] rounded px-1.5 py-0.5">
+              Admin only
+            </span>
           </div>
           {staff.length === 0 ? (
             <div className="text-[#5A6472] text-sm italic">No staff loaded yet.</div>
@@ -225,6 +234,7 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
             </div>
           )}
         </div>
+        )}
 
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3 text-sm font-bold uppercase tracking-wide">
@@ -246,13 +256,16 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
               </div>
             ))}
           </div>
-          <button onClick={() => onNav("settings")} className="text-xs text-[#2563EB] font-semibold mt-3">
-            Full staff directory →
-          </button>
+          {admin && (
+            <button onClick={() => onNav("settings")} className="text-xs text-[#2563EB] font-semibold mt-3">
+              Full staff directory →
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Team directory — the contacts an admin typed into the directory. */}
+      {/* Team directory — the contacts an admin typed in. Admin-only. */}
+      {admin && (
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
@@ -288,15 +301,23 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
           </div>
         )}
       </div>
+      )}
 
+      {/* Recent activity — who sold, added or adjusted what. Admin-only. */}
+      {admin && (
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
             <Bell size={15} className="text-[#2563EB]" /> Recent Activity
           </div>
-          <button onClick={() => onNav("notify")} className="text-xs text-[#2563EB] font-semibold">
-            View all
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[#7C5CD6] bg-[#7C5CD622] rounded px-1.5 py-0.5">
+              Admin only
+            </span>
+            <button onClick={() => onNav("notify")} className="text-xs text-[#2563EB] font-semibold">
+              View all
+            </button>
+          </div>
         </div>
         {notifications.length === 0 && <div className="text-[#5A6472] text-sm italic">No activity yet.</div>}
         <div className="space-y-2">
@@ -305,6 +326,7 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -2653,6 +2675,11 @@ export function StaffFeedTab({ userId, user, admin }) {
 /* Company phone directory — admin-typed, grouped by department, cloud-synced.
    Everyone can see and tap the numbers; only an admin can add or remove them. */
 function StaffDirectoryCard({ admin }) {
+  if (!admin) return null;
+  return <StaffDirectoryCardInner admin={admin} />;
+}
+
+function StaffDirectoryCardInner({ admin }) {
   const [contacts, setContacts] = useState(null); // null = loading
   const [showAdd, setShowAdd] = useState(false);
   const [dept, setDept] = useState("");
@@ -2667,11 +2694,13 @@ function StaffDirectoryCard({ admin }) {
     catch (e) { setErr(e.message || "Couldn't load the directory. Did you run supabase/staff_directory.sql?"); setContacts([]); }
   };
   useEffect(() => {
+    // The directory is admin-only, so don't fetch it for regular staff.
+    if (!admin) { setContacts([]); return; }
     load();
     const unsub = api.subscribeStaffContacts ? api.subscribeStaffContacts(load) : null;
     return () => { if (unsub) unsub(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [admin]);
 
   const add = async () => {
     if (!name.trim() || !phone.trim()) { setErr("Enter at least a name and a phone number."); return; }
