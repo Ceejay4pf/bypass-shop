@@ -3,6 +3,7 @@ import { Boxes, Lock, User, AlertTriangle, ArrowRight, Loader2, Phone, CheckCirc
 import { Field, inputCls } from "./ui.jsx";
 import { signIn, signUp, signInRole } from "./lib/auth.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
+import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
 
 /* ---------------------------------------------------------
@@ -46,6 +47,16 @@ export default function LoginGate() {
 
   const chosenRole = ROLE_ACCOUNTS.find((r) => r.key === roleKey) || null;
 
+  /* "Failed to fetch" means the browser never reached Supabase at all — the
+     password was never even checked. Say so in plain words, because the raw
+     message makes staff think they typed something wrong. */
+  const isNetworkError = (msg) =>
+    /failed to fetch|networkerror|network request failed|load failed|timeout|err_internet|connection/i.test(msg);
+
+  const NETWORK_HELP =
+    "Can't reach the internet. Check your data or Wi-Fi is on and try again — " +
+    "your password is fine, the phone just couldn't connect.";
+
   const submitRole = async () => {
     setError("");
     setNotice("");
@@ -59,7 +70,9 @@ export default function LoginGate() {
       // useAuth() in App picks up the session automatically.
     } catch (e) {
       const msg = e.message || "Login failed.";
-      if (/invalid login credentials|wrong password/i.test(msg)) {
+      if (isNetworkError(msg)) {
+        setError(NETWORK_HELP);
+      } else if (/invalid login credentials|wrong password/i.test(msg)) {
         setError(`Wrong password for ${chosenRole.label}. Ask the admin to reset it.`);
       } else if (/email not confirmed/i.test(msg)) {
         setError("Turn off Supabase → Authentication → “Confirm email”, then try again.");
@@ -105,7 +118,9 @@ export default function LoginGate() {
       }
     } catch (e) {
       const msg = e.message || "Login failed.";
-      if (/already registered/i.test(msg)) {
+      if (isNetworkError(msg)) {
+        setError(NETWORK_HELP);
+      } else if (/already registered/i.test(msg)) {
         setError("That name is already taken — try signing in, or add your phone to make it unique.");
       } else if (/invalid login credentials/i.test(msg)) {
         setError("Name or password is wrong. New here? Tap “Create an account”.");
@@ -347,6 +362,17 @@ export default function LoginGate() {
             {mode === "signin" ? "New staff member? Create an account" : "Already have an account? Sign in"}
           </button>
           </>
+          )}
+
+          {/* An installed app can get stuck on an old build whose requests no
+              longer reach anything — this is the way out. */}
+          {isNetworkError(error) && (
+            <button
+              onClick={hardReload}
+              className="w-full mt-3 border border-[#DEE3E9] rounded-md py-2.5 text-xs font-bold uppercase tracking-wide text-[#5A6472] hover:border-[#2563EB] hover:text-[#2563EB]"
+            >
+              Still failing? Reset the app
+            </button>
           )}
         </div>
 

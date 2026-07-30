@@ -1,4 +1,5 @@
 import React from "react";
+import { hardReload as doHardReload } from "./lib/hardReload.js";
 
 /* ---------------------------------------------------------
    Crash-recovery screen.
@@ -31,33 +32,7 @@ export default class ErrorBoundary extends React.Component {
 
   hardReload = async () => {
     this.setState({ busy: true });
-    try {
-      // Drop every cached file so the phone can't reload the broken build.
-      if (typeof caches !== "undefined") {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      // Unregister the service worker so the fresh files are fetched.
-      if ("serviceWorker" in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((r) => r.unregister()));
-      }
-    } catch {
-      /* ignore */
-    }
-    // Reload from the network with a cache-busting query so no stale
-    // index.html can be served back to us.
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set("fresh", String(Date.now()));
-      window.location.replace(url.toString());
-    } catch {
-      window.location.reload();
-    }
+    await doHardReload();
   };
 
   render() {
