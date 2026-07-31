@@ -60,13 +60,49 @@ export function itemToRow(i) {
 }
 
 /* ---- INVENTORY ---- */
+
+/* Every column EXCEPT images. Photos are base64 data URLs held in the row,
+   so `select("*")` drags several MB down the wire before the stock list can
+   appear — on a shop connection that's the difference between instant and a
+   long blank wait. The list needs none of it, so we fetch the parts first
+   and the photos separately (see fetchInventoryImages). */
+const ITEM_COLUMNS =
+  "code,cat,brand,model,series,year_from,year_to,condition,side,variant," +
+  "color,name,price,qty,min_qty,location,supplier,notes,status,created_by,created_at";
+
 export async function fetchInventory() {
   const { data, error } = await supabase
     .from("inventory")
-    .select("*")
+    .select(ITEM_COLUMNS)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data.map(rowToItem);
+}
+
+/* The photos, fetched after the list is already on screen. Returns a map of
+   code -> images array so the caller can merge them in. */
+export async function fetchInventoryImages() {
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("code,images")
+    .not("images", "is", null);
+  if (error) throw error;
+  const map = {};
+  for (const r of data) {
+    if (Array.isArray(r.images) && r.images.length) map[r.code] = r.images;
+  }
+  return map;
+}
+
+/* One item in full, photos included — for the edit screen. */
+export async function fetchItem(code) {
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("*")
+    .eq("code", code)
+    .single();
+  if (error) throw error;
+  return rowToItem(data);
 }
 
 // Generate a unique serial from the DB sequence (safe across devices),
@@ -193,6 +229,9 @@ export function rowToNotif(r) {
     paid: r.paid,
     total: r.total,
     remaining: r.remaining,
+    // Set once a sale has been undone (see undo_and_activity.sql).
+    returnedAt: r.returned_at ? new Date(r.returned_at).getTime() : null,
+    returnedBy: r.returned_by || null,
   };
 }
 export function rowToMovement(r) {
@@ -558,6 +597,53 @@ export async function fetchSales(limit = 500) {
     .limit(limit);
   if (error) throw error;
   return data;
+}
+
+/* Every sale by one person, newest first. */
+export async function fetchSalesBy(person, limit = 500) {
+  const { data, error } = await supabase
+    .from("sales")
+    .select("*")
+    .eq("by_name", person)
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
+/* Undo a sale: the goods come back into stock and the sale is stamped
+   as returned, keeping the original date while the return gets today's.
+   Nothing is erased — the books still show the sale happened.
+   Returns the item's new quantity. */
+export async function undoSale(saleId, byName, reason = "", restock = true) {
+  const { data, error } = await supabase.rpc("undo_sale", {
+    p_sale_id: saleId,
+    p_by: byName,
+    p_reason: reason || null,
+    p_restock: restock,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/* ---- PER-PERSON ACTIVITY (admin only) ---- */
+/* One row per person: sales, revenue, returns, items added/edited/deleted. */
+export async function fetchStaffActivity() {
+  const { data, error } = await supabase.rpc("staff_activity_summary");
+  if (error) throw error;
+  return data || [];
+}
+
+/* Everything one person has done, newest first. */
+export async function fetchActivityBy(person, limit = 400) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("by_name", person)
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data.map(rowToNotif);
 }
 
 /* ---- ACCOUNT APPROVALS ---- */

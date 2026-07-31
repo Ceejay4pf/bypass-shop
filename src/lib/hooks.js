@@ -8,7 +8,9 @@
 --------------------------------------------------------- */
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "./supabase.js";
-import { fetchInventory, fetchNotifications, rowToItem, rowToNotif } from "./api.js";
+import {
+  fetchInventory, fetchInventoryImages, fetchNotifications, rowToItem, rowToNotif,
+} from "./api.js";
 
 /* Live inventory. Returns { items, loading, error, reload }. */
 export function useInventory() {
@@ -18,11 +20,25 @@ export function useInventory() {
 
   const reload = useCallback(async () => {
     try {
-      setItems(await fetchInventory());
+      // The parts list, without photos — small and fast, so stock appears
+      // almost immediately even on a weak shop connection.
+      const list = await fetchInventory();
+      setItems(list);
       setError(null);
+      setLoading(false);
+
+      // Then the photos, merged in as they arrive. A slow or failed photo
+      // fetch never stops staff from seeing and selling stock.
+      fetchInventoryImages()
+        .then((byCode) => {
+          if (!Object.keys(byCode).length) return;
+          setItems((prev) =>
+            prev.map((i) => (byCode[i.code] ? { ...i, images: byCode[i.code] } : i))
+          );
+        })
+        .catch(() => {});
     } catch (e) {
       setError(e.message || String(e));
-    } finally {
       setLoading(false);
     }
   }, []);
@@ -56,6 +72,16 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const reload = useCallback(async () => {
+    try {
+      setNotifications(await fetchNotifications());
+    } catch {
+      /* leave what we have */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     fetchNotifications()
@@ -68,6 +94,13 @@ export function useNotifications() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, (payload) => {
         setNotifications((prev) => [rowToNotif(payload.new), ...prev]);
       })
+      // An undone sale is an UPDATE, not an insert — without this the feed
+      // would keep showing it as a live sale until the next refresh.
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, (payload) => {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === payload.new.id ? rowToNotif(payload.new) : n))
+        );
+      })
       .subscribe();
     return () => {
       active = false;
@@ -75,7 +108,7 @@ export function useNotifications() {
     };
   }, []);
 
-  return { notifications, loading };
+  return { notifications, loading, reload };
 }
 
 /* Current auth session + staff name. */

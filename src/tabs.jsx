@@ -9,7 +9,7 @@ import {
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
-  Wallet, CreditCard, ArrowRightLeft, Building2, User,
+  Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
 } from "lucide-react";
 import { CAPABILITIES } from "./lib/roles.js";
 import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
@@ -91,6 +91,7 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
   // Live list of shop staff (names) for the team panel. Admin-only, so we
   // don't even fetch it for regular staff.
   const [staff, setStaff] = useState([]);
+  const [teamOpen, setTeamOpen] = useState(false);
   useEffect(() => {
     if (!admin) { setStaff([]); return; }
     let alive = true;
@@ -204,34 +205,54 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       <div className={`grid gap-4 mb-4 ${admin ? "lg:grid-cols-2" : ""}`}>
         {admin && (
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
+          {/* Collapsed by default — the list can get long, and it's rarely
+              what an admin opened the dashboard to see. */}
+          <button
+            onClick={() => setTeamOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 text-left"
+          >
             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
               <UserCheck size={15} className="text-[#2563EB]" /> Shop Team ({staff.length})
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wide text-[#7C5CD6] bg-[#7C5CD622] rounded px-1.5 py-0.5">
-              Admin only
-            </span>
-          </div>
-          {staff.length === 0 ? (
-            <div className="text-[#5A6472] text-sm italic">No staff loaded yet.</div>
-          ) : (
-            <div className="space-y-2">
-              {staff.map((s) => {
-                let hue = 0;
-                for (const ch of s.name) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
-                return (
-                  <div key={s.id} className="flex items-center gap-2.5">
-                    <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: `hsl(${hue} 55% 45%)` }}>
-                      {(s.name || "?").charAt(0).toUpperCase()}
-                    </span>
-                    <span className="flex-1 min-w-0 text-sm text-[#1B2430] truncate">{s.name}</span>
-                    {!s.approved && (
-                      <span className="text-[10px] font-bold uppercase text-[#DC3B2E] bg-[#DC3B2E22] rounded px-1.5 py-0.5">Pending</span>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-[#7C5CD6] bg-[#7C5CD622] rounded px-1.5 py-0.5">
+                Admin only
+              </span>
+              <ChevronRight
+                size={16}
+                className={`text-[#5A6472] transition-transform ${teamOpen ? "rotate-90" : ""}`}
+              />
             </div>
+          </button>
+
+          {!teamOpen && (
+            <div className="text-[11px] text-[#5A6472] mt-2">
+              Tap to see the {staff.length === 1 ? "person" : `${staff.length} people`} on the team.
+            </div>
+          )}
+
+          {teamOpen && (
+            staff.length === 0 ? (
+              <div className="text-[#5A6472] text-sm italic mt-3">No staff loaded yet.</div>
+            ) : (
+              <div className="space-y-2 mt-3">
+                {staff.map((s) => {
+                  let hue = 0;
+                  for (const ch of s.name) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+                  return (
+                    <div key={s.id} className="flex items-center gap-2.5">
+                      <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: `hsl(${hue} 55% 45%)` }}>
+                        {(s.name || "?").charAt(0).toUpperCase()}
+                      </span>
+                      <span className="flex-1 min-w-0 text-sm text-[#1B2430] truncate">{s.name}</span>
+                      {!s.approved && (
+                        <span className="text-[10px] font-bold uppercase text-[#DC3B2E] bg-[#DC3B2E22] rounded px-1.5 py-0.5">Pending</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
         )}
@@ -1896,6 +1917,23 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
+  /* The stock list is fetched without photos so it loads fast, which means
+     the photos may not have arrived yet when this form opens. Pull the full
+     row so saving can't blank out photos the form never had. */
+  React.useEffect(() => {
+    let alive = true;
+    if (!api.fetchItem) return;
+    api.fetchItem(item.code)
+      .then((full) => {
+        if (!alive) return;
+        const got = Array.isArray(full.images) ? full.images.filter(Boolean) : [];
+        // Don't clobber photos the user has just added or removed.
+        setImages((prev) => (prev.length === 0 && got.length ? got : prev));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [item.code]);
+
   // "Add information" from the search long-press jumps straight to the
   // location / supplier / notes / photos block.
   const infoRef = React.useRef(null);
@@ -2238,7 +2276,7 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
 }
 
 /* ======================= NOTIFICATIONS ======================= */
-function NotifRow({ n, compact }) {
+function NotifRow({ n, compact, onUndo }) {
   const typeMeta = {
     sale: { label: "Sold", cls: "bg-[#DC3B2E22] text-[#DC3B2E]" },
     stock: { label: "Stock added", cls: "bg-[#15926A22] text-[#15926A]" },
@@ -2246,6 +2284,7 @@ function NotifRow({ n, compact }) {
     adjust: { label: "Adjusted", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
     delete: { label: "Deleted", cls: "bg-[#6B748022] text-[#5A6472]" },
     login: { label: "Login", cls: "bg-[#7C5CD622] text-[#7C5CD6]" },
+    return: { label: "Returned", cls: "bg-[#7C5CD622] text-[#7C5CD6]" },
   }[n.type] || { label: n.type, cls: "bg-[#6B748022] text-[#5A6472]" };
 
   // Login events have no part code/qty — render a simpler card.
@@ -2291,11 +2330,356 @@ function NotifRow({ n, compact }) {
       {n.remaining !== undefined && n.remaining !== null && (
         <div className="text-xs text-[#5A6472] mt-1">Remaining stock: {n.remaining}</div>
       )}
+
+      {/* A sale that was brought back. The sale itself stays on record. */}
+      {n.returnedAt && (
+        <div className="mt-2 text-[11px] font-semibold text-[#7C5CD6] bg-[#7C5CD611] border border-[#7C5CD644] rounded px-2 py-1">
+          Returned {fmtDateTime(n.returnedAt)}
+          {n.returnedBy ? ` by ${n.returnedBy}` : ""} — back in stock
+        </div>
+      )}
+
+      {/* Undo: the part came back, so put it back. Admin-only, and only
+          for a sale that hasn't already been undone. */}
+      {onUndo && n.type === "sale" && !n.returnedAt && (
+        <button
+          onClick={() => onUndo(n)}
+          className="mt-2 w-full flex items-center justify-center gap-1.5 border border-[#DEE3E9] rounded-md py-2 text-[11px] font-bold uppercase tracking-wide text-[#5A6472] hover:border-[#7C5CD6] hover:text-[#7C5CD6]"
+        >
+          <RotateCcw size={13} /> Undo — item was returned
+        </button>
+      )}
     </div>
   );
 }
 
-export function NotifyTab({ notifications }) {
+/* ======================= WHO DID WHAT =======================
+   One person at a time: every sale, new item, edit, deletion and
+   restock they've made. Admin-only — this is the accountability
+   trail the head office reads. */
+
+/* Ask before undoing, and let the admin say why. */
+function UndoSaleSheet({ sale, onClose, onConfirm }) {
+  const [reason, setReason] = useState("");
+  const [restock, setRestock] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const go = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await onConfirm({ reason: reason.trim(), restock });
+      onClose();
+    } catch (e) {
+      setErr(e.message || "Couldn't undo that sale.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
+      <div
+        className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 mb-1 text-[#1B2430] font-bold">
+          <RotateCcw size={17} className="text-[#7C5CD6]" /> Undo this sale
+        </div>
+        <p className="text-[#5A6472] text-xs leading-relaxed mb-4">
+          The part goes back into stock today. The original sale of{" "}
+          <span className="font-semibold text-[#1B2430]">{fmtDateTime(sale.ts)}</span>{" "}
+          stays on record, marked as returned — nothing is erased.
+        </p>
+
+        <div className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 mb-4 text-sm">
+          <div className="font-mono text-xs text-[#2563EB]">{sale.code}</div>
+          <div className="font-semibold">{sale.name} <span className="text-[#5A6472]">× {sale.qty}</span></div>
+          {sale.buyer && <div className="text-xs text-[#5A6472] mt-0.5">Customer: {sale.buyer}</div>}
+          <div className="text-xs text-[#5A6472]">Sold by {sale.by || sale.by_name}</div>
+        </div>
+
+        <Field label="Why is it coming back? (optional)">
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Wrong part, customer returned it"
+            className={inputCls}
+            autoFocus
+          />
+        </Field>
+
+        <button
+          onClick={() => setRestock((v) => !v)}
+          className="flex items-start gap-2 text-left w-full mb-4"
+        >
+          {restock ? <CheckSquare size={17} className="text-[#2563EB] mt-0.5 shrink-0" /> : <Square size={17} className="text-[#5A6472] mt-0.5 shrink-0" />}
+          <span className="text-xs text-[#5A6472] leading-relaxed">
+            <span className="font-semibold text-[#1B2430]">Put it back into our stock.</span>{" "}
+            Untick only if the part was supplied by another branch, so it was
+            never counted here in the first place.
+          </span>
+        </button>
+
+        {err && (
+          <div className="text-[#DC3B2E] text-sm mb-3 flex items-start gap-1.5">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {err}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 border border-[#DEE3E9] rounded-md py-2.5 text-sm font-semibold text-[#5A6472]">
+            Cancel
+          </button>
+          <button
+            onClick={go}
+            disabled={busy}
+            className="flex-1 bg-[#7C5CD6] text-white rounded-md py-2.5 text-sm font-bold uppercase tracking-wide flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />}
+            Undo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Everything one person has done. */
+function PersonActivity({ person, onBack, onChanged }) {
+  const [rows, setRows] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [undoing, setUndoing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      const [acts, sls] = await Promise.all([
+        api.fetchActivityBy(person),
+        api.fetchSalesBy(person),
+      ]);
+      setRows(acts);
+      setSales(sls);
+    } catch (e) {
+      setErr(e.message || "Couldn't load that person's activity.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [person]);
+
+  /* Match a notification to its sale row so Undo knows which sale to
+     reverse. Same part, within two minutes — they're written together. */
+  const saleFor = (n) =>
+    sales.find(
+      (s) => s.code === n.code && !s.returned_at && Math.abs(new Date(s.ts).getTime() - n.ts) < 120000
+    ) || null;
+
+  const doUndo = async ({ reason, restock }) => {
+    const sale = undoing;
+    await api.undoSale(sale.id, person, reason, restock);
+    await load();
+    onChanged?.();
+  };
+
+  const counts = useMemo(() => {
+    const c = { sale: 0, new_item: 0, adjust: 0, delete: 0, stock: 0, return: 0 };
+    for (const r of rows) if (c[r.type] !== undefined) c[r.type] += 1;
+    return c;
+  }, [rows]);
+
+  const revenue = useMemo(
+    () => sales.filter((s) => !s.returned_at).reduce((t, s) => t + Number(s.total || 0), 0),
+    [sales]
+  );
+
+  const filtered = filter === "all" ? rows : rows.filter((r) => r.type === filter);
+
+  const chips = [
+    ["all", `All (${rows.length})`],
+    ["sale", `Sales (${counts.sale})`],
+    ["new_item", `Items added (${counts.new_item})`],
+    ["adjust", `Changes (${counts.adjust})`],
+    ["delete", `Deleted (${counts.delete})`],
+    ["stock", `Restocks (${counts.stock})`],
+    ["return", `Returns (${counts.return})`],
+  ];
+
+  return (
+    <div className="bp-fade-up">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-[#2563EB] text-sm font-semibold mb-3">
+        <ArrowLeft size={15} /> Back to everyone
+      </button>
+
+      <SectionTitle eyebrow="Everything this person has done" title={person} />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <StatCard icon={ShoppingCart} label="Sales" value={counts.sale} tone="green" />
+        <StatCard icon={DollarSign} label="Revenue" value={`KES ${revenue.toLocaleString()}`} tone="gold" />
+        <StatCard icon={Plus} label="Items Added" value={counts.new_item} tone="blue" />
+        <StatCard icon={Trash2} label="Items Deleted" value={counts.delete} tone="red" />
+      </div>
+
+      <div className="flex gap-2 mb-4 overflow-x-auto">
+        {chips.map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setFilter(k)}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border ${
+              filter === k ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-[#5A6472] text-sm py-8 text-center">Loading…</div>}
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3">{err}</div>
+      )}
+      {!loading && !err && filtered.length === 0 && (
+        <div className="text-[#5A6472] text-sm py-8 text-center italic">Nothing recorded here.</div>
+      )}
+
+      <div className="space-y-2">
+        {filtered.map((n) => {
+          const sale = n.type === "sale" && !n.returnedAt ? saleFor(n) : null;
+          return (
+            <NotifRow
+              key={n.id}
+              n={n}
+              onUndo={sale ? () => setUndoing({ ...sale, by: person }) : undefined}
+            />
+          );
+        })}
+      </div>
+
+      {undoing && (
+        <UndoSaleSheet
+          sale={{ ...undoing, ts: new Date(undoing.ts).getTime() }}
+          onClose={() => setUndoing(null)}
+          onConfirm={doUndo}
+        />
+      )}
+    </div>
+  );
+}
+
+/* The list of people. Tap one to see everything they've done. */
+export function StaffActivityTab({ onChanged }) {
+  const [people, setPeople] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [picked, setPicked] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      setPeople(await api.fetchStaffActivity());
+    } catch (e) {
+      setErr(
+        /function|does not exist|schema/i.test(e.message || "")
+          ? "Run supabase/undo_and_activity.sql in the Supabase SQL editor to switch this on."
+          : e.message || "Couldn't load the activity summary."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  if (picked) {
+    return (
+      <PersonActivity
+        person={picked}
+        onBack={() => { setPicked(null); load(); }}
+        onChanged={onChanged}
+      />
+    );
+  }
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="Admin only" title="Who Did What" />
+
+      {loading && <div className="text-[#5A6472] text-sm py-8 text-center">Loading…</div>}
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3">{err}</div>
+      )}
+      {!loading && !err && people.length === 0 && (
+        <div className="text-[#5A6472] text-sm py-8 text-center italic">
+          Nobody has recorded any activity yet.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {people.map((p) => {
+          let hue = 0;
+          for (const ch of p.person || "") hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+          return (
+            <button
+              key={p.person}
+              onClick={() => setPicked(p.person)}
+              className="w-full text-left bg-white border border-[#DEE3E9] rounded-lg p-3.5 hover:border-[#2563EB] transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+                  style={{ backgroundColor: `hsl(${hue} 55% 45%)` }}
+                >
+                  {(p.person || "?").charAt(0).toUpperCase()}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-[#1B2430] truncate">{p.person}</div>
+                  <div className="text-[11px] text-[#5A6472]">
+                    Last active {p.last_seen ? timeAgo(new Date(p.last_seen).getTime()) : "—"}
+                  </div>
+                </div>
+                <ChevronRight size={17} className="text-[#5A6472] shrink-0" />
+              </div>
+
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mt-3">
+                <MiniStat label="Sales" value={p.sales} />
+                <MiniStat label="Revenue" value={`KES ${Number(p.revenue || 0).toLocaleString()}`} />
+                <MiniStat label="Added" value={p.items_added} />
+                <MiniStat label="Changed" value={p.items_edited} />
+                <MiniStat label="Deleted" value={p.items_deleted} tone={Number(p.items_deleted) > 0 ? "red" : undefined} />
+              </div>
+              {Number(p.returns) > 0 && (
+                <div className="text-[11px] text-[#7C5CD6] font-semibold mt-2">
+                  {p.returns} {Number(p.returns) === 1 ? "return" : "returns"} undone
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, tone }) {
+  return (
+    <div className="bg-[#EEF2F6] rounded-md px-2 py-1.5">
+      <div className="text-[9px] font-bold uppercase tracking-wide text-[#5A6472]">{label}</div>
+      <div className={`text-sm font-bold truncate ${tone === "red" ? "text-[#DC3B2E]" : "text-[#1B2430]"}`}>
+        {value ?? 0}
+      </div>
+    </div>
+  );
+}
+
+export function NotifyTab({ notifications, admin = false, onChanged }) {
+  // "everyone" = the running feed; "people" = one person at a time.
+  const [view, setView] = useState("everyone");
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? notifications : notifications.filter((n) => n.type === filter);
   const tabs = [
@@ -2303,10 +2687,46 @@ export function NotifyTab({ notifications }) {
     ["sale", "Sales"],
     ["stock", "Restocks"],
     ["new_item", "New items"],
+    ["return", "Returns"],
   ];
+
+  if (view === "people") {
+    return (
+      <div className="bp-fade-up">
+        <button
+          onClick={() => setView("everyone")}
+          className="flex items-center gap-1.5 text-[#2563EB] text-sm font-semibold mb-3"
+        >
+          <ArrowLeft size={15} /> Back to all activity
+        </button>
+        <StaffActivityTab onChanged={onChanged} />
+      </div>
+    );
+  }
+
   return (
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Sent to Jaspare Auto · Main Shop" title="Notifications" />
+
+      {/* Drill into one person's record. Admin-only. */}
+      {admin && (
+        <button
+          onClick={() => setView("people")}
+          className="w-full flex items-center gap-3 bg-white border border-[#DEE3E9] rounded-lg p-3.5 mb-4 hover:border-[#2563EB] transition-colors text-left"
+        >
+          <span className="w-9 h-9 rounded-md bg-[#7C5CD622] text-[#7C5CD6] flex items-center justify-center shrink-0">
+            <UserCheck size={17} />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-semibold text-sm text-[#1B2430]">Who did what</span>
+            <span className="block text-[11px] text-[#5A6472]">
+              Pick a person to see their sales, items and changes
+            </span>
+          </span>
+          <ChevronRight size={17} className="text-[#5A6472] shrink-0" />
+        </button>
+      )}
+
       <div className="flex gap-2 mb-4 overflow-x-auto">
         {tabs.map(([k, label]) => (
           <button
@@ -2331,8 +2751,11 @@ export function NotifyTab({ notifications }) {
 }
 
 /* ======================= REPORTS ======================= */
-export function ReportsTab({ items, notifications, categories }) {
+export function ReportsTab({ items, notifications, categories, admin = false, onChanged }) {
   const [range, setRange] = useState("daily");
+  // Drill-down: the individual sales behind the totals.
+  const [showSales, setShowSales] = useState(false);
+  const [byPerson, setByPerson] = useState(null);
 
   const now = new Date();
   const startOf = {
@@ -2342,7 +2765,8 @@ export function ReportsTab({ items, notifications, categories }) {
     yearly: () => now.getTime() - 365 * 86400000,
   }[range]();
 
-  const sales = notifications.filter((n) => n.type === "sale" && n.ts >= startOf);
+  // Undone sales don't count towards takings — the goods came back.
+  const sales = notifications.filter((n) => n.type === "sale" && n.ts >= startOf && !n.returnedAt);
   const unitsSold = sales.reduce((s, n) => s + Number(n.qty || 0), 0);
   const revenue = sales.reduce((s, n) => s + Number(n.total || 0), 0);
   const paidRevenue = sales.filter((n) => n.paid).reduce((s, n) => s + Number(n.total || 0), 0);
@@ -2360,12 +2784,32 @@ export function ReportsTab({ items, notifications, categories }) {
   const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
   const inventoryValue = items.reduce((s, i) => s + Number(i.qty) * Number(i.price), 0);
 
+  // Who sold what, over the chosen range.
+  const sellers = useMemo(() => {
+    const map = {};
+    for (const n of sales) {
+      const who = n.by || "Unknown";
+      map[who] = map[who] || { person: who, count: 0, units: 0, revenue: 0 };
+      map[who].count += 1;
+      map[who].units += Number(n.qty || 0);
+      map[who].revenue += Number(n.total || 0);
+    }
+    return Object.values(map).sort((a, b) => b.revenue - a.revenue);
+  }, [sales]);
+
   const ranges = [
     ["daily", "Daily"],
     ["weekly", "Weekly"],
     ["monthly", "Monthly"],
     ["yearly", "Yearly"],
   ];
+
+  // One person's full record, opened from the seller list.
+  if (byPerson) {
+    return (
+      <PersonActivity person={byPerson} onBack={() => setByPerson(null)} onChanged={onChanged} />
+    );
+  }
 
   return (
     <div className="bp-fade-up">
@@ -2389,6 +2833,90 @@ export function ReportsTab({ items, notifications, categories }) {
         <StatCard icon={DollarSign} label="Revenue" value={`KES ${revenue.toLocaleString()}`} tone="gold" />
         <StatCard icon={Check} label="Paid" value={`KES ${paidRevenue.toLocaleString()}`} tone="green" />
         <StatCard icon={AlertTriangle} label="Pending" value={`KES ${pending.toLocaleString()}`} tone="red" />
+      </div>
+
+      {/* The individual sales behind those totals. */}
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <button
+          onClick={() => setShowSales((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+        >
+          <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
+            <Receipt size={15} className="text-[#2563EB]" /> Individual Sales ({sales.length})
+          </div>
+          <ChevronRight
+            size={16}
+            className={`text-[#5A6472] shrink-0 transition-transform ${showSales ? "rotate-90" : ""}`}
+          />
+        </button>
+
+        {!showSales && (
+          <div className="text-[11px] text-[#5A6472] mt-2">
+            Tap to see every sale in this period, one by one.
+          </div>
+        )}
+
+        {showSales && (
+          <div className="mt-3">
+            {sales.length === 0 ? (
+              <div className="text-[#5A6472] text-sm italic">No sales in this period.</div>
+            ) : (
+              <>
+                {/* Who sold what. Admins can tap through to a person. */}
+                {sellers.length > 0 && (
+                  <div className="mb-4">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-2">
+                      By person
+                    </div>
+                    <div className="space-y-1.5">
+                      {sellers.map((s) => {
+                        const inner = (
+                          <>
+                            <span className="flex-1 min-w-0 text-sm font-semibold text-[#1B2430] truncate">
+                              {s.person}
+                            </span>
+                            <span className="text-xs text-[#5A6472] shrink-0">
+                              {s.count} {s.count === 1 ? "sale" : "sales"} · {s.units} pcs
+                            </span>
+                            <span className="text-sm font-bold text-[#15926A] shrink-0">
+                              KES {s.revenue.toLocaleString()}
+                            </span>
+                            {admin && <ChevronRight size={15} className="text-[#5A6472] shrink-0" />}
+                          </>
+                        );
+                        return admin ? (
+                          <button
+                            key={s.person}
+                            onClick={() => setByPerson(s.person)}
+                            className="w-full flex items-center gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5 text-left hover:border-[#2563EB] transition-colors"
+                          >
+                            {inner}
+                          </button>
+                        ) : (
+                          <div
+                            key={s.person}
+                            className="flex items-center gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5"
+                          >
+                            {inner}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-2">
+                  Every sale
+                </div>
+                <div className="space-y-2">
+                  {sales.map((n) => (
+                    <NotifRow key={n.id} n={n} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 mb-4">

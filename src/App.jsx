@@ -79,8 +79,16 @@ function useClock() {
 }
 
 function BypassShop({ session }) {
-  const { items, loading: itemsLoading, error } = useInventory();
-  const { notifications } = useNotifications();
+  const { items, loading: itemsLoading, error, reload: reloadItems } = useInventory();
+  const { notifications, reload: reloadNotifications } = useNotifications();
+
+  /* An undone sale changes both stock and the activity log, and it happens
+     inside a database function that realtime can't fully describe — so pull
+     both back down afterwards. */
+  const refreshAfterUndo = useCallback(() => {
+    reloadItems();
+    reloadNotifications();
+  }, [reloadItems, reloadNotifications]);
   const admin = isAdmin(session);
   // Shared role logins are pre-trusted — the role password is the
   // authorisation, so they never sit in the approval queue.
@@ -486,9 +494,19 @@ function BypassShop({ session }) {
           {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
           {tab === "transfers" && <TransfersTab items={items} user={user} />}
           {tab === "feed" && <StaffFeedTab userId={session.user.id} user={user} admin={admin} />}
-          {tab === "notify" && admin && <NotifyTab notifications={notifications} />}
+          {tab === "notify" && admin && (
+            <NotifyTab notifications={notifications} admin={admin} onChanged={refreshAfterUndo} />
+          )}
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
-          {tab === "reports" && <ReportsTab items={items} notifications={notifications} categories={CATEGORIES} />}
+          {tab === "reports" && (
+            <ReportsTab
+              items={items}
+              notifications={notifications}
+              categories={CATEGORIES}
+              admin={admin}
+              onChanged={refreshAfterUndo}
+            />
+          )}
           {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
           {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
           {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}
