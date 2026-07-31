@@ -10,7 +10,9 @@ import {
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
+  Wand2,
 } from "lucide-react";
+import { parsePartsList, rowToNewItem } from "./lib/parseParts.js";
 import { CAPABILITIES } from "./lib/roles.js";
 import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
 import { changeRolePassword } from "./lib/auth.js";
@@ -384,6 +386,164 @@ function useLongPress(onLongPress, ms = 500) {
   };
 }
 
+/* ======================= WHERE DID IT GO? =======================
+   Deleting a part used to ask "are you sure?" and record nothing but a
+   name. The head office's real question is where the stock went, so this
+   sheet asks it: sold, given to a credit customer, moved to another
+   shop, damaged - and then who has it now and who carried it there.
+
+   Nothing is deleted until Confirm is pressed. */
+export function DeleteItemSheet({ item, onClose, onConfirm }) {
+  const [disposal, setDisposal] = useState("");
+  const [takenBy, setTakenBy] = useState("");
+  const [logistics, setLogistics] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const chosen = api.DISPOSALS.find((d) => d.key === disposal);
+
+  const go = async () => {
+    if (!disposal) { setErr("Please say where the stock went."); return; }
+    if (!takenBy.trim()) { setErr(chosen.asks); return; }
+    setBusy(true);
+    setErr("");
+    try {
+      await onConfirm({
+        disposal,
+        takenBy: takenBy.trim(),
+        logistics: logistics.trim(),
+        reason: reason.trim(),
+      });
+      onClose();
+    } catch (e) {
+      setErr(e.message || "Couldn't remove that part.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={busy ? undefined : onClose}
+    >
+      <div
+        className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl bp-pop max-h-[92vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-[#DEE3E9]">
+          <div className="text-[#DC3B2E] text-[11px] font-bold tracking-[0.2em] uppercase mb-1">
+            Removing stock
+          </div>
+          <div className="font-bold text-[#1B2430] leading-snug">{item.name || item.code}</div>
+          <div className="text-[11px] text-[#5A6472] font-mono mt-0.5">{item.code}</div>
+          <div className="text-[11px] text-[#5A6472] mt-0.5">{item.qty} in stock right now</div>
+        </div>
+
+        <div className="p-4">
+          <div className="text-xs text-[#5A6472] mb-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+            This takes the part off the shelf list for good. The record of where it went stays in the
+            ledger forever — so please say where it actually went.
+          </div>
+
+          <Field label="Where did the stock go?">
+            <div className="grid grid-cols-1 gap-1.5">
+              {api.DISPOSALS.map((d) => {
+                const on = disposal === d.key;
+                return (
+                  <button
+                    key={d.key}
+                    onClick={() => { setDisposal(d.key); setErr(""); }}
+                    className={`text-left text-sm rounded-md border px-3 py-2.5 font-medium transition-colors ${
+                      on
+                        ? "border-[#2563EB] bg-[#2563EB0F] text-[#2563EB]"
+                        : "border-[#DEE3E9] text-[#5A6472] hover:border-[#C2CAD3]"
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
+          {chosen && (
+            <>
+              <Field label={chosen.asks}>
+                <input
+                  autoFocus
+                  value={takenBy}
+                  onChange={(e) => setTakenBy(e.target.value)}
+                  placeholder={
+                    disposal === "branch"
+                      ? "Jeyden Auto Spares"
+                      : disposal === "credit"
+                      ? "Mwangi Motors"
+                      : "Name"
+                  }
+                  className={inputCls}
+                  list={disposal === "branch" ? "shop-list" : undefined}
+                />
+                {disposal === "branch" && (
+                  <datalist id="shop-list">
+                    {SHOPS.map((s) => <option key={s.name} value={s.name} />)}
+                  </datalist>
+                )}
+              </Field>
+
+              <Field
+                label="Who carried it? (logistics) — optional"
+                hint="The rider, driver or courier — or leave blank if it was collected in person."
+              >
+                <input
+                  value={logistics}
+                  onChange={(e) => setLogistics(e.target.value)}
+                  placeholder="e.g. Kevin (boda) · Wells Fargo · collected in person"
+                  className={inputCls}
+                />
+              </Field>
+
+              <Field label="Anything else worth recording? — optional">
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  rows={2}
+                  placeholder="Delivery note number, condition on leaving…"
+                  className={inputCls}
+                />
+              </Field>
+            </>
+          )}
+
+          {err && (
+            <div className="text-[#DC3B2E] text-sm mb-3 flex items-center gap-1.5">
+              <AlertTriangle size={14} /> {err}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={busy}
+              className="flex-1 border border-[#DEE3E9] rounded-md py-3 font-semibold uppercase text-sm tracking-wide text-[#5A6472] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={go}
+              disabled={busy}
+              className="flex-1 bg-[#DC3B2E] text-white font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              {busy ? "Removing…" : "Confirm"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* The action sheet shown after a long-press on a search result. */
 function ItemActionSheet({ item, categories, onClose, actions }) {
   const cat = categories.find((c) => c.key === item.cat);
@@ -446,6 +606,8 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
   const [query, setQuery] = useState("");
   // The result being long-pressed, if any — drives the action sheet.
   const [held, setHeld] = useState(null);
+  // The part being removed — the sheet asks where the stock went first.
+  const [removing, setRemoving] = useState(null);
 
   // How many items sit in each category, for the picker counts.
   const counts = useMemo(() => {
@@ -541,7 +703,7 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
             key={it.code}
             item={it}
             categories={categories}
-            onDelete={onDelete}
+            onDelete={onDelete ? setRemoving : undefined}
             onHold={() => setHeld(it)}
           />
         ))}
@@ -607,6 +769,14 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
           ]}
         />
       )}
+
+      {removing && (
+        <DeleteItemSheet
+          item={removing}
+          onClose={() => setRemoving(null)}
+          onConfirm={(info) => onDelete(removing.code, info)}
+        />
+      )}
     </div>
   );
 }
@@ -628,6 +798,9 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
   // Multi-select mode: a Set of selected item codes within the open section.
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
+  // The part being removed, or a list of them — the sheet asks where the
+  // stock went before anything is deleted.
+  const [removing, setRemoving] = useState(null);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -657,13 +830,19 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
     const selCount = selected.size;
     const canBulk = onBulkDelete || onBulkAddStock;
 
+    /* Several parts leaving together - a whole box to another shop, say.
+       They share one answer, so ask once and apply it to all of them. */
     const bulkDelete = () => {
-      const codes = list.filter((it) => selected.has(it.code)).map((it) => it.code);
-      if (!codes.length) return;
-      if (confirm(`Delete ${codes.length} selected item(s)? This cannot be undone.`)) {
-        onBulkDelete?.(codes);
-        exitSelect();
-      }
+      const chosen = list.filter((it) => selected.has(it.code));
+      if (!chosen.length) return;
+      setRemoving({
+        item: {
+          code: `${chosen.length} parts`,
+          name: `${chosen.length} selected part${chosen.length !== 1 ? "s" : ""}`,
+          qty: chosen.reduce((s, it) => s + Number(it.qty || 0), 0),
+        },
+        codes: chosen.map((it) => it.code),
+      });
     };
     const bulkAdd = () => {
       const codes = list.filter((it) => selected.has(it.code)).map((it) => it.code);
@@ -755,11 +934,9 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
                 </button>
                 {canEdit && onDelete && (
                   <button
-                    onClick={() => {
-                      if (confirm(`Delete ${it.code} — ${it.name}? This cannot be undone.`)) onDelete(it.code);
-                    }}
+                    onClick={() => setRemoving({ item: it, codes: [it.code] })}
                     className="absolute top-2 right-2 p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete item"
+                    title="Remove item — record where it went"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -780,10 +957,25 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
             )}
             {onBulkDelete && (
               <button onClick={bulkDelete} className="flex items-center gap-1.5 bg-[#DC3B2E] text-white text-sm font-semibold rounded-full px-3 py-1.5">
-                <Trash2 size={15} /> Delete
+                <Trash2 size={15} /> Remove
               </button>
             )}
           </div>
+        )}
+
+        {removing && (
+          <DeleteItemSheet
+            item={removing.item}
+            onClose={() => setRemoving(null)}
+            onConfirm={async (info) => {
+              if (removing.codes.length > 1) {
+                await onBulkDelete?.(removing.codes, info);
+                exitSelect();
+              } else {
+                await onDelete?.(removing.codes[0], info);
+              }
+            }}
+          />
         )}
       </div>
     );
@@ -1764,6 +1956,345 @@ export function AddItemTab({ items, categories, onAdd }) {
   );
 }
 
+/* ======================= BULK ENTRY =======================
+   Paste a list the way it was written - on WhatsApp, in a notebook,
+   in a supplier's message - and the shop reads it. Every line becomes
+   a row you can correct before anything is saved. Nothing is written
+   to the inventory until the Save button is pressed.
+*/
+export function BulkAddTab({ items, categories, onAddMany }) {
+  const [text, setText] = useState("");
+  const [rows, setRows] = useState(null); // null = still on the paste step
+  const [openId, setOpenId] = useState(null); // which row is expanded for editing
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(null); // { added, failed }
+
+  const read = () => {
+    const parsed = parsePartsList(text);
+    setRows(parsed);
+    setOpenId(null);
+    setDone(null);
+  };
+
+  const patch = (id, changes) =>
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const next = { ...r, ...changes };
+        // Recalculate what is still missing as they fill things in.
+        const miss = [];
+        if (!next.cat) miss.push("category");
+        if (!next.brand) miss.push("brand");
+        if (!next.model) miss.push("model");
+        if (!next.yearFrom) miss.push("year");
+        if (["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR"].includes(next.cat) && !next.side) {
+          miss.push("side");
+        }
+        return { ...next, missing: miss };
+      })
+    );
+
+  const drop = (id) => setRows((prev) => prev.filter((r) => r.id !== id));
+
+  const ready = (rows || []).filter((r) => r.missing.length === 0);
+  const needsWork = (rows || []).filter((r) => r.missing.length > 0);
+
+  const save = async () => {
+    setSaving(true);
+    const result = await onAddMany(ready.map((r) => rowToNewItem(r, categories)));
+    setSaving(false);
+    setDone(result);
+    // Keep only the rows that still need attention, so the screen shows
+    // exactly what is left to do.
+    setRows(needsWork);
+  };
+
+  /* ---------- step 1: paste ---------- */
+  if (rows === null) {
+    return (
+      <div className="bp-fade-up">
+        <SectionTitle eyebrow="Bulk entry" title="Paste a List of Parts" />
+
+        <div className="text-[#5A6472] text-xs mb-4 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 leading-relaxed">
+          Write or paste the parts the way you normally say them — one per line. The shop works
+          out the <span className="font-semibold text-[#1B2430]">category, vehicle, year and side</span>{" "}
+          by itself, and shows you everything for checking before it saves.
+          <div className="mt-2 font-mono text-[11px] text-[#1B2430] bg-white border border-[#DEE3E9] rounded p-2 leading-relaxed">
+            Left-hand side side mirror - Honda Fit (2010 model)<br />
+            Left-hand side front door - Mazda CX-5 (2012-2016 model)<br />
+            Front bumper - Lexus IS 250 (2008 model)<br />
+            Rear bumper - Toyota Harrier (2016 model)<br />
+            Left-hand side headlight - Toyota Prado 150 (2016 model)
+          </div>
+          <div className="mt-2">
+            You can add a price and quantity if you know them — <span className="font-mono">@ 8500</span>{" "}
+            and <span className="font-mono">x2</span> — and words like{" "}
+            <span className="font-mono">brand new</span>, <span className="font-mono">ex japan</span>,{" "}
+            <span className="font-mono">xenon</span> are picked up too. Anything left out can be filled
+            in on the next screen or later from Edit Parts.
+          </div>
+        </div>
+
+        <Field label="Your list">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={10}
+            placeholder={"Left-hand side headlight - Toyota Premio 2016\nRear bumper - Nissan Note 2014\n..."}
+            className={inputCls + " font-mono text-sm"}
+          />
+        </Field>
+
+        <button
+          onClick={read}
+          disabled={!text.trim()}
+          className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.99] transition-transform"
+        >
+          <Wand2 size={18} /> Read the list
+        </button>
+      </div>
+    );
+  }
+
+  /* ---------- step 2: check and save ---------- */
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle
+        eyebrow="Bulk entry"
+        title="Check Before Saving"
+        right={
+          <button
+            onClick={() => { setRows(null); setDone(null); }}
+            className="text-xs font-bold uppercase tracking-wide text-[#2563EB] border border-[#DEE3E9] rounded-md px-3 py-2 hover:border-[#2563EB]"
+          >
+            Back to the list
+          </button>
+        }
+      />
+
+      {done && (
+        <div className={`rounded-md p-3 text-sm mb-4 flex items-start gap-2 border ${
+          done.failed ? "bg-[#FBEAE8] border-[#DC3B2E] text-[#DC3B2E]" : "bg-[#E6F6EF] border-[#15926A] text-[#15926A]"
+        }`}>
+          {done.failed ? <AlertTriangle size={15} className="mt-0.5" /> : <Check size={15} className="mt-0.5" />}
+          <div>
+            <div className="font-semibold">
+              {done.added} part{done.added !== 1 ? "s" : ""} added to the inventory.
+            </div>
+            {done.failed > 0 && (
+              <div className="text-xs mt-0.5">
+                {done.failed} could not be saved — {done.firstError || "please try those again"}.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <div className="text-center text-[#5A6472] text-sm bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-6">
+          Nothing left to check.
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2 mb-4 text-xs">
+            <span className="bg-[#15926A22] text-[#15926A] font-bold rounded px-2 py-1">
+              {ready.length} ready
+            </span>
+            {needsWork.length > 0 && (
+              <span className="bg-[#DC3B2E22] text-[#DC3B2E] font-bold rounded px-2 py-1">
+                {needsWork.length} need{needsWork.length === 1 ? "s" : ""} a detail
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-2 mb-4">
+            {rows.map((r) => (
+              <BulkRow
+                key={r.id}
+                row={r}
+                categories={categories}
+                items={items}
+                open={openId === r.id}
+                onToggle={() => setOpenId(openId === r.id ? null : r.id)}
+                onPatch={(c) => patch(r.id, c)}
+                onDrop={() => drop(r.id)}
+              />
+            ))}
+          </div>
+
+          {needsWork.length > 0 && (
+            <div className="text-xs text-[#5A6472] mb-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+              The rows marked in red are missing something. Tap one to fill it in — or leave them and
+              save the rest now.
+            </div>
+          )}
+
+          <button
+            onClick={save}
+            disabled={saving || ready.length === 0}
+            className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.99] transition-transform"
+          >
+            {saving ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+            {saving ? "Saving…" : `Save ${ready.length} part${ready.length !== 1 ? "s" : ""} to inventory`}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* One parsed line, collapsed to a summary until tapped. */
+function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
+  const cat = categories.find((c) => c.key === row.cat);
+  const bad = row.missing.length > 0;
+  const brandModels =
+    BRANDS.find((b) => b.name.toLowerCase() === String(row.brand).toLowerCase())?.models || [];
+  // What the code will look like, so staff recognise it on the shelf label.
+  const preview =
+    row.cat && (row.brand || row.model)
+      ? generateCode(
+          { cat: row.cat, brand: row.brand, model: row.model, yearFrom: row.yearFrom, side: row.side, variant: row.variant },
+          items
+        ).replace(/-\d+$/, "-####")
+      : "";
+
+  return (
+    <div className={`bg-[#FFFFFF] border rounded-md overflow-hidden ${bad ? "border-[#DC3B2E]" : "border-[#DEE3E9]"}`}>
+      <button onClick={onToggle} className="w-full text-left px-3 py-2.5 flex items-start gap-2">
+        <span
+          className="w-1.5 self-stretch rounded-full shrink-0"
+          style={{ background: bad ? "#DC3B2E" : cat?.color || "#DEE3E9" }}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-[#1B2430] truncate">
+            {cat?.label || "No category yet"}
+            {row.brand || row.model ? ` — ${[row.brand, row.model].filter(Boolean).join(" ")}` : ""}
+          </div>
+          <div className="text-[11px] text-[#5A6472] truncate">
+            {[
+              row.series && `Series ${row.series}`,
+              row.yearFrom && (row.yearTo && row.yearTo !== row.yearFrom ? `${row.yearFrom}-${row.yearTo}` : row.yearFrom),
+              row.side,
+              row.variant,
+              row.condition,
+              row.qty ? `${row.qty} pcs` : "",
+              row.price ? `KES ${Number(row.price).toLocaleString()}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ") || row.raw}
+          </div>
+          {bad && (
+            <div className="text-[11px] text-[#DC3B2E] font-semibold mt-0.5">
+              Still needs: {row.missing.join(", ")}
+            </div>
+          )}
+        </div>
+        <ChevronRight
+          size={16}
+          className={`text-[#5A6472] shrink-0 mt-1 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 border-t border-[#DEE3E9] pt-3">
+          <div className="text-[11px] text-[#5A6472] mb-3 italic">You wrote: “{row.raw}”</div>
+
+          <Field label="Category / section">
+            <select value={row.cat} onChange={(e) => onPatch({ cat: e.target.value })} className={inputCls}>
+              <option value="">— choose —</option>
+              {categories.map((c) => (
+                <option key={c.key} value={c.key}>{c.label} — Shelf {c.shelf}</option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Brand">
+                <input value={row.brand} onChange={(e) => onPatch({ brand: e.target.value })} list="brand-list" className={inputCls} />
+                <datalist id="brand-list">
+                  {BRANDS.map((b) => <option key={b.name} value={b.name} />)}
+                </datalist>
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Model">
+                <input value={row.model} onChange={(e) => onPatch({ model: e.target.value })} list={`bm-${row.id}`} className={inputCls} />
+                <datalist id={`bm-${row.id}`}>
+                  {brandModels.map((m) => <option key={m} value={m} />)}
+                </datalist>
+              </Field>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Series">
+                <input value={row.series} onChange={(e) => onPatch({ series: e.target.value })} placeholder="150" className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Year from">
+                <input type="number" value={row.yearFrom} onChange={(e) => onPatch({ yearFrom: e.target.value })} className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Year to">
+                <input type="number" value={row.yearTo} onChange={(e) => onPatch({ yearTo: e.target.value })} className={inputCls} />
+              </Field>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Side">
+                <select value={row.side} onChange={(e) => onPatch({ side: e.target.value })} className={inputCls}>
+                  <option value="">— none —</option>
+                  {SIDES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Condition">
+                <select value={row.condition} onChange={(e) => onPatch({ condition: e.target.value })} className={inputCls}>
+                  <option value="">Genuine Used</option>
+                  {CONDITIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Price (KES) — optional">
+                <input type="number" value={row.price} onChange={(e) => onPatch({ price: e.target.value })} placeholder="Later is fine" className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Quantity — optional">
+                <input type="number" value={row.qty} onChange={(e) => onPatch({ qty: e.target.value })} placeholder="0" className={inputCls} />
+              </Field>
+            </div>
+          </div>
+
+          {preview && (
+            <div className="text-xs text-[#5A6472] mb-3">
+              Code will be <span className="font-mono text-[#2563EB]">{preview}</span>
+            </div>
+          )}
+
+          <button
+            onClick={onDrop}
+            className="text-xs font-bold uppercase tracking-wide text-[#DC3B2E] border border-[#DEE3E9] rounded-md px-3 py-2 flex items-center gap-1.5 hover:border-[#DC3B2E]"
+          >
+            <Trash2 size={13} /> Remove this line
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ======================= ADD STOCK ======================= */
 export function AddStockTab({ items, categories, onAddStock, initialCode = "" }) {
   const [query, setQuery] = useState("");
@@ -2331,6 +2862,21 @@ function NotifRow({ n, compact, onUndo }) {
         <div className="text-xs text-[#5A6472] mt-1">Remaining stock: {n.remaining}</div>
       )}
 
+      {/* A part taken off the books - where it went, and who moved it. */}
+      {n.type === "delete" && n.disposal && (
+        <div className="mt-2 text-[11px] bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1.5 text-[#5A6472] leading-relaxed">
+          <span className="font-bold uppercase tracking-wide text-[#1B2430]">
+            {api.disposalLabel(n.disposal)}
+          </span>
+          {n.takenBy ? <span> — {n.takenBy}</span> : null}
+          {n.logistics ? (
+            <div>
+              Carried by <span className="text-[#1B2430] font-semibold">{n.logistics}</span>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* A sale that was brought back. The sale itself stays on record. */}
       {n.returnedAt && (
         <div className="mt-2 text-[11px] font-semibold text-[#7C5CD6] bg-[#7C5CD611] border border-[#7C5CD644] rounded px-2 py-1">
@@ -2755,6 +3301,7 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
   const [range, setRange] = useState("daily");
   // Drill-down: the individual sales behind the totals.
   const [showSales, setShowSales] = useState(false);
+  const [showGone, setShowGone] = useState(false);
   const [byPerson, setByPerson] = useState(null);
 
   const now = new Date();
@@ -2796,6 +3343,24 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
     }
     return Object.values(map).sort((a, b) => b.revenue - a.revenue);
   }, [sales]);
+
+  /* Stock taken off the books in this period, grouped by where it went.
+     This is the answer to "the part is gone, who has it?" - and it is the
+     one report the head office asks for when a count comes up short. */
+  const removed = useMemo(
+    () => notifications.filter((n) => n.type === "delete" && n.ts >= startOf),
+    [notifications, startOf]
+  );
+  const removedGroups = useMemo(() => {
+    const map = {};
+    for (const n of removed) {
+      const key = n.disposal || "unrecorded";
+      map[key] = map[key] || { key, rows: [], units: 0 };
+      map[key].rows.push(n);
+      map[key].units += Number(n.qty || 0);
+    }
+    return Object.values(map).sort((a, b) => b.rows.length - a.rows.length);
+  }, [removed]);
 
   const ranges = [
     ["daily", "Daily"],
@@ -2914,6 +3479,84 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
                   ))}
                 </div>
               </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Stock that left the books — where it went and who took it. */}
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <button
+          onClick={() => setShowGone((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+        >
+          <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
+            <Trash2 size={15} className="text-[#5A6472]" /> Where Stock Went ({removed.length})
+          </div>
+          <ChevronRight
+            size={16}
+            className={`text-[#5A6472] shrink-0 transition-transform ${showGone ? "rotate-90" : ""}`}
+          />
+        </button>
+
+        {!showGone && (
+          <div className="text-[11px] text-[#5A6472] mt-2">
+            Every part taken off the books in this period — sold, given on credit, moved to another
+            shop — with who took it and who carried it.
+          </div>
+        )}
+
+        {showGone && (
+          <div className="mt-3">
+            {removed.length === 0 ? (
+              <div className="text-[#5A6472] text-sm italic">
+                No stock was taken off the books in this period.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {removedGroups.map((g) => (
+                  <div key={g.key}>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472]">
+                        {g.key === "unrecorded" ? "Not recorded" : api.disposalLabel(g.key)}
+                      </span>
+                      <span className="text-[11px] text-[#5A6472]">
+                        {g.rows.length} part{g.rows.length !== 1 ? "s" : ""}
+                        {g.units ? ` · ${g.units} pcs` : ""}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {g.rows.map((n) => (
+                        <div
+                          key={n.id}
+                          className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="font-mono text-[#2563EB]">{n.code}</span>
+                            <span className="text-[#5A6472]">{fmtDateTime(n.ts)}</span>
+                          </div>
+                          {n.name && <div className="text-[#1B2430] mt-0.5 truncate">{n.name}</div>}
+                          <div className="text-[#5A6472] mt-0.5 flex flex-wrap gap-x-3">
+                            {n.takenBy ? (
+                              <span>
+                                Taken by <span className="text-[#1B2430] font-semibold">{n.takenBy}</span>
+                              </span>
+                            ) : null}
+                            {n.logistics ? <span>Carried by {n.logistics}</span> : null}
+                            <span>Removed by {n.by}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {removedGroups.some((g) => g.key === "unrecorded") && (
+                  <div className="text-[11px] text-[#5A6472] italic">
+                    “Not recorded” means the part was removed before the shop started asking where
+                    stock goes. New removals always carry a reason.
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

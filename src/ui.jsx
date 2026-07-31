@@ -117,13 +117,13 @@ export function ItemCard({ item, categories, onDelete }) {
           </span>
           <div className="flex items-center gap-1.5">
             <StockBadge item={item} />
+            {/* Removing a part asks where the stock went, so the caller
+                opens that sheet — this button only says which part. */}
             {onDelete && (
               <button
-                onClick={() => {
-                  if (confirm(`Delete ${item.code} — ${item.name}? This cannot be undone.`)) onDelete(item.code);
-                }}
+                onClick={(e) => { e.stopPropagation(); onDelete(item); }}
                 className="p-1.5 rounded bg-[#EEF2F6] text-[#5A6472] hover:text-[#DC3B2E] transition-colors"
-                title="Delete item"
+                title="Remove item — record where it went"
               >
                 <Trash2 size={14} />
               </button>

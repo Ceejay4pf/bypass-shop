@@ -154,11 +154,56 @@ export async function updateItem(code, patch, byName) {
   return rowToItem(data);
 }
 
-export async function deleteItem(code, byName) {
+/* Where stock went when it was removed from the books. The label is what
+   staff see; the key is what goes in the database, so reports can group by
+   it years later. `asks` is the follow-up question the sheet puts on screen. */
+export const DISPOSALS = [
+  { key: "sold", label: "Sold", asks: "Which customer bought it?" },
+  { key: "credit", label: "Given to a credit customer", asks: "Which credit account?" },
+  { key: "branch", label: "Taken to another shop", asks: "Which shop?" },
+  { key: "returned_supplier", label: "Returned to the supplier", asks: "Which supplier?" },
+  { key: "damaged", label: "Damaged or written off", asks: "What happened to it?" },
+  { key: "staff", label: "Taken by staff / internal use", asks: "Who took it?" },
+  { key: "lost", label: "Missing / unaccounted for", asks: "Last known with whom?" },
+  { key: "duplicate", label: "Entered twice by mistake", asks: "Which code is the real one?" },
+  { key: "other", label: "Something else", asks: "Where did it go?" },
+];
+export const disposalLabel = (key) =>
+  DISPOSALS.find((d) => d.key === key)?.label || key || "";
+
+/* Remove a part from the books, recording where it went.
+   The item row goes, but stock_movements keeps the story - deliberately
+   not linked by a foreign key, so the trail survives the deletion. */
+export async function deleteItem(code, byName, disposal = {}) {
+  // Read what we're about to lose, so the record names the part rather
+  // than just its code. Best-effort: a missing row must not block a delete.
+  let name = null;
+  let qty = null;
+  try {
+    const { data } = await supabase.from("inventory").select("name,qty").eq("code", code).single();
+    name = data?.name ?? null;
+    qty = data?.qty ?? null;
+  } catch {
+    /* the part may already be gone; carry on with what we have */
+  }
+
   const { error } = await supabase.from("inventory").delete().eq("code", code);
   if (error) throw error;
-  await addNotification({ type: "delete", code, by_name: byName });
-  await addMovement({ code, type: "delete", by_name: byName });
+
+  const extra = {
+    disposal: disposal.disposal || null,
+    taken_by: disposal.takenBy || null,
+    logistics: disposal.logistics || null,
+  };
+  await addNotification({ type: "delete", code, name, qty, by_name: byName, ...extra });
+  await addMovement({
+    code,
+    type: "delete",
+    qty,
+    by_name: byName,
+    reason: disposal.reason || null,
+    ...extra,
+  });
 }
 
 /* ---- STOCK CHANGES (atomic, via DB functions) ---- */
@@ -232,6 +277,10 @@ export function rowToNotif(r) {
     // Set once a sale has been undone (see undo_and_activity.sql).
     returnedAt: r.returned_at ? new Date(r.returned_at).getTime() : null,
     returnedBy: r.returned_by || null,
+    // Where deleted stock went, and who moved it (see delete_reason.sql).
+    disposal: r.disposal || "",
+    takenBy: r.taken_by || "",
+    logistics: r.logistics || "",
   };
 }
 export function rowToMovement(r) {
@@ -245,6 +294,9 @@ export function rowToMovement(r) {
     reason: r.reason,
     paid: r.paid,
     remaining: r.remaining,
+    disposal: r.disposal || "",
+    takenBy: r.taken_by || "",
+    logistics: r.logistics || "",
   };
 }
 
@@ -257,8 +309,26 @@ export async function fetchNotifications(limit = 200) {
   if (error) throw error;
   return data.map(rowToNotif);
 }
+/* Columns added by a later migration. If delete_reason.sql hasn't been run
+   on this database yet, an insert naming them fails outright — and losing
+   the whole log entry would be far worse than losing the extra detail. So
+   on that one error we drop them and write the entry anyway. */
+const LATER_COLUMNS = ["disposal", "taken_by", "logistics"];
+const isMissingColumn = (error) =>
+  error?.code === "PGRST204" ||
+  LATER_COLUMNS.some((c) => String(error?.message || "").includes(`'${c}'`) ||
+                            String(error?.message || "").includes(`"${c}"`));
+function withoutLaterColumns(row) {
+  const out = { ...row };
+  for (const c of LATER_COLUMNS) delete out[c];
+  return out;
+}
+
 export async function addNotification(n) {
-  const { error } = await supabase.from("notifications").insert(n);
+  let { error } = await supabase.from("notifications").insert(n);
+  if (error && isMissingColumn(error)) {
+    ({ error } = await supabase.from("notifications").insert(withoutLaterColumns(n)));
+  }
   if (error) console.error("notification insert failed", error);
 }
 
@@ -295,7 +365,10 @@ export async function fetchMovements(code) {
   return data;
 }
 export async function addMovement(m) {
-  const { error } = await supabase.from("stock_movements").insert(m);
+  let { error } = await supabase.from("stock_movements").insert(m);
+  if (error && isMissingColumn(error)) {
+    ({ error } = await supabase.from("stock_movements").insert(withoutLaterColumns(m)));
+  }
   if (error) console.error("movement insert failed", error);
 }
 

@@ -15,7 +15,8 @@ import {
   formatLocation, LOW_STOCK_THRESHOLD,
 } from "./data.js";
 import { Field, inputCls, SectionTitle, ItemCard, StockBadge, fmtDateTime } from "./ui.jsx";
-import { fetchMovements, rowToMovement } from "./lib/api.js";
+import { DeleteItemSheet } from "./tabs.jsx";
+import { fetchMovements, rowToMovement, disposalLabel } from "./lib/api.js";
 
 const ACTIONS = [
   { id: "add", label: "Add Stock", icon: PackagePlus, tone: "#15926A", need: "match" },
@@ -332,10 +333,13 @@ const MOVE_META = {
   sale: { label: "Stock Out", sign: "−", color: "#DC3B2E" },
   adjust: { label: "Adjusted", sign: "=", color: "#2E86DE" },
   return: { label: "Returned", sign: "+", color: "#15926A" },
+  delete: { label: "Removed From Books", sign: "-", color: "#6B7480" },
 };
 
 export function LedgerTab({ items, categories, initialCode, onBack, onDelete }) {
   const [query, setQuery] = useState(initialCode || "");
+  // The part being removed — the sheet records where the stock went.
+  const [removing, setRemoving] = useState(null);
   const item = useMemo(() => {
     if (!query.trim()) return null;
     const q = query.trim().toLowerCase();
@@ -381,7 +385,9 @@ export function LedgerTab({ items, categories, initialCode, onBack, onDelete }) 
 
       {item && (
         <>
-          <div className="mb-4"><ItemCard item={item} categories={categories} onDelete={onDelete} /></div>
+          <div className="mb-4">
+            <ItemCard item={item} categories={categories} onDelete={onDelete ? setRemoving : undefined} />
+          </div>
           {item.supplier ? (
             <div className="text-xs text-[#5A6472] mb-3 flex items-center gap-1.5">
               <MapPin size={12} /> Supplier: <span className="text-[#1B2430]">{item.supplier}</span>
@@ -418,11 +424,27 @@ export function LedgerTab({ items, categories, initialCode, onBack, onDelete }) 
                       <span className={m.paid ? "text-[#15926A]" : "text-[#DC3B2E]"}>{m.paid ? "Paid" : "Pending"}</span>
                     ) : null}
                   </div>
+                  {/* Where the stock went when it was taken off the books. */}
+                  {m.disposal ? (
+                    <div className="mt-1 text-xs bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1 text-[#5A6472]">
+                      <span className="font-semibold text-[#1B2430]">{disposalLabel(m.disposal)}</span>
+                      {m.takenBy ? <span> — {m.takenBy}</span> : null}
+                      {m.logistics ? <span> · carried by {m.logistics}</span> : null}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
           </div>
         </>
+      )}
+
+      {removing && (
+        <DeleteItemSheet
+          item={removing}
+          onClose={() => setRemoving(null)}
+          onConfirm={(info) => onDelete(removing.code, info)}
+        />
       )}
     </div>
   );

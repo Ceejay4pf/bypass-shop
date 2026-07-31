@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
-  Receipt, Wallet, ArrowRightLeft,
+  Receipt, Wallet, ArrowRightLeft, ListPlus,
 } from "lucide-react";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
@@ -19,7 +19,7 @@ import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js"
 import * as api from "./lib/api.js";
 import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
 import {
-  DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab,
+  DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab, BulkAddTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
   LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab, StaffFeedTab,
   ReceiptTab, CreditAccountsTab, TransfersTab,
@@ -36,6 +36,7 @@ const NAV = [
   { id: "lowstock", label: "Low Stock", icon: AlertTriangle },
   { id: "ledger", label: "Inventory Ledger", icon: History },
   { id: "add", label: "Add New Item", icon: Plus, cap: "additem" },
+  { id: "bulk", label: "Add a List of Parts", icon: ListPlus, cap: "additem" },
   { id: "edit", label: "Edit Parts", icon: Pencil, cap: "edit" },
   { id: "stock", label: "Add New Stock", icon: PackagePlus },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
@@ -250,6 +251,35 @@ function BypassShop({ session }) {
     setTab("search");
     return true;
   };
+  /* A whole pasted list at once. Each part is saved on its own so one bad
+     line can never lose the rest — the screen reports what went in and
+     what didn't. Serials come from the DB one at a time, so codes stay
+     unique even if another phone is adding stock at the same moment. */
+  const handleAddMany = async (newItems) => {
+    let added = 0;
+    let failed = 0;
+    let firstError = "";
+    for (const it of newItems) {
+      try {
+        const serial = await api.nextSerial();
+        const base = generateCode(it, items).replace(/-\d+$/, "");
+        const code = `${base}-${String(serial).padStart(4, "0")}`;
+        await api.insertItem({ ...it, code }, user);
+        added++;
+      } catch (e) {
+        failed++;
+        if (!firstError) firstError = e.message || String(e);
+      }
+    }
+    if (added) reloadItems();
+    showToast(
+      failed
+        ? `${added} added, ${failed} failed`
+        : `${added} part${added !== 1 ? "s" : ""} added to inventory`,
+      failed ? "warn" : "ok"
+    );
+    return { added, failed, firstError };
+  };
   const handleAddStock = (code, amount, supplier = "") =>
     run(() => api.addStock(code, amount, user, supplier), `+${amount} stock added to ${code}`);
   const handleSell = (sale) =>
@@ -258,18 +288,27 @@ function BypassShop({ session }) {
       sale.paid ? "ok" : "warn");
   const handleAdjust = (code, newQty, reason) =>
     run(() => api.adjustQty(code, newQty, reason, user), `Adjusted ${code} → ${newQty}`);
-  const handleDelete = (code) =>
-    run(() => api.deleteItem(code, user), `Deleted ${code}`, "warn");
+  /* `info` says where the stock went — see DeleteItemSheet. It is optional
+     so any caller that still deletes without asking keeps working. */
+  const handleDelete = (code, info = {}) =>
+    run(
+      () => api.deleteItem(code, user, info),
+      info.disposal
+        ? `${code} removed — ${api.disposalLabel(info.disposal).toLowerCase()}${info.takenBy ? `: ${info.takenBy}` : ""}`
+        : `Deleted ${code}`,
+      "warn"
+    );
   const handleEditItem = async (code, patch) => {
     let ok = false;
     await run(async () => { await api.updateItem(code, patch, user); ok = true; }, `Updated ${code}`);
     return ok;
   };
   // Bulk actions from the Inventory multi-select toolbar.
-  const handleBulkDelete = (codes) =>
+  // Several parts leaving together share one answer about where they went.
+  const handleBulkDelete = (codes, info = {}) =>
     run(async () => {
-      for (const code of codes) await api.deleteItem(code, user);
-    }, `Deleted ${codes.length} item${codes.length !== 1 ? "s" : ""}`, "warn");
+      for (const code of codes) await api.deleteItem(code, user, info);
+    }, `${codes.length} item${codes.length !== 1 ? "s" : ""} removed${info.takenBy ? ` — ${info.takenBy}` : ""}`, "warn");
   const handleBulkAddStock = (codes, amount) =>
     run(async () => {
       for (const code of codes) await api.addStock(code, amount, user);
@@ -459,6 +498,9 @@ function BypassShop({ session }) {
           {tab === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={can("delete") ? handleDelete : undefined} />}
           {tab === "add" && can("additem") && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
+          {tab === "bulk" && can("additem") && (
+            <BulkAddTab items={items} categories={CATEGORIES} onAddMany={handleAddMany} />
+          )}
           {tab === "edit" && can("edit") && (
             <EditPartsTab
               key={pickFor("edit") || pickFor("info") || "edit"}
