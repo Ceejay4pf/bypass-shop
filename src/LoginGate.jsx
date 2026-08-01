@@ -179,7 +179,9 @@ export default function LoginGate() {
                 key={t.k}
                 onClick={() => { setTab(t.k); setError(""); setNotice(""); }}
                 className={`flex-1 rounded py-2 text-xs font-bold uppercase tracking-wide transition-colors ${
-                  tab === t.k ? "bg-white text-[#2563EB] shadow-sm" : "text-[#5A6472]"
+                  tab === t.k
+                    ? "bg-white dark:bg-[#2A3546] text-[#2563EB] shadow-sm"
+                    : "text-[#5A6472]"
                 }`}
               >
                 {t.label}

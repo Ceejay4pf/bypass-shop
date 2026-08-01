@@ -15,6 +15,29 @@
     <meta name="apple-mobile-web-app-title" content="Bypass Shop" />
 
     <title>Bypass Shop — Inventory</title>
+
+    <script>
+      /* Put the saved Light/Dark choice on <html> before anything is drawn,
+         so a staff member on dark mode never gets a white flash first. */
+      (function () {
+        try {
+          var c = localStorage.getItem("bypass-theme") || "system";
+          var dark =
+            c === "dark" ||
+            (c === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) {
+            document.documentElement.classList.add("dark");
+            document.documentElement.dataset.theme = "dark";
+            document.documentElement.style.background = "#0F141B";
+            var m = document.querySelector('meta[name="theme-color"]');
+            if (m) m.setAttribute("content", "#0F141B");
+          } else {
+            document.documentElement.dataset.theme = "light";
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

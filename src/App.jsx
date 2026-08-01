@@ -4,8 +4,9 @@ import {
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
-  Receipt, Wallet, ArrowRightLeft, ListPlus,
+  Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon,
 } from "lucide-react";
+import { useTheme } from "./lib/theme.js";
 import LoginGate from "./LoginGate.jsx";
 import Welcome from "./Welcome.jsx";
 import LockScreen from "./LockScreen.jsx";
@@ -99,6 +100,9 @@ function BypassShop({ session }) {
   const [history, setHistory] = useState([]); // screens visited, for the Back button
   const [toast, setToast] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
+  // Light or dark screen — the header button flips it, Settings has all
+  // three choices (light / dark / match the device).
+  const [, setThemeChoice, themeMode] = useTheme();
   const [ledgerCode, setLedgerCode] = useState("");
   // A part chosen from the Search long-press menu, carried to the target screen.
   // { code, action } — action is "sell" | "quote" | "edit" | "info" | "stock".
@@ -437,6 +441,16 @@ function BypassShop({ session }) {
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3 sm:gap-4 shrink-0">
+            {/* One tap between the bright and dark screen. Settings has the
+                third option (follow the phone's own setting). */}
+            <button
+              onClick={() => setThemeChoice(themeMode === "dark" ? "light" : "dark")}
+              className="p-2 rounded-md text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#2563EB] transition-colors"
+              title={themeMode === "dark" ? "Switch to the bright screen" : "Switch to the dark screen"}
+              aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {themeMode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             <div className="hidden sm:flex items-center gap-1.5 text-[#5A6472] text-xs">
               <Clock size={13} />
               <span>{now.toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })}</span>

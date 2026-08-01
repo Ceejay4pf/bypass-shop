@@ -38,6 +38,15 @@ export default class ErrorBoundary extends React.Component {
   render() {
     if (!this.state.hasError) return this.props.children;
 
+    /* This screen is drawn with plain inline styles on purpose — it has to
+       work even when the app's own stylesheet is part of what broke. So it
+       reads the dark/light choice straight off <html> rather than through
+       the theme module. */
+    const dark = document.documentElement.classList.contains("dark");
+    const C = dark
+      ? { page: "#0F141B", card: "#161C25", line: "#2A333F", ink: "#E8EDF4", dim: "#98A3B2" }
+      : { page: "#F3F5F8", card: "#FFFFFF", line: "#DEE3E9", ink: "#1B2430", dim: "#5A6472" };
+
     return (
       <div
         style={{
@@ -45,7 +54,7 @@ export default class ErrorBoundary extends React.Component {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#F3F5F8",
+          background: C.page,
           padding: "1rem",
           fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
@@ -54,12 +63,12 @@ export default class ErrorBoundary extends React.Component {
           style={{
             width: "100%",
             maxWidth: "22rem",
-            background: "#FFFFFF",
-            border: "1px solid #DEE3E9",
+            background: C.card,
+            border: "1px solid " + C.line,
             borderRadius: "0.75rem",
             padding: "1.5rem",
             textAlign: "center",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+            boxShadow: dark ? "0 10px 30px rgba(0,0,0,0.5)" : "0 10px 30px rgba(0,0,0,0.08)",
           }}
         >
           <div
@@ -68,7 +77,7 @@ export default class ErrorBoundary extends React.Component {
               height: 56,
               margin: "0 auto 1rem",
               borderRadius: "1rem",
-              background: "#2563EB22",
+              background: dark ? "#2563EB38" : "#2563EB22",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -77,10 +86,10 @@ export default class ErrorBoundary extends React.Component {
           >
             🔧
           </div>
-          <h1 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#1B2430", margin: "0 0 0.5rem" }}>
+          <h1 style={{ fontSize: "1.15rem", fontWeight: 800, color: C.ink, margin: "0 0 0.5rem" }}>
             Let's refresh the app
           </h1>
-          <p style={{ fontSize: "0.85rem", color: "#5A6472", lineHeight: 1.5, margin: "0 0 1.25rem" }}>
+          <p style={{ fontSize: "0.85rem", color: C.dim, lineHeight: 1.5, margin: "0 0 1.25rem" }}>
             This device was holding an old copy of Bypass Shop. Tap the button
             below to clear it and load the latest version — your data is safe in
             the cloud.

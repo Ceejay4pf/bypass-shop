@@ -17,6 +17,7 @@ import {
 import { Field, inputCls, SectionTitle, ItemCard, StockBadge, fmtDateTime } from "./ui.jsx";
 import { DeleteItemSheet } from "./tabs.jsx";
 import { fetchMovements, rowToMovement, disposalLabel } from "./lib/api.js";
+import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 const ACTIONS = [
   { id: "add", label: "Add Stock", icon: PackagePlus, tone: "#15926A", need: "match" },
@@ -338,6 +339,9 @@ const MOVE_META = {
 
 export function LedgerTab({ items, categories, initialCode, onBack, onDelete }) {
   const [query, setQuery] = useState(initialCode || "");
+  // Each kind of movement keeps its own colour in both modes; on the dark
+  // screen it is only brightened enough to stay readable.
+  const mode = useThemeMode();
   // The part being removed — the sheet records where the stock went.
   const [removing, setRemoving] = useState(null);
   const item = useMemo(() => {
@@ -404,15 +408,16 @@ export function LedgerTab({ items, categories, initialCode, onBack, onDelete }) 
           <div className="relative pl-4">
             {ledger.map((m, i) => {
               const meta = MOVE_META[m.type] || MOVE_META.adjust;
+              const tone = readableOnDark(meta.color, mode);
               return (
                 <div key={i} className="relative pb-4 border-l-2 border-[#DEE3E9] pl-4 last:border-transparent">
-                  <span className="absolute -left-[7px] top-1 w-3 h-3 rounded-full border-2 border-[#F3F5F8]" style={{ backgroundColor: meta.color }} />
+                  <span className="absolute -left-[7px] top-1 w-3 h-3 rounded-full border-2 border-[#F3F5F8]" style={{ backgroundColor: tone }} />
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: meta.color }}>{meta.label}</span>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: tone }}>{meta.label}</span>
                     <span className="text-xs text-[#5A6472]">{fmtDateTime(m.ts)}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-sm">
-                    <span className="font-bold" style={{ color: meta.color }}>{meta.sign}{m.type === "adjust" ? m.remaining : m.qty}</span>
+                    <span className="font-bold" style={{ color: tone }}>{meta.sign}{m.type === "adjust" ? m.remaining : m.qty}</span>
                     <span className="text-[#5A6472]">→ stock now {m.remaining}</span>
                   </div>
                   <div className="text-xs text-[#5A6472] mt-0.5 flex flex-wrap gap-x-3">

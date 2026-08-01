@@ -10,8 +10,9 @@ import {
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
-  Wand2,
+  Wand2, Sun, Moon, Smartphone,
 } from "lucide-react";
+import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem } from "./lib/parseParts.js";
 import { CAPABILITIES } from "./lib/roles.js";
 import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
@@ -547,6 +548,9 @@ export function DeleteItemSheet({ item, onClose, onConfirm }) {
 /* The action sheet shown after a long-press on a search result. */
 function ItemActionSheet({ item, categories, onClose, actions }) {
   const cat = categories.find((c) => c.key === item.cat);
+  // Each action keeps its own colour; on dark it is brightened just enough
+  // for the icon to read against its tinted circle.
+  const mode = useThemeMode();
   return (
     <div
       className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -578,7 +582,7 @@ function ItemActionSheet({ item, categories, onClose, actions }) {
               disabled={a.disabled}
               className="w-full flex items-center gap-3 px-3 py-3 rounded-md text-left hover:bg-[#EEF2F6] transition-colors disabled:opacity-40"
             >
-              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: `${a.color}22`, color: a.color }}>
+              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: readableOnDark(a.color, mode) + "22", color: readableOnDark(a.color, mode) }}>
                 <a.icon size={17} />
               </span>
               <span className="min-w-0">
@@ -3614,6 +3618,49 @@ const SHOPS = [
   { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
 ];
 
+/* Light or dark screen. The choice belongs to the device, not the account —
+   the same person's phone can be dark while the shop counter laptop stays
+   bright — so it's saved in this browser and takes effect immediately. */
+const THEME_ICONS = { light: Sun, dark: Moon, system: Smartphone };
+
+export function AppearanceCard() {
+  const [choice, setChoice, mode] = useTheme();
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="text-sm font-bold uppercase tracking-wide mb-1">Screen Look</div>
+      <p className="text-xs text-[#5A6472] mb-3">
+        Currently showing the <span className="font-semibold text-[#1B2430]">{mode === "dark" ? "dark" : "light"}</span> screen.
+        This is saved on this device only.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        {THEME_CHOICES.map((t) => {
+          const Icon = THEME_ICONS[t.key];
+          const on = choice === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setChoice(t.key)}
+              aria-pressed={on}
+              className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors ${
+                on
+                  ? "border-[#2563EB] bg-[#2563EB22] text-[#2563EB]"
+                  : "border-[#DEE3E9] text-[#5A6472] hover:border-[#2563EB]"
+              }`}
+            >
+              <Icon size={20} />
+              <span className="text-xs font-bold uppercase tracking-wide text-center leading-tight">{t.label}</span>
+              {on && <Check size={13} />}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-[#5A6472] mt-2.5">
+        {THEME_CHOICES.find((t) => t.key === choice)?.hint}
+      </p>
+    </div>
+  );
+}
+
 // Optional biometric app-lock. Auto-hides the enable button on devices with no
 // biometric (e.g. desktop computers) — it's never compulsory.
 function BiometricCard({ email }) {
@@ -4123,6 +4170,8 @@ export function SettingsTab({ categories, user, email, admin }) {
             : "You're signed in as staff: you can view stock, sell, and make quotations. Adding, editing or deleting stock is admin-only."}
         </p>
       </div>
+
+      <AppearanceCard />
 
       <BiometricCard email={email} />
 

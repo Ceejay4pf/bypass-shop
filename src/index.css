@@ -45,3 +45,137 @@ body {
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 .bp-pop { animation: bp-pop 0.2s ease both; }
+
+/* =========================================================
+   DARK MODE
+   ---------------------------------------------------------
+   Every screen in this app writes its colours straight into the
+   class name - bg-[#FFFFFF], text-[#5A6472], border-[#DEE3E9] and
+   so on. So rather than rewrite hundreds of screens, dark mode
+   simply re-points those same classes at darker colours whenever
+   <html> carries the "dark" class (see src/lib/theme.js).
+
+   Only the shell colours change: paper, ink, borders, and the blue /
+   green / red / purple accents. Colours that CARRY MEANING are left
+   exactly as they are - the category colours on each part, the role
+   colours for Admin/Manager/Storekeeper/Cashier, the movement colours
+   in a part's history, and the condition badge. Those are stored with
+   the data and must look the same in both modes so nobody misreads
+   a shelf or a role.
+========================================================= */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background: #0F141B;
+  color: #E8EDF4;
+}
+
+html.dark * {
+  scrollbar-color: #2F3946 #0F141B;
+}
+html.dark *::-webkit-scrollbar-thumb {
+  background: #2F3946;
+}
+
+/* ---- paper: page, cards, panels ---- */
+html.dark .bg-\[\#F3F5F8\] { background-color: #0F141B; }
+html.dark .bg-\[\#FFFFFF\],
+html.dark .bg-white          { background-color: #161C25; }
+html.dark .bg-\[\#EEF2F6\]   { background-color: #1E2631; }
+html.dark .stroke-\[\#EEF2F6\] { stroke: #1E2631; }
+html.dark .bg-\[\#F8FAFC\]   { background-color: #1A212B; }
+/* the near-black summary cards (credit balances) go deeper still,
+   so they still read as a header against a dark page */
+html.dark .bg-\[\#1B2430\]   { background-color: #080C12; }
+
+/* ---- ink ---- */
+html.dark .text-\[\#1B2430\] { color: #E8EDF4; }
+html.dark .fill-\[\#1B2430\] { fill: #E8EDF4; }
+html.dark .text-\[\#5A6472\] { color: #98A3B2; }
+html.dark .placeholder-\[\#5A6472\]::placeholder { color: #7A8595; }
+html.dark .text-\[\#B4BCC7\] { color: #5C6675; }
+/* #F3F5F8 as TEXT is the pale label on a coloured button - stays pale */
+html.dark .text-\[\#F3F5F8\] { color: #F4F7FB; }
+
+/* ---- lines ---- */
+html.dark .border-\[\#DEE3E9\] { border-color: #2A333F; }
+html.dark .border-\[\#EEF2F6\] { border-color: #1E2631; }
+html.dark .border-\[\#F3F5F8\] { border-color: #0F141B; }
+
+/* ---- blue (the system accent) ---- */
+html.dark .text-\[\#2563EB\]   { color: #7FA9FF; }
+html.dark .border-\[\#2563EB\] { border-color: #3E6BC7; }
+html.dark .bg-\[\#EAF1FF\]     { background-color: #17223A; }
+html.dark .bg-\[\#2563EB22\]   { background-color: #2563EB38; }
+html.dark .bg-\[\#2563EB18\],
+html.dark .bg-\[\#2563EB11\],
+html.dark .bg-\[\#2563EB0F\],
+html.dark .bg-\[\#2563EB0A\]   { background-color: #2563EB26; }
+
+/* ---- green (money in, in stock) ---- */
+html.dark .text-\[\#15926A\]   { color: #4CCB9A; }
+html.dark .border-\[\#15926A\] { border-color: #2A6B54; }
+html.dark .bg-\[\#E6F6EF\]     { background-color: #10291F; }
+html.dark .bg-\[\#15926A22\]   { background-color: #15926A3D; }
+html.dark .bg-\[\#15926A11\]   { background-color: #15926A26; }
+
+/* ---- red (warnings, removals) ---- */
+html.dark .text-\[\#DC3B2E\]   { color: #F0857A; }
+html.dark .border-\[\#DC3B2E\] { border-color: #7E3A32; }
+html.dark .bg-\[\#FBEAE8\]     { background-color: #331A17; }
+html.dark .bg-\[\#DC3B2E22\]   { background-color: #DC3B2E3D; }
+
+/* ---- purple (transfers) ---- */
+html.dark .text-\[\#7C5CD6\]   { color: #B49CF5; }
+html.dark .border-\[\#7C5CD6\] { border-color: #5C4796; }
+html.dark .bg-\[\#7C5CD622\]   { background-color: #7C5CD63D; }
+html.dark .bg-\[\#7C5CD611\]   { background-color: #7C5CD626; }
+
+/* ---- amber & sky (badges, notes) ---- */
+html.dark .text-\[\#B45309\]   { color: #E5AC55; }
+html.dark .ring-\[\#B45309\]   { --tw-ring-color: #E5AC55; }
+html.dark .bg-\[\#B4530922\]   { background-color: #E5AC5533; }
+html.dark .bg-\[\#FFF7E6\]     { background-color: #2C2415; }
+html.dark .text-\[\#8A6400\]   { color: #E8C05A; }
+html.dark .text-\[\#2E86DE\]   { color: #6FB4F2; }
+html.dark .bg-\[\#2E86DE22\]   { background-color: #2E86DE3D; }
+
+/* ---- neutral tint (the "Staff" pill, unrecorded rows) ---- */
+html.dark .bg-\[\#6B748022\]   { background-color: #98A3B22E; }
+
+/* ---- hover & focus states ---- */
+html.dark .hover\:bg-\[\#EEF2F6\]:hover     { background-color: #222B38; }
+html.dark .hover\:bg-\[\#2563EB11\]:hover   { background-color: #2563EB2E; }
+html.dark .hover\:bg-\[\#15926A11\]:hover   { background-color: #15926A2E; }
+html.dark .hover\:text-\[\#1B2430\]:hover   { color: #E8EDF4; }
+html.dark .hover\:text-\[\#2563EB\]:hover   { color: #9CBCFF; }
+html.dark .hover\:text-\[\#DC3B2E\]:hover   { color: #F0857A; }
+html.dark .hover\:text-\[\#7C5CD6\]:hover   { color: #B49CF5; }
+html.dark .hover\:border-\[\#2563EB\]:hover { border-color: #4E7BD8; }
+html.dark .hover\:border-\[\#DC3B2E\]:hover { border-color: #96453B; }
+html.dark .hover\:border-\[\#7C5CD6\]:hover { border-color: #6B52A8; }
+html.dark .hover\:border-\[\#C2CAD3\]:hover { border-color: #3B4653; }
+html.dark .focus\:border-\[\#2563EB\]:focus { border-color: #5B8DEF; }
+
+/* The pale wash behind the login and "waiting for approval" screens
+   becomes a dark one. Setting the whole stop list here also cancels the
+   pale middle stop, so the fade stays smooth. */
+html.dark .from-\[\#EAF1FF\] {
+  --tw-gradient-from: #141C2B var(--tw-gradient-from-position);
+  --tw-gradient-to: #0F141B var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+/* The "Bypass Shop" wordmark is gradient-filled text - brighten both
+   ends so it still reads against the dark sidebar. */
+html.dark .from-\[\#2563EB\] { --tw-gradient-from: #7FA9FF var(--tw-gradient-from-position); }
+html.dark .to-\[\#15926A\]   { --tw-gradient-to: #4CCB9A var(--tw-gradient-to-position); }
+
+/* Native form controls follow color-scheme, but the calendar icon on a
+   dark input needs a nudge to stay visible. */
+html.dark input[type="date"]::-webkit-calendar-picker-indicator,
+html.dark input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.7);
+}

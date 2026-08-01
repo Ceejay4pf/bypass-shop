@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { MapPin, Trash2, ImagePlus, X } from "lucide-react";
 import { condColor, LOW_STOCK_THRESHOLD } from "./data.js";
+import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 export const inputCls =
   "w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-md px-3 py-2.5 text-[#1B2430] outline-none focus:border-[#2563EB] transition-colors";
@@ -85,6 +86,10 @@ export function ItemCard({ item, categories, onDelete }) {
   const cat = categories.find((c) => c.key === item.cat) || categories[0] || {};
   const images = Array.isArray(item.images) ? item.images.filter(Boolean) : [];
   const [showImg, setShowImg] = useState(false);
+  // The condition badge keeps its meaning-carrying colour in both modes;
+  // on dark it's only brightened enough to stay readable.
+  const mode = useThemeMode();
+  const cond = readableOnDark(condColor(item.condition), mode);
   return (
     <div className="group flex items-stretch bg-[#FFFFFF] border border-[#DEE3E9] rounded-md overflow-hidden hover:border-[#C2CAD3] transition-colors">
       <div className="w-2 shrink-0" style={{ backgroundColor: cat.color || "#6B7480" }} />
@@ -144,7 +149,7 @@ export function ItemCard({ item, categories, onDelete }) {
           </span>
           <span
             className="px-1.5 py-0.5 rounded font-semibold"
-            style={{ backgroundColor: condColor(item.condition) + "22", color: condColor(item.condition) }}
+            style={{ backgroundColor: cond + "22", color: cond }}
           >
             {item.condition}
           </span>
@@ -176,7 +181,8 @@ export function StatCard({ icon: Icon, label, value, sub, tone = "gold", onClick
     blue: "#2563EB",
     purple: "#7C5CD6",
   };
-  const c = tones[tone] || tones.blue;
+  const mode = useThemeMode();
+  const c = readableOnDark(tones[tone] || tones.blue, mode);
   const clickable = typeof onClick === "function";
   return (
     <div
@@ -224,6 +230,7 @@ export function fmtDateTime(ts) {
 /* Simple horizontal bar chart (no chart library needed). */
 export function BarChart({ data, colorKey = "color", labelKey = "label", valueKey = "value" }) {
   const max = Math.max(1, ...data.map((d) => d[valueKey]));
+  const mode = useThemeMode();
   return (
     <div className="space-y-2">
       {data.map((d, i) => (
@@ -232,7 +239,10 @@ export function BarChart({ data, colorKey = "color", labelKey = "label", valueKe
           <div className="flex-1 h-4 bg-[#EEF2F6] rounded overflow-hidden">
             <div
               className="h-full rounded transition-all"
-              style={{ width: `${(d[valueKey] / max) * 100}%`, backgroundColor: d[colorKey] || "#2563EB" }}
+              style={{
+                width: `${(d[valueKey] / max) * 100}%`,
+                backgroundColor: readableOnDark(d[colorKey] || "#2563EB", mode),
+              }}
             />
           </div>
           <span className="text-xs text-[#1B2430] font-semibold w-8 text-right">{d[valueKey]}</span>
@@ -246,6 +256,7 @@ export function BarChart({ data, colorKey = "color", labelKey = "label", valueKe
 /* Donut/pie chart (SVG, no library). `data` = [{ label, value, color }].
    Shows each slice's share of the total, with a legend and centre total. */
 export function DonutChart({ data, centerLabel = "Total" }) {
+  const mode = useThemeMode();
   const total = data.reduce((s, d) => s + (d.value || 0), 0);
   const r = 42;          // radius
   const cx = 60, cy = 60;
@@ -260,13 +271,15 @@ export function DonutChart({ data, centerLabel = "Total" }) {
   return (
     <div className="flex items-center gap-4 flex-wrap">
       <svg viewBox="0 0 120 120" className="w-32 h-32 shrink-0 -rotate-90">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#EEF2F6" strokeWidth="14" />
+        {/* The empty ring behind the slices. Styled as a class, not a stroke
+            attribute, so it darkens with the rest of the app. */}
+        <circle cx={cx} cy={cy} r={r} fill="none" className="stroke-[#EEF2F6]" strokeWidth="14" />
         {total > 0 && slices.map((s, i) => (
           <circle
             key={i}
             cx={cx} cy={cy} r={r}
             fill="none"
-            stroke={s.color || "#2563EB"}
+            stroke={readableOnDark(s.color || "#2563EB", mode)}
             strokeWidth="14"
             strokeDasharray={`${s.dash} ${circ - s.dash}`}
             strokeDashoffset={-s.offset}
@@ -279,7 +292,7 @@ export function DonutChart({ data, centerLabel = "Total" }) {
       <div className="flex-1 min-w-[8rem] space-y-1.5">
         {slices.map((s, i) => (
           <div key={i} className="flex items-center gap-2 text-xs">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color || "#2563EB" }} />
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: readableOnDark(s.color || "#2563EB", mode) }} />
             <span className="flex-1 min-w-0 truncate text-[#5A6472]">{s.label}</span>
             <span className="font-semibold text-[#1B2430] tabular-nums">{Math.round(s.frac * 100)}%</span>
           </div>
