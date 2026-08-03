@@ -143,10 +143,16 @@ export function ItemCard({ item, categories, onDelete }) {
             {item.brand} {item.model}
           </span>
           {item.series ? <span>· {item.series}</span> : null}
-          <span>
-            · {item.yearFrom}
-            {item.yearTo && item.yearTo !== item.yearFrom ? `–${item.yearTo}` : ""}
-          </span>
+          {/* No year on record: say so plainly rather than leaving a dangling
+              separator, or printing a year nobody actually checked. */}
+          {item.yearFrom ? (
+            <span>
+              · {item.yearFrom}
+              {item.yearTo && item.yearTo !== item.yearFrom ? `–${item.yearTo}` : ""}
+            </span>
+          ) : (
+            <span className="italic">· year not known</span>
+          )}
           <span
             className="px-1.5 py-0.5 rounded font-semibold"
             style={{ backgroundColor: cond + "22", color: cond }}

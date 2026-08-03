@@ -90,12 +90,16 @@ export function variantCode(variant) {
 /* Rich inventory code: CAT-BRND-MODL-YY[-SIDE][-VAR]-SERIAL
    e.g. HDL-TOY-AUR-10-L-NX-0008
    The serial is unique across the WHOLE shop, so every physical
-   part is individually traceable even if the rest of the code repeats. */
+   part is individually traceable even if the rest of the code repeats.
+
+   When the year isn't known the slot reads "XX" - HDL-TOY-AUR-XX-0008.
+   It used to read "00", which looked like a real year (1900? 2000?) and
+   told nobody it was simply unknown. */
 export function generateCode({ cat, brand, model, yearFrom, side, variant }, existingItems) {
   const c = String(cat || "XXX").toUpperCase();
   const b = brandCode(brand);
   const m = abbr(model, 3);
-  const yy = String(yearFrom || "").slice(-2).padStart(2, "0");
+  const yy = Number(yearFrom) ? String(yearFrom).slice(-2).padStart(2, "0") : "XX";
   const segs = [c, b, m, yy];
   const s = sideCode(side);
   if (s && s !== "N") segs.push(s);
@@ -130,7 +134,10 @@ export function findMatch(desc, items) {
     if (wantYear) {
       const from = Number(it.yearFrom) || 0;
       const to = Number(it.yearTo) || from;
-      if (wantYear < from - 1 || wantYear > to + 1) return false; // ±1yr tolerance
+      // A part with no year on record can't be ruled out - we simply don't
+      // know. Excluding it would hide real stock from the counter, so it
+      // stays a candidate and just ranks below a genuine year match.
+      if (from && (wantYear < from - 1 || wantYear > to + 1)) return false; // +/-1yr tolerance
     }
     return true;
   });

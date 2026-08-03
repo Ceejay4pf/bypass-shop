@@ -83,8 +83,9 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
         kind: "new",
         item: {
           cat, brand: brand.trim(), model: model.trim(),
-          yearFrom: Number(year) || new Date().getFullYear(),
-          yearTo: Number(year) || new Date().getFullYear(),
+          // Left blank means unknown, not this year.
+          yearFrom: Number(year) || null,
+          yearTo: Number(year) || null,
           condition, side, variant: variant.trim(), color: color.trim(),
           name: `${catLabel} — ${brand.trim()} ${model.trim()}${variant.trim() ? ` (${variant.trim()})` : ""}`,
           price: Number(price), qty: Number(qty), min: LOW_STOCK_THRESHOLD,

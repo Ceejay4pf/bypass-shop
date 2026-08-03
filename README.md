@@ -15,7 +15,10 @@ phone in the shop:
 - **What do we have?** Every part carries a generated code, the exact vehicle it
   fits (brand, model, series, year range), its condition, side, colour, price,
   quantity, shelf location and up to four photos — so a new staff member can
-  identify the right bumper without asking anyone.
+  identify the right bumper without asking anyone. The year can be left blank
+  when nobody knows it: the part reads **year not known**, its code carries
+  `XX` in the year slot, and searching *no year* lists everything still to be
+  filled in. Nothing is ever stamped with a guessed year.
 - **Where is it?** Warehouse location down to rack, shelf and bin. Search matches
   code, part name, vehicle, year, colour, side or location.
 - **What moved, and who moved it?** Every add, sale and adjustment is written to

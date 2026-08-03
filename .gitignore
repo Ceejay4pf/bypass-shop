@@ -13,3 +13,6 @@ dist-ssr
 
 # Supabase CLI cache
 supabase/.temp/
+
+# Claude Code local tool permissions - not part of the shop
+.claude/

@@ -75,9 +75,14 @@ const matchesQuery = (i, cat, q) => {
   const ledgerText = (i.ledger || [])
     .map((m) => [m.buyer, m.supplier].filter(Boolean).join(" "))
     .join(" ");
+  // The year, and - for parts that have none - the words to search for them
+  // by, so the ones still needing a year can be found and filled in later.
+  const yearText = i.yearFrom
+    ? [i.yearFrom, i.yearTo].filter(Boolean).join(" ")
+    : "no year unknown year";
   return [
     i.code, i.name, i.brand, i.model, i.series, i.condition, i.color,
-    i.side, i.variant, i.supplier, i.location, cat?.label, ledgerText,
+    i.side, i.variant, i.supplier, i.location, cat?.label, ledgerText, yearText,
   ]
     .filter(Boolean)
     .join(" ")
@@ -1762,8 +1767,10 @@ export function AddItemTab({ items, categories, onAdd }) {
       brand: brand.trim(),
       model: model.trim(),
       series: series.trim(),
-      yearFrom: Number(yearFrom) || new Date().getFullYear(),
-      yearTo: Number(yearTo) || Number(yearFrom) || new Date().getFullYear(),
+      // Unknown stays unknown. This used to default to the current year,
+      // which quietly recorded every yearless part as a brand-new model.
+      yearFrom: Number(yearFrom) || null,
+      yearTo: Number(yearTo) || Number(yearFrom) || null,
       condition,
       side,
       color: color.trim(),
@@ -1848,7 +1855,7 @@ export function AddItemTab({ items, categories, onAdd }) {
         </div>
         <div className="flex-1">
           <Field label="Year from">
-            <input type="number" value={yearFrom} onChange={(e) => setYearFrom(e.target.value)} placeholder="2015" className={inputCls} />
+            <input type="number" value={yearFrom} onChange={(e) => setYearFrom(e.target.value)} placeholder="leave blank if unknown" className={inputCls} />
           </Field>
         </div>
         <div className="flex-1">
@@ -1990,7 +1997,7 @@ export function BulkAddTab({ items, categories, onAddMany }) {
         if (!next.cat) miss.push("category");
         if (!next.brand) miss.push("brand");
         if (!next.model) miss.push("model");
-        if (!next.yearFrom) miss.push("year");
+        // No year is fine - see parsePartLine. It saves as unknown.
         if (["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR"].includes(next.cat) && !next.side) {
           miss.push("side");
         }
@@ -2177,7 +2184,9 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
           <div className="text-[11px] text-[#5A6472] truncate">
             {[
               row.series && `Series ${row.series}`,
-              row.yearFrom && (row.yearTo && row.yearTo !== row.yearFrom ? `${row.yearFrom}-${row.yearTo}` : row.yearFrom),
+              row.yearFrom
+                ? (row.yearTo && row.yearTo !== row.yearFrom ? `${row.yearFrom}-${row.yearTo}` : row.yearFrom)
+                : "year not known",
               row.side,
               row.variant,
               row.condition,
@@ -2501,8 +2510,11 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
         brand: brand.trim(),
         model: model.trim(),
         series: series.trim(),
-        yearFrom: Number(yearFrom) || item.yearFrom,
-        yearTo: Number(yearTo) || Number(yearFrom) || item.yearTo,
+        // Emptying the box means "we don't actually know" and must stick.
+        // It used to fall back to the stored year, so a wrong year could
+        // never be cleared - only overwritten with another guess.
+        yearFrom: Number(yearFrom) || null,
+        yearTo: Number(yearTo) || Number(yearFrom) || null,
         condition,
         side,
         color: color.trim(),

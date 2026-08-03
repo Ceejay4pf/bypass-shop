@@ -476,7 +476,11 @@ export function parsePartLine(rawLine) {
   if (!out.cat) out.missing.push(out.catAsk || "category");
   if (!out.brand) out.missing.push("brand");
   if (!out.model) out.missing.push("model");
-  if (!out.yearFrom) out.missing.push("year");
+  /* The year is NOT listed here on purpose. Plenty of stock arrives with no
+     year on it, and blocking the save meant either abandoning the line or
+     typing a guess - and a guessed year is worse than an honest blank,
+     because it looks just as certain as a checked one. The row is saved
+     with the year unknown and can be filled in later from Edit Parts. */
   /* Side matters for the parts that come in twos. Bumpers, bonnets and
      boots don't, so we don't nag about them. */
   const SIDED = ["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR"];
@@ -511,8 +515,9 @@ export function parsePartsList(text) {
 export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
   const catLabel = categories.find((c) => c.key === row.cat)?.label || "";
   const nameParts = [row.brand, row.model].map((s) => String(s || "").trim()).filter(Boolean).join(" ");
-  const thisYear = new Date().getFullYear();
-  const from = Number(row.yearFrom) || thisYear;
+  // An unknown year is saved as unknown, not as this year. Defaulting to
+  // the current year made every yearless part look like a new model.
+  const from = Number(row.yearFrom) || null;
   return {
     cat: row.cat,
     brand: String(row.brand || "").trim(),
