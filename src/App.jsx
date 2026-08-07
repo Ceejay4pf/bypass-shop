@@ -260,22 +260,29 @@ function BypassShop({ session }) {
      what didn't. Serials come from the DB one at a time, so codes stay
      unique even if another phone is adding stock at the same moment. */
   const handleAddMany = async (newItems) => {
-    let added = 0;
     let failed = 0;
     let firstError = "";
+    // What went in, so ONE summary notification can name the batch instead
+    // of the feed filling with a near-identical line for every part.
+    const saved = [];
     for (const it of newItems) {
       try {
         const serial = await api.nextSerial();
         const base = generateCode(it, items).replace(/-\d+$/, "");
         const code = `${base}-${String(serial).padStart(4, "0")}`;
-        await api.insertItem({ ...it, code }, user);
-        added++;
+        await api.insertItem({ ...it, code }, user, { batch: true });
+        saved.push({ code, name: it.name, qty: it.qty });
       } catch (e) {
         failed++;
         if (!firstError) firstError = e.message || String(e);
       }
     }
-    if (added) reloadItems();
+    const added = saved.length;
+    if (added) {
+      await api.addBatchNotification({ type: "new_item", by_name: user, parts: saved });
+      api.emailBatch("new_item", saved, user);
+      reloadItems();
+    }
     showToast(
       failed
         ? `${added} added, ${failed} failed`
@@ -308,14 +315,17 @@ function BypassShop({ session }) {
     return ok;
   };
   // Bulk actions from the Inventory multi-select toolbar.
-  // Several parts leaving together share one answer about where they went.
+  // Several parts leaving together share one answer about where they went,
+  // and produce ONE notification and one email between them.
   const handleBulkDelete = (codes, info = {}) =>
     run(async () => {
-      for (const code of codes) await api.deleteItem(code, user, info);
+      const { gone } = await api.deleteItemsBulk(codes, user, info);
+      api.emailBatch("delete", gone, user);
     }, `${codes.length} item${codes.length !== 1 ? "s" : ""} removed${info.takenBy ? ` — ${info.takenBy}` : ""}`, "warn");
   const handleBulkAddStock = (codes, amount) =>
     run(async () => {
-      for (const code of codes) await api.addStock(code, amount, user);
+      const { done } = await api.addStockBulk(codes, amount, user);
+      api.emailBatch("stock", done, user);
     }, `+${amount} added to ${codes.length} item${codes.length !== 1 ? "s" : ""}`);
 
   const handleQuick = (t) => {

@@ -138,6 +138,37 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `src/lib/hooks.js` — live data hooks with realtime subscriptions
 - `supabase/schema.sql` — run this once to build the database
 - `supabase/receipts.sql`, `credit_accounts.sql`, `transfers.sql` — the later tables
+- `supabase/email_verification.sql` — emailed sign-up codes (see below)
+
+### Emailed sign-up codes
+
+Creating an account works the way it does in any other app:
+
+1. **Your details** — name, email, password (typed twice).
+2. **Check your email** — a 6-digit code arrives; type it in.
+3. The account is created and you're logged straight in.
+
+The account does not exist until the code is right, so an abandoned sign-up
+leaves nothing behind and a mistyped address is simply corrected and re-sent.
+The code is generated and checked inside the database — only its hash is
+stored, it expires after 15 minutes, and it locks after 5 wrong guesses.
+
+Signing **in** still accepts either an email or a name: accounts made this way
+are found by their email, while older accounts and the ones an admin creates
+under *Staff Approvals* are found by name.
+
+To switch it on:
+
+1. Run `supabase/email_verification.sql` in the Supabase SQL editor.
+2. Deploy the sender: `supabase functions deploy send-signup-code --no-verify-jwt`
+3. **Verify a domain at [resend.com/domains](https://resend.com/domains)** and set
+   the `ALERT_FROM` secret to an address on it.
+
+Step 3 is not optional. Until a domain is verified, Resend will only deliver to
+the account owner's own address, so codes never reach anybody else. Until then
+the app skips the code screen, creates the account anyway, and says on-screen
+that the address wasn't confirmed — because blocking every sign-up until the
+shop finishes its email setup would be worse.
 
 ## Still to come
 

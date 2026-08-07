@@ -10,7 +10,7 @@ import {
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
-  Wand2, Sun, Moon, Smartphone,
+  Wand2, Sun, Moon, Smartphone, CheckCircle2,
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem } from "./lib/parseParts.js";
@@ -182,8 +182,15 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
         <StatCard icon={ShoppingCart} label="Items Sold Today" value={soldToday} tone="green" onClick={() => onNav("sell")} />
         <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="yellow" onClick={() => onNav("reports")} />
         <StatCard icon={AlertTriangle} label="Low Stock Items" value={lowStock.length} tone="red" onClick={() => onNav("reports")} />
+        {/* Counts parts, not feed entries - a bulk summary stands for many. */}
         {admin && (
-          <StatCard icon={Bell} label="Total Activity" value={notifications.length} tone="purple" onClick={() => onNav("notify")} />
+          <StatCard
+            icon={Bell}
+            label="Total Activity"
+            value={notifications.reduce((s, n) => s + api.notifWeight(n), 0)}
+            tone="purple"
+            onClick={() => onNav("notify")}
+          />
         )}
       </div>
 
@@ -1504,7 +1511,17 @@ export function ApprovalsTab({ currentUserId }) {
                 <div key={r.id} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 flex items-center gap-3">
                   <Avatar name={r.name} />
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm text-[#1B2430] truncate">{r.name}</div>
+                    <div className="font-semibold text-sm text-[#1B2430] truncate flex items-center gap-1.5">
+                      {r.name}
+                      {/* Whether the email was proved by a code. Worth seeing
+                          before approving: a confirmed address means there is
+                          a real person behind the sign-up who can be reached. */}
+                      {r.emailVerified && (
+                        <span title="Email confirmed by code" className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide text-[#15926A] bg-[#E7F6EF] border border-[#15926A55] rounded px-1 py-0.5">
+                          <CheckCircle2 size={10} /> Email confirmed
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-[#5A6472]">Joined {fmt(r.createdAt)}</div>
                   </div>
                   <button
@@ -2823,6 +2840,34 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
 }
 
 /* ======================= NOTIFICATIONS ======================= */
+/* The part codes behind a bulk summary. Collapsed by default - the whole
+   point of the summary is that the feed isn't a wall of codes - but one tap
+   away, because "which parts exactly?" is a fair question. */
+function BatchCodes({ codes }) {
+  const [open, setOpen] = useState(false);
+  if (!codes || codes.length === 0) return null;
+  return (
+    <div className="mt-1.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] font-semibold text-[#2563EB] flex items-center gap-1"
+      >
+        {open ? "Hide the part codes" : `Show the ${codes.length} part codes`}
+        <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {codes.map((c) => (
+            <span key={c} className="font-mono text-[10px] bg-[#EEF2F6] border border-[#DEE3E9] rounded px-1.5 py-0.5 text-[#5A6472]">
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NotifRow({ n, compact, onUndo }) {
   const typeMeta = {
     sale: { label: "Sold", cls: "bg-[#DC3B2E22] text-[#DC3B2E]" },
@@ -2849,15 +2894,29 @@ function NotifRow({ n, compact, onUndo }) {
     );
   }
 
+  // One entry standing for a whole bulk action. Shown as a single line so
+  // the feed stays readable, with the part codes a tap away.
+  const batch = Number(n.batchCount) > 1;
+
   return (
     <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs sm:text-sm text-[#2563EB]">{n.code}</span>
+        <span className="font-mono text-xs sm:text-sm text-[#2563EB]">
+          {batch ? (
+            <span className="inline-flex items-center gap-1 font-sans font-bold">
+              <Layers size={13} /> {n.batchCount} parts together
+            </span>
+          ) : (
+            n.code
+          )}
+        </span>
         <span className="text-[#5A6472] text-xs">{compact ? timeAgo(n.ts) : fmtDateTime(n.ts)}</span>
       </div>
       <p className="text-sm mt-1">
-        {n.name} <span className="text-[#5A6472]">× {n.qty}</span>
+        {n.name}
+        {n.qty ? <span className="text-[#5A6472]"> {batch ? `· ${n.qty} units in total` : `× ${n.qty}`}</span> : null}
       </p>
+      {batch && <BatchCodes codes={n.batchCodes} /> }
       {n.type === "sale" && (
         <div className="flex items-center gap-2 mt-1.5 text-xs flex-wrap">
           <span className="text-[#5A6472]">Customer: {n.buyer}</span>
@@ -3049,9 +3108,11 @@ function PersonActivity({ person, onBack, onChanged }) {
     onChanged?.();
   };
 
+  /* Counts PARTS, not feed entries: one bulk summary stands for its whole
+     batch, so twenty parts added together must still report as twenty. */
   const counts = useMemo(() => {
     const c = { sale: 0, new_item: 0, adjust: 0, delete: 0, stock: 0, return: 0 };
-    for (const r of rows) if (c[r.type] !== undefined) c[r.type] += 1;
+    for (const r of rows) if (c[r.type] !== undefined) c[r.type] += api.notifWeight(r);
     return c;
   }, [rows]);
 
@@ -3063,7 +3124,7 @@ function PersonActivity({ person, onBack, onChanged }) {
   const filtered = filter === "all" ? rows : rows.filter((r) => r.type === filter);
 
   const chips = [
-    ["all", `All (${rows.length})`],
+    ["all", `All (${rows.reduce((s, r) => s + api.notifWeight(r), 0)})`],
     ["sale", `Sales (${counts.sale})`],
     ["new_item", `Items added (${counts.new_item})`],
     ["adjust", `Changes (${counts.adjust})`],
@@ -3371,11 +3432,13 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
     const map = {};
     for (const n of removed) {
       const key = n.disposal || "unrecorded";
-      map[key] = map[key] || { key, rows: [], units: 0 };
+      map[key] = map[key] || { key, rows: [], units: 0, parts: 0 };
       map[key].rows.push(n);
       map[key].units += Number(n.qty || 0);
+      // A bulk removal is one row but several parts - count the parts.
+      map[key].parts += api.notifWeight(n);
     }
-    return Object.values(map).sort((a, b) => b.rows.length - a.rows.length);
+    return Object.values(map).sort((a, b) => b.parts - a.parts);
   }, [removed]);
 
   const ranges = [
@@ -3507,7 +3570,8 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
           className="w-full flex items-center justify-between gap-2 text-left"
         >
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
-            <Trash2 size={15} className="text-[#5A6472]" /> Where Stock Went ({removed.length})
+            <Trash2 size={15} className="text-[#5A6472]" /> Where Stock Went (
+            {removed.reduce((s, n) => s + api.notifWeight(n), 0)})
           </div>
           <ChevronRight
             size={16}
@@ -3537,7 +3601,7 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
                         {g.key === "unrecorded" ? "Not recorded" : api.disposalLabel(g.key)}
                       </span>
                       <span className="text-[11px] text-[#5A6472]">
-                        {g.rows.length} part{g.rows.length !== 1 ? "s" : ""}
+                        {g.parts} part{g.parts !== 1 ? "s" : ""}
                         {g.units ? ` · ${g.units} pcs` : ""}
                       </span>
                     </div>
@@ -3552,6 +3616,7 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
                             <span className="text-[#5A6472]">{fmtDateTime(n.ts)}</span>
                           </div>
                           {n.name && <div className="text-[#1B2430] mt-0.5 truncate">{n.name}</div>}
+                          {Number(n.batchCount) > 1 && <BatchCodes codes={n.batchCodes} />}
                           <div className="text-[#5A6472] mt-0.5 flex flex-wrap gap-x-3">
                             {n.takenBy ? (
                               <span>

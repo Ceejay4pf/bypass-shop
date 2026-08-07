@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { Boxes, Lock, User, AlertTriangle, ArrowRight, Loader2, Phone, CheckCircle2, ShieldCheck, HelpCircle } from "lucide-react";
+import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound } from "lucide-react";
 import { Field, inputCls } from "./ui.jsx";
-import { signIn, signUp, signInRole } from "./lib/auth.js";
+import { signIn, signUp, signInRole, sendEmailCode, checkEmailCode } from "./lib/auth.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
@@ -36,6 +36,9 @@ export default function LoginGate() {
   const [name, setName] = useState("");        // name OR phone/email — the login id
   const [contact, setContact] = useState("");  // optional phone or email (signup only)
   const [password, setPassword] = useState("");
+  // Typed twice at signup. A password nobody can see is easy to fat-finger,
+  // and getting it wrong here means being locked out of a brand-new account.
+  const [confirmPass, setConfirmPass] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -44,6 +47,19 @@ export default function LoginGate() {
   const [rolePass, setRolePass] = useState("");
   const [personName, setPersonName] = useState("");
   const [showHelp, setShowHelp] = useState(false);
+  /* Signing up is two screens, the way every other app does it:
+
+       "form"  - name, email, password
+       "code"  - the 6 digits we just emailed
+
+     The account is only created after the code is right. Nothing is written
+     to the database in between, so an abandoned sign-up leaves nothing
+     behind and a mistyped address can simply be corrected and re-sent. */
+  const [step, setStep] = useState("form");
+  const [code, setCode] = useState("");
+  // Set when the shop hasn't finished setting up email sending. Sign-ups
+  // can't be allowed to stop dead because of a shop-side gap.
+  const [mailBroken, setMailBroken] = useState("");
 
   const chosenRole = ROLE_ACCOUNTS.find((r) => r.key === roleKey) || null;
 
@@ -86,44 +102,116 @@ export default function LoginGate() {
     }
   };
 
+  // Shared by both signup steps: turn a raw error into words a shop worker
+  // can act on.
+  const showError = (e, fallback) => {
+    const msg = e.message || fallback;
+    setError(isNetworkError(msg) ? NETWORK_HELP : msg);
+  };
+
+  /* STEP 1 of signing up: check the details, then email the code. The account
+     is NOT created here - only after the code is confirmed. */
+  const startSignup = async () => {
+    setError("");
+    setNotice("");
+    const to = contact.trim().toLowerCase();
+    if (!name.trim()) { setError("Enter your name."); return; }
+    if (!to.includes("@") || !/@[^@]+\.[^@]+$/.test(to)) {
+      setError("Enter your email address, e.g. name@gmail.com");
+      return;
+    }
+    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password !== confirmPass) { setError("The two passwords don't match."); return; }
+
+    setBusy(true);
+    try {
+      const res = await sendEmailCode(to, name.trim());
+      /* Email sending isn't set up on this shop yet. That's a shop-side gap,
+         not the person's mistake, so let them straight through to an account
+         rather than stranding them on a code screen no code can reach. */
+      if (res.setup) {
+        setMailBroken(res.error || "Codes can't be emailed yet.");
+        await createAccount();
+        return;
+      }
+      setStep("code");
+      setCode("");
+      setNotice(`We sent a 6-digit code to ${to}. It works for 15 minutes.`);
+    } catch (e) {
+      showError(e, "The code could not be sent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* STEP 2: the code is right -> now the account gets made. Kept separate so
+     the "email is broken" path above can reuse it. */
+  const createAccount = async () => {
+    const to = contact.trim().toLowerCase();
+    try {
+      await signUp(name.trim(), password, to);
+      // Log them straight in - there's no second confirmation to fight, the
+      // code already proved the address.
+      try {
+        await signIn(to, password);
+      } catch {
+        setNotice("Account created — now sign in with your email and password.");
+        setStep("form");
+        setMode("signin");
+      }
+    } catch (e) {
+      const msg = e.message || "The account could not be created.";
+      if (isNetworkError(msg)) {
+        setError(NETWORK_HELP);
+      } else if (/already registered/i.test(msg)) {
+        setError("An account already uses that email. Try signing in instead.");
+        setStep("form");
+      } else {
+        setError(msg);
+        setStep("form");
+      }
+    }
+  };
+
+  const confirmCode = async () => {
+    setError("");
+    setNotice("");
+    if (code.trim().length !== 6) { setError("The code is 6 digits."); return; }
+    setBusy(true);
+    try {
+      const ok = await checkEmailCode(contact.trim().toLowerCase(), code);
+      if (!ok) {
+        setError("That code is wrong or has expired. Check the email, or send a new one.");
+        return;
+      }
+      await createAccount();
+    } catch (e) {
+      // The database raises a readable message once the code is locked out.
+      showError(e, "The code could not be checked.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Signing in - unchanged: a name, an email or a phone all still work.
   const submit = async () => {
     setError("");
     setNotice("");
-    if (!name.trim()) {
-      setError(mode === "signin" ? "Enter your name (or phone/email)." : "Enter your name.");
-      return;
-    }
-    if (!password) {
-      setError("Enter your password.");
-      return;
-    }
-    if (mode === "signup" && password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
+    if (mode === "signup") { startSignup(); return; }
+    if (!name.trim()) { setError("Enter your name (or phone/email)."); return; }
+    if (!password) { setError("Enter your password."); return; }
     setBusy(true);
     try {
-      if (mode === "signin") {
-        await signIn(name.trim(), password);
-        // useAuth() in App picks up the session automatically.
-      } else {
-        await signUp(name.trim(), password, contact.trim());
-        // Immediately log them in so there's no confirmation step to fight.
-        try {
-          await signIn(contact.includes("@") ? contact.trim() : name.trim(), password);
-        } catch {
-          setNotice("Account created — now sign in with your name and password.");
-          setMode("signin");
-        }
-      }
+      await signIn(name.trim(), password);
+      // useAuth() in App picks up the session automatically.
     } catch (e) {
       const msg = e.message || "Login failed.";
       if (isNetworkError(msg)) {
         setError(NETWORK_HELP);
-      } else if (/already registered/i.test(msg)) {
-        setError("That name is already taken — try signing in, or add your phone to make it unique.");
       } else if (/invalid login credentials/i.test(msg)) {
-        setError("Name or password is wrong. New here? Tap “Create an account”.");
+        // Say both, because which one works depends on how the account was
+        // made: with an email through signup, or by name by the admin.
+        setError("That email/name and password don't match. New here? Tap “Create an account”.");
       } else if (/email not confirmed/i.test(msg)) {
         setError("Account needs confirming in Supabase → Authentication → turn off “Confirm email”.");
       } else {
@@ -285,34 +373,111 @@ export default function LoginGate() {
             </>
           ) : (
           <>
+          {/* ---------- STEP 2: the code we just emailed ----------
+              Its own screen, the way every other app does it: nothing on it
+              but the code, so there's no doubt about what to do next. */}
+          {mode === "signup" && step === "code" ? (
+            <>
+              <button
+                onClick={() => { setStep("form"); setError(""); setNotice(""); }}
+                className="text-[#5A6472] text-xs mb-3 flex items-center gap-1 hover:text-[#2563EB]"
+              >
+                <ArrowLeft size={13} /> Back
+              </button>
+
+              <div className="text-center mb-4">
+                <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#EAF1FF] flex items-center justify-center">
+                  <Mail size={22} className="text-[#2563EB]" />
+                </div>
+                <div className="font-semibold text-[#1B2430]">Check your email</div>
+                <p className="text-[#5A6472] text-xs mt-1 leading-relaxed">
+                  We sent a 6-digit code to<br />
+                  <span className="font-semibold text-[#1B2430] break-all">{contact.trim().toLowerCase()}</span>
+                </p>
+              </div>
+
+              <Field label="Enter the code">
+                <div className="relative">
+                  <KeyRound size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
+                  <input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    onKeyDown={(e) => e.key === "Enter" && confirmCode()}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className={inputCls + " pl-9 text-center text-lg font-mono tracking-[0.4em]"}
+                    autoFocus
+                  />
+                </div>
+              </Field>
+
+              {error && (
+                <div className="text-[#DC3B2E] text-sm mb-3 flex items-start gap-1.5">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+                </div>
+              )}
+              {notice && !error && (
+                <div className="text-[#15926A] text-sm mb-3 flex items-start gap-1.5">
+                  <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> {notice}
+                </div>
+              )}
+
+              <button
+                onClick={confirmCode}
+                disabled={busy || code.length !== 6}
+                className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                Verify &amp; create account
+              </button>
+
+              <button
+                onClick={startSignup}
+                disabled={busy}
+                className="w-full text-[#5A6472] text-xs mt-3 hover:text-[#2563EB] disabled:opacity-50"
+              >
+                Didn't get it? Send a new code
+              </button>
+            </>
+          ) : (
+          <>
           <div className="flex items-center gap-2 mb-4 text-[#1B2430] font-semibold">
             <Lock size={16} className="text-[#2563EB]" />
             {mode === "signin" ? "Staff Login" : "Create Staff Account"}
           </div>
 
-          <Field label={mode === "signin" ? "Your name (or phone / email)" : "Your name"}>
+          {/* Sign IN still accepts either, because accounts made before this
+              (and the ones an admin creates) have no real email and are found
+              by name. Anyone who signed up with an email logs in with it. */}
+          <Field label={mode === "signin" ? "Your email (or your name)" : "Your name"}>
             <div className="relative">
               <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submit()}
-                placeholder="e.g. Josphat Kamau"
+                placeholder={mode === "signin" ? "name@gmail.com" : "e.g. Josphat Kamau"}
+                autoComplete={mode === "signin" ? "username" : "name"}
                 className={inputCls + " pl-9"}
                 autoFocus
               />
             </div>
           </Field>
 
+          {/* Signing up now REQUIRES an email — it's what the code is sent to,
+              and what lets the account be recovered later. */}
           {mode === "signup" && (
-            <Field label="Phone or email (optional)">
+            <Field label="Your email">
               <div className="relative">
-                <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
+                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
                 <input
                   value={contact}
                   onChange={(e) => setContact(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && submit()}
-                  placeholder="0712 345 678"
+                  placeholder="name@gmail.com"
+                  type="email"
+                  autoComplete="email"
                   className={inputCls + " pl-9"}
                 />
               </div>
@@ -326,15 +491,40 @@ export default function LoginGate() {
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
               placeholder="••••••••"
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
               className={inputCls}
             />
           </Field>
 
           {mode === "signup" && (
+            <Field label="Type the password again">
+              <input
+                type="password"
+                value={confirmPass}
+                onChange={(e) => setConfirmPass(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                className={inputCls}
+              />
+            </Field>
+          )}
+
+          {mode === "signup" && !mailBroken && (
             <p className="text-[#5A6472] text-[11px] -mt-1 mb-3 leading-relaxed">
-              Just pick a name and password — no email needed. The system saves
-              your name and stamps it on everything you do.
+              We'll email you a 6-digit code to check the address is really
+              yours. Your account is created once you enter it.
             </p>
+          )}
+
+          {/* The shop's email sending isn't finished, so no code can arrive.
+              Say so instead of leaving the person waiting on an inbox that
+              will never get anything - the account was created anyway. */}
+          {mode === "signup" && mailBroken && (
+            <div className="-mt-1 mb-3 bg-[#FEF6E7] border border-[#E0A93B] rounded-md p-2.5 text-[11px] text-[#6B5417] leading-relaxed">
+              This shop can't send codes by email yet, so your address wasn't
+              confirmed — your account was created anyway. Tell the admin.
+            </div>
           )}
 
           {error && (
@@ -354,15 +544,20 @@ export default function LoginGate() {
             className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
-            {mode === "signin" ? "Log In" : "Create Account"}
+            {mode === "signin" ? "Log In" : "Continue"}
           </button>
 
           <button
-            onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setNotice(""); }}
+            onClick={() => {
+              setMode(mode === "signin" ? "signup" : "signin");
+              setError(""); setNotice(""); setStep("form"); setCode("");
+            }}
             className="w-full text-[#5A6472] text-xs mt-3 hover:text-[#2563EB]"
           >
             {mode === "signin" ? "New staff member? Create an account" : "Already have an account? Sign in"}
           </button>
+          </>
+          )}
           </>
           )}
 

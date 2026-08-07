@@ -113,17 +113,25 @@ export async function nextSerial() {
   return data;
 }
 
-export async function insertItem(item, byName) {
+/* `batch` = true when this insert is one of many in a bulk paste. The part
+   still gets its own ledger entry (the audit trail must stay per-part), but
+   the notification and the email are left to the caller, which sends ONE
+   summary for the whole batch instead of one per part. */
+export async function insertItem(item, byName, { batch = false } = {}) {
   const row = { ...itemToRow(item), created_by: byName };
   const { data, error } = await supabase.from("inventory").insert(row).select().single();
   if (error) throw error;
-  await addNotification({ type: "new_item", code: item.code, name: item.name, qty: item.qty, by_name: byName, remaining: item.qty });
+  if (!batch) {
+    await addNotification({ type: "new_item", code: item.code, name: item.name, qty: item.qty, by_name: byName, remaining: item.qty });
+  }
   await addMovement({ code: item.code, type: "new_item", qty: item.qty, by_name: byName, remaining: item.qty, supplier: item.supplier });
-  emailAdmin(
-    `Bypass Shop — new item added: ${item.code}`,
-    `A new item was added to inventory:<br><br><b>${item.code}</b> — ${item.name}<br>Quantity: ${item.qty}`,
-    byName
-  );
+  if (!batch) {
+    emailAdmin(
+      `Bypass Shop — new item added: ${item.code}`,
+      `A new item was added to inventory:<br><br><b>${item.code}</b> — ${item.name}<br>Quantity: ${item.qty}`,
+      byName
+    );
+  }
   return rowToItem(data);
 }
 
@@ -174,7 +182,7 @@ export const disposalLabel = (key) =>
 /* Remove a part from the books, recording where it went.
    The item row goes, but stock_movements keeps the story - deliberately
    not linked by a foreign key, so the trail survives the deletion. */
-export async function deleteItem(code, byName, disposal = {}) {
+export async function deleteItem(code, byName, disposal = {}, { batch = false } = {}) {
   // Read what we're about to lose, so the record names the part rather
   // than just its code. Best-effort: a missing row must not block a delete.
   let name = null;
@@ -195,7 +203,11 @@ export async function deleteItem(code, byName, disposal = {}) {
     taken_by: disposal.takenBy || null,
     logistics: disposal.logistics || null,
   };
-  await addNotification({ type: "delete", code, name, qty, by_name: byName, ...extra });
+  // In a bulk removal the caller writes one summary instead (see
+  // deleteItemsBulk). The per-part ledger entry below is always written.
+  if (!batch) {
+    await addNotification({ type: "delete", code, name, qty, by_name: byName, ...extra });
+  }
   await addMovement({
     code,
     type: "delete",
@@ -204,15 +216,130 @@ export async function deleteItem(code, byName, disposal = {}) {
     reason: disposal.reason || null,
     ...extra,
   });
+  return { code, name, qty };
+}
+
+/* ---- BULK ACTIONS: one notification for the whole batch ----
+   Each part is still written to inventory and to stock_movements
+   individually - only the notification is summarised, because that feed
+   is read by a person and twenty near-identical lines drown out
+   everything else in it. */
+
+/* Remove several parts that are leaving together, for the same reason.
+   Returns what went, so the caller can report it. */
+export async function deleteItemsBulk(codes, byName, disposal = {}) {
+  const gone = [];
+  const failed = [];
+  for (const code of codes) {
+    try {
+      gone.push(await deleteItem(code, byName, disposal, { batch: true }));
+    } catch (e) {
+      failed.push({ code, message: e.message || String(e) });
+    }
+  }
+  if (gone.length) {
+    await addBatchNotification({
+      type: "delete",
+      by_name: byName,
+      parts: gone,
+      extra: {
+        disposal: disposal.disposal || null,
+        taken_by: disposal.takenBy || null,
+        logistics: disposal.logistics || null,
+      },
+    });
+  }
+  return { gone, failed };
+}
+
+/* Add the same quantity to several parts at once. */
+export async function addStockBulk(codes, amount, byName) {
+  const done = [];
+  const failed = [];
+  for (const code of codes) {
+    try {
+      const remaining = await addStock(code, amount, byName, "", { batch: true });
+      done.push({ code, name: await itemName(code), qty: amount, remaining });
+    } catch (e) {
+      failed.push({ code, message: e.message || String(e) });
+    }
+  }
+  if (done.length) {
+    await addBatchNotification({ type: "stock", by_name: byName, parts: done });
+  }
+  return { done, failed };
+}
+
+/* The single summary entry that stands in for a whole batch.
+   `parts` is [{code, name, qty}] - everything the batch touched. */
+export async function addBatchNotification({ type, by_name, parts, extra = {} }) {
+  const codes = parts.map((p) => p.code).filter(Boolean);
+  const units = parts.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  await addNotification({
+    type,
+    by_name,
+    // The code column names the batch rather than a part, so the feed
+    // never shows one part's code as if it were the whole action.
+    code: `${codes.length} parts`,
+    name: batchSummaryName(type, parts),
+    qty: units || null,
+    batch_count: codes.length,
+    batch_codes: codes,
+    ...extra,
+  });
+}
+
+/* ONE email for a whole batch, as a small table of what changed - rather
+   than one message per part, which filled the owner's inbox and made the
+   batch harder to read, not easier. */
+export function emailBatch(type, parts, byName) {
+  if (!parts.length) return;
+  const what = { new_item: "added to inventory", delete: "removed from inventory", stock: "restocked" }[type] || type;
+  const units = parts.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+  const rows = parts
+    .map(
+      (p) =>
+        `<tr><td style="padding:3px 10px 3px 0"><b>${p.code}</b></td>` +
+        `<td style="padding:3px 10px 3px 0">${p.name || ""}</td>` +
+        `<td style="padding:3px 0">${p.qty ?? ""}</td></tr>`
+    )
+    .join("");
+  emailAdmin(
+    `Bypass Shop — ${parts.length} part${parts.length !== 1 ? "s" : ""} ${what}`,
+    `<b>${parts.length} part${parts.length !== 1 ? "s" : ""}</b> ${what} in one go` +
+      (units ? `, ${units} unit${units !== 1 ? "s" : ""} in total` : "") +
+      `.<br><br><table style="border-collapse:collapse;font-size:13px">` +
+      `<tr><th align="left" style="padding:0 10px 4px 0">Code</th>` +
+      `<th align="left" style="padding:0 10px 4px 0">Part</th>` +
+      `<th align="left" style="padding:0 0 4px 0">Qty</th></tr>${rows}</table>`,
+    byName
+  );
+}
+
+/* A one-line description of a batch, e.g.
+   "12 parts added - Toyota, Mazda and 2 other makes". Falls back to the
+   part names when they share no make, so the line is never empty. */
+function batchSummaryName(type, parts) {
+  const verb = { new_item: "added", delete: "removed", stock: "restocked" }[type] || type;
+  const n = parts.length;
+  const makes = [...new Set(
+    parts.map((p) => String(p.name || "").split(/[-–—]/)[1]?.trim().split(/\s+/)[0]).filter(Boolean)
+  )];
+  let who = "";
+  if (makes.length === 1) who = ` — ${makes[0]}`;
+  else if (makes.length === 2) who = ` — ${makes[0]} and ${makes[1]}`;
+  else if (makes.length > 2) who = ` — ${makes[0]}, ${makes[1]} and ${makes.length - 2} other make${makes.length - 2 !== 1 ? "s" : ""}`;
+  return `${n} part${n !== 1 ? "s" : ""} ${verb}${who}`;
 }
 
 /* ---- STOCK CHANGES (atomic, via DB functions) ---- */
-export async function addStock(code, amount, byName, supplier = "") {
+export async function addStock(code, amount, byName, supplier = "", { batch = false } = {}) {
   const { data: newQty, error } = await supabase.rpc("add_stock", { p_code: code, p_amount: amount });
   if (error) throw error;
   if (supplier) await supabase.from("inventory").update({ supplier }).eq("code", code);
   const name = await itemName(code);
-  await addNotification({ type: "stock", code, name, qty: amount, by_name: byName, remaining: newQty });
+  // A bulk restock gets one summary from addStockBulk instead.
+  if (!batch) await addNotification({ type: "stock", code, name, qty: amount, by_name: byName, remaining: newQty });
   await addMovement({ code, type: "stock", qty: amount, by_name: byName, remaining: newQty, supplier });
   return newQty;
 }
@@ -281,8 +408,16 @@ export function rowToNotif(r) {
     disposal: r.disposal || "",
     takenBy: r.taken_by || "",
     logistics: r.logistics || "",
+    // Set when this one entry summarises a bulk action (batch_notifications.sql).
+    batchCount: r.batch_count || 0,
+    batchCodes: Array.isArray(r.batch_codes) ? r.batch_codes : [],
   };
 }
+
+/* How many parts an entry accounts for. A bulk summary stands for its
+   whole batch, so totals must add this rather than count rows - otherwise
+   twenty parts added together would report as one. */
+export const notifWeight = (n) => Number(n.batchCount) || 1;
 export function rowToMovement(r) {
   return {
     ts: new Date(r.ts).getTime(),
@@ -313,7 +448,11 @@ export async function fetchNotifications(limit = 200) {
    on this database yet, an insert naming them fails outright — and losing
    the whole log entry would be far worse than losing the extra detail. So
    on that one error we drop them and write the entry anyway. */
-const LATER_COLUMNS = ["disposal", "taken_by", "logistics"];
+const LATER_COLUMNS = [
+  "disposal", "taken_by", "logistics",
+  // batch_notifications.sql — a bulk action writes one summary entry
+  "batch_count", "batch_codes",
+];
 const isMissingColumn = (error) =>
   error?.code === "PGRST204" ||
   LATER_COLUMNS.some((c) => String(error?.message || "").includes(`'${c}'`) ||
@@ -749,10 +888,21 @@ export async function getMyPermissions(userId) {
 
 // Admin: list all staff profiles with their approval state + permissions.
 export async function fetchProfiles() {
-  const { data, error } = await supabase
+  const BASE = "id, full_name, approved, permissions, pending_permissions, created_at";
+  /* email_verified only exists once email_verification.sql has been run. Naming
+     a column that isn't there fails the WHOLE select, which would empty the
+     Staff Approvals screen — so ask for it, and fall back to the columns that
+     have always been there if the database says it doesn't know it. */
+  let { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, approved, permissions, pending_permissions, created_at")
+    .select(`${BASE}, email_verified`)
     .order("created_at", { ascending: false });
+  if (error) {
+    ({ data, error } = await supabase
+      .from("profiles")
+      .select(BASE)
+      .order("created_at", { ascending: false }));
+  }
   if (error) throw error;
   return (data || []).map((p) => ({
     id: p.id,
@@ -761,6 +911,7 @@ export async function fetchProfiles() {
     permissions: Array.isArray(p.permissions) ? p.permissions : [],
     pending: Array.isArray(p.pending_permissions) ? p.pending_permissions : [],
     createdAt: p.created_at || null,
+    emailVerified: p.email_verified === true,
   }));
 }
 
