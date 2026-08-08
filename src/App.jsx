@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
-  Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon,
+  Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon, Scale,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
 import LoginGate from "./LoginGate.jsx";
@@ -26,6 +26,7 @@ import {
   ReceiptTab, CreditAccountsTab, TransfersTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
+import { FinanceTab } from "./finance.jsx";
 
 // `admin: true` = admin-only screen. `cap: "<key>"` = needs that capability
 // (admins always have every capability; staff need it granted).
@@ -49,6 +50,7 @@ const NAV = [
   { id: "notify", label: "Notifications", icon: Bell, admin: true },
   { id: "print", label: "Print Stock", icon: Printer },
   { id: "reports", label: "Reports", icon: FileBarChart },
+  { id: "finance", label: "Financial Statements", icon: Scale, admin: true },
   { id: "permissions", label: "My Permissions", icon: ShieldCheck, staffOnly: true },
   { id: "approvals", label: "Staff Approvals", icon: UserCheck, admin: true },
   { id: "settings", label: "Settings", icon: SettingsIcon },
@@ -573,6 +575,7 @@ function BypassShop({ session }) {
               onChanged={refreshAfterUndo}
             />
           )}
+          {tab === "finance" && <FinanceTab user={user} admin={admin} />}
           {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
           {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
           {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}

@@ -2700,6 +2700,10 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
   const [buyer, setBuyer] = useState("");
   const [phone, setPhone] = useState("");
   const [payment, setPayment] = useState("Paid");
+  /* Which pot the money went into. The cash book keeps Cash, M-Pesa and Bank
+     apart so the drawer can be counted against the Cash column — without this
+     every sale would land in Cash and the count would never agree. */
+  const [method, setMethod] = useState("Cash");
   const [deduct, setDeduct] = useState(true);        // true = sold from THIS branch (reduce stock)
   const [sourceBranch, setSourceBranch] = useState("");// where it came from when not deducting
   const matches = useMemo(() => {
@@ -2713,7 +2717,7 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
   const cap = deduct ? (selected ? selected.qty : 0) : Infinity;
   const n = selected ? Math.max(1, Math.min(Number(qty) || 1, cap)) : 0;
   const total = selected ? n * Number(selected.price) : 0;
-  const reset = () => { setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); };
+  const reset = () => { setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); setMethod("Cash"); };
 
   return (
     <div className="bp-fade-up">
@@ -2806,6 +2810,31 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
               })}
             </div>
           </Field>
+          {/* Only asked when the money actually came in. A pending sale has
+              nothing to put in a pot yet — it reaches the cash book on the day
+              it is paid, not today. */}
+          {payment === "Paid" && (
+            <Field label="How did they pay?">
+              <div className="flex gap-3">
+                {["Cash", "M-PESA", "Bank"].map((m) => {
+                  const active = method === m;
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => setMethod(m)}
+                      className={`flex-1 rounded-md py-2.5 font-semibold text-sm border ${
+                        active
+                          ? "bg-[#2563EB18] border-[#2563EB] text-[#2563EB]"
+                          : "border-[#DEE3E9] text-[#5A6472]"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
           <div className="text-sm text-[#5A6472] mb-3">
             Total:{" "}
             <span className="text-[#2563EB] font-bold">KES {total.toLocaleString()}</span>{" "}
@@ -2825,7 +2854,8 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
             </button>
             <button
               onClick={() => {
-                onSell({ code: selected.code, qty: n, buyer, phone, paid: payment === "Paid", total, deduct, sourceBranch });
+                onSell({ code: selected.code, qty: n, buyer, phone, paid: payment === "Paid",
+                         total, method, deduct, sourceBranch });
                 reset();
               }}
               className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"

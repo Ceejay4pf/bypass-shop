@@ -52,9 +52,11 @@ and syncs live, so two staff on two phones always see the same stock.
 - **Print Stock** — a printable list for counting.
 
 **Selling**
-- **Sell Item** — quantity, customer, phone, paid or pending. Choose per sale
-  whether the goods leave *this* branch's stock or were supplied by another
-  branch (in which case our count is untouched).
+- **Sell Item** — quantity, customer, phone, paid or pending, and — when it was
+  paid — whether the money went into **Cash**, **M-PESA** or the **Bank**, which
+  is what keeps the cash book's three columns apart. Choose per sale whether the
+  goods leave *this* branch's stock or were supplied by another branch (in which
+  case our count is untouched).
 - **Quick Transaction** — one fast screen for add / sell / adjust.
 - **Quotation** — priced quotes, printable or sent on WhatsApp.
 - **Receipt** — receipt, invoice or delivery note; automatic **PAID /
@@ -63,6 +65,12 @@ and syncs live, so two staff on two phones always see the same stock.
 - **Credit Accounts** — a running balance per garage, with every charge and
   payment (cash, cheque, paybill) itemised on a statement.
 - **Branch Transfers** — a record of stock taken to or received from another branch.
+
+**Money (admin only)**
+- **Financial Statements** — a cash book, a trading account and a balance sheet,
+  all worked out from the sales, receipts, credit movements, expenses and stock
+  already recorded. Viewable for any single month or for the shop's whole life.
+  See [Financial statements](#financial-statements) below.
 
 **People and oversight**
 - **Staff Feed** — shop-floor messages.
@@ -128,6 +136,8 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 
 - `src/App.jsx` — navigation, permissions and the screen router
 - `src/tabs.jsx` — every feature screen
+- `src/finance.jsx` — the financial statements screens
+- `src/lib/finance.js` — the statement arithmetic, kept testable on its own
 - `src/ui.jsx` — shared pieces (item cards, fields, charts)
 - `src/LoginGate.jsx` — the login screen (role + personal)
 - `src/lib/supabase.js` — the cloud connection
@@ -139,6 +149,55 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `supabase/schema.sql` — run this once to build the database
 - `supabase/receipts.sql`, `credit_accounts.sql`, `transfers.sql` — the later tables
 - `supabase/email_verification.sql` — emailed sign-up codes (see below)
+- `supabase/finance.sql` — the financial statements (see below)
+
+### Financial statements
+
+**Admin only**, and not only on screen: the tables refuse everybody else, because
+a screen the app hides is still a screen anyone can reach with the app's own key.
+
+Three views behind one tab:
+
+- **Cash book** — opening balance, money in, money out and closing balance, in
+  separate **Cash / M-PESA / Bank** columns so the drawer can be counted and
+  checked against the Cash column. Every entry is listed with a running balance,
+  so a shortfall can be traced to the moment it happened. An unpaid sale is not
+  here — it is a debt, and reaches the cash book on the day it is paid.
+- **Trading account** — sales, cost of what was sold, gross profit, running
+  expenses and net profit, plus a breakdown of where the expenses went.
+- **Balance sheet** — what the shop owns (cash, M-PESA, bank, stock at cost,
+  money owed by credit accounts and on unpaid sales), what it owes, and the
+  difference: what the business is worth.
+
+Plus **Expenses**, where money going out is typed in as it is spent, and
+**Opening balances**, typed once.
+
+**It has to tally.** The balance sheet ends with a proof line: owned = owed +
+worth. If the two sides ever disagree the screen says so in red and tells the
+owner not to rely on the figures, rather than quietly showing a wrong total.
+
+Three things worth knowing about the numbers:
+
+- **Nothing is stored.** Every figure is worked out on demand from records that
+  already exist, so no total can drift out of agreement with what it came from.
+- **Profit is an estimate.** The shop does not record what it paid for each
+  part, so the owner's own rule is used: profit is three times the VAT inside a
+  sale — 41.4% at 16%. Every screen that shows profit says it is an estimate.
+- **Buying stock is not a loss.** It is money out of the drawer, so it is in the
+  cash book, but it appears on the balance sheet as stock and becomes a cost only
+  when the part sells.
+- **Expenses are voided, never deleted.** A voided entry stays on the list
+  crossed out with who voided it and why, and stops counting. The database has no
+  delete policy, so money out cannot vanish without trace.
+
+To switch it on: run `supabase/finance.sql` in the Supabase SQL editor. Until you
+do, the tab loads and says which figures could not be read instead of showing a
+screen of zeros as though nothing had been spent.
+
+The admin list in `finance.sql`'s `is_finance_admin()` must match `ADMIN_EMAILS`
+in `src/lib/roles.js`. If the app thinks someone is an admin and the database
+does not, they get the tab and then an empty screen — which reads as a broken
+app rather than a refusal.
 
 ### Emailed sign-up codes
 

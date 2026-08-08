@@ -344,7 +344,7 @@ export async function addStock(code, amount, byName, supplier = "", { batch = fa
   return newQty;
 }
 
-export async function sellItem({ code, qty, buyer, phone, paid, total, deduct = true, sourceBranch = "" }, byName) {
+export async function sellItem({ code, qty, buyer, phone, paid, total, method = "Cash", deduct = true, sourceBranch = "" }, byName) {
   let newQty = null;
   if (deduct) {
     // Sold from THIS branch — atomically reduce our stock.
@@ -360,7 +360,18 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, deduct = 
   const reason = deduct ? undefined : `From ${sourceBranch || "another branch"} — not deducted here`;
   await addNotification({ type: "sale", code, name, qty, by_name: byName, buyer, phone, paid, total, remaining: newQty });
   await addMovement({ code, type: "sale", qty, by_name: byName, buyer, paid, remaining: newQty, reason });
-  await supabase.from("sales").insert({ code, name, qty, buyer, phone, paid, total, by_name: byName });
+  /* sales.method arrives with finance.sql. Until that has been run the column
+     isn't there and naming it would throw away the whole sale row — so the
+     sale is written without it rather than lost. */
+  const saleRow = { code, name, qty, buyer, phone, paid, total, by_name: byName, method: method || "Cash" };
+  let saleErr = (await supabase.from("sales").insert(saleRow)).error;
+  if (saleErr && (saleErr.code === "PGRST204" || /method/.test(saleErr.message || ""))) {
+    const { method: _drop, ...noMethod } = saleRow;
+    saleErr = (await supabase.from("sales").insert(noMethod)).error;
+  }
+  // Not thrown: the stock is already deducted and the movement logged, so
+  // failing the call now would tell staff the sale didn't happen when it did.
+  if (saleErr) console.error("sale insert failed", saleErr);
   emailAdmin(
     `Bypass Shop — stock sold: ${code}`,
     `Stock was deducted from a sale:<br><br><b>${code}</b> — ${name}<br>Sold: ${qty} (remaining: ${newQty})<br>` +
@@ -1098,4 +1109,184 @@ export function subscribeMessages(onChange) {
     .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => onChange(payload))
     .subscribe();
   return () => supabase.removeChannel(ch);
+}
+
+/* ---- FINANCIAL STATEMENTS ----
+   Money out, and the opening balances. Everything else the statements need
+   already exists in sales / receipts / credit / inventory, so it is read
+   through the fetchers above rather than copied into another table.
+
+   All of this is admin-only, enforced by RLS in supabase/finance.sql. A
+   non-admin gets an empty list from the database, not just a hidden screen. */
+
+export function rowToExpense(r) {
+  return {
+    id: r.id,
+    ts: r.ts,
+    spentOn: r.spent_on,
+    category: r.category,
+    description: r.description || "",
+    amount: Number(r.amount) || 0,
+    method: r.method || "Cash",
+    reference: r.reference || "",
+    byName: r.by_name || "",
+    voidedAt: r.voided_at || null,
+    voidedBy: r.voided_by || "",
+    voidReason: r.void_reason || "",
+  };
+}
+
+export async function fetchExpenses(limit = 1000) {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select("*")
+    .order("spent_on", { ascending: false })
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map(rowToExpense);
+}
+
+export async function addExpense({ spentOn, category, description, amount, method, reference }, byName) {
+  const { data, error } = await supabase
+    .from("expenses")
+    .insert({
+      spent_on: spentOn || new Date().toISOString().slice(0, 10),
+      category,
+      description: description || null,
+      amount: Number(amount),
+      method: method || "Cash",
+      reference: reference || null,
+      by_name: byName || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  /* Deliberately NOT written to `notifications`. That feed is read by every
+     member of staff, and rent and salary figures are admin-only - putting
+     them there would walk straight around the restriction this whole feature
+     is gated by. The expenses list itself is the record. */
+  return rowToExpense(data);
+}
+
+/* An expense is voided, not deleted - the row stays, stamped with who voided
+   it and why. Money out is the last thing that should be able to disappear
+   without trace: a deleted row changes every total above it and leaves nothing
+   to explain the change. The database has no delete policy, so this is the
+   only way it can go. */
+export async function voidExpense(id, byName, reason = "") {
+  const { error } = await supabase
+    .from("expenses")
+    .update({
+      voided_at: new Date().toISOString(),
+      voided_by: byName || null,
+      void_reason: reason || null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchExpenseCategories() {
+  const { data, error } = await supabase
+    .from("expense_categories")
+    .select("*")
+    .order("sort", { ascending: true });
+  if (error) throw error;
+  return (data || []).map((c) => ({ name: c.name, isStock: c.is_stock === true }));
+}
+
+/* The opening balances. Returns nulls when the row has never been filled in,
+   so the screen can ask for it rather than silently starting from zero and
+   presenting a wrong position as if it were checked. */
+export async function fetchOpening() {
+  const { data, error } = await supabase
+    .from("finance_opening")
+    .select("*")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    asOf: data.as_of,
+    cash: Number(data.cash) || 0,
+    mpesa: Number(data.mpesa) || 0,
+    bank: Number(data.bank) || 0,
+    capital: Number(data.capital) || 0,
+    drawings: Number(data.drawings) || 0,
+    notes: data.notes || "",
+    updatedAt: data.updated_at,
+    updatedBy: data.updated_by || "",
+  };
+}
+
+export async function saveOpening({ asOf, cash, mpesa, bank, capital, drawings, notes }, byName) {
+  const { error } = await supabase.from("finance_opening").upsert({
+    id: 1,
+    as_of: asOf || new Date().toISOString().slice(0, 10),
+    cash: Number(cash) || 0,
+    mpesa: Number(mpesa) || 0,
+    bank: Number(bank) || 0,
+    capital: Number(capital) || 0,
+    drawings: Number(drawings) || 0,
+    notes: notes || null,
+    updated_at: new Date().toISOString(),
+    updated_by: byName || null,
+  });
+  if (error) throw error;
+}
+
+/* Everything the statements need, in one go. Fetched together so the figures
+   on screen all describe the same moment - loading them separately would let
+   a sale land between two reads and make the totals disagree.
+
+   One failing table does not sink the rest - the sales figures are still worth
+   showing when the expenses table is missing. But whatever failed is reported
+   back in `problems`, because a screen of zeros that looks calculated is worse
+   than no screen at all: the owner cannot tell "nothing was spent" from
+   "spending could not be read". */
+export async function fetchFinanceData() {
+  const problems = [];
+  const safe = (label, p, fallback) =>
+    p.then((v) => v ?? fallback).catch((e) => {
+      problems.push({ what: label, message: e?.message || String(e) });
+      return fallback;
+    });
+  const [sales, expenses, receipts, accounts, items, opening, categories] = await Promise.all([
+    safe("sales", fetchSales(5000), []),
+    safe("expenses", fetchExpenses(5000), []),
+    safe("receipts", fetchReceipts(2000), []),
+    safe("credit accounts", fetchCreditAccounts(), []),
+    safe("stock", fetchInventory(), []),
+    safe("opening balances", fetchOpening(), null),
+    safe("expense categories", fetchExpenseCategories(), []),
+  ]);
+  /* Credit movements come per account, so they are gathered here - the cash
+     book needs every payment, not one garage's. `byName` is added because the
+     statements name whoever took the money, and rowToTxn calls that field
+     `by` - reading the wrong name would leave the cash book anonymous. */
+  const txnLists = await Promise.all(
+    accounts.map((a) =>
+      safe(
+        `payments for ${a.name}`,
+        fetchCreditTxns(a.id, 1000).then((rows) =>
+          rows.map((t) => ({ ...t, accountName: a.name, byName: t.by }))
+        ),
+        []
+      )
+    )
+  );
+  return {
+    sales: (sales || []).map((s) => ({
+      ts: s.ts, code: s.code, name: s.name, qty: s.qty, buyer: s.buyer,
+      paid: s.paid, total: s.total, byName: s.by_name, method: s.method,
+    })),
+    expenses,
+    receipts,
+    creditAccounts: accounts,
+    creditTxns: txnLists.flat(),
+    items,
+    opening,
+    categories,
+    problems,
+  };
 }
