@@ -1088,21 +1088,41 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
 // Pick a category (Wings, Side Mirrors, Bumpers…) and print/save a PDF listing
 // of every existing item in it. Uses the browser's built-in "Save as PDF".
 export function PrintStockTab({ items, categories }) {
-  /* What to print:
-       "all"       the whole shop, grouped by category
-       "grp:..."   a whole family - every side mirror, every bumper
-       "<KEY>"     one category on its own                         */
-  const [catKey, setCatKey] = useState("all");
-  const groups = useMemo(() => categoryGroups(categories), [categories]);
-  const group = groups.find((g) => g.key === catKey) || null;
+  /* Which categories to print, as a set of category keys. A set rather than a
+     single choice because the usual ask is a combination - "bumpers and side
+     mirrors" - and picking one at a time meant printing twice and stapling.
 
-  // The categories this choice covers, in the order they should print.
-  const chosenCats = useMemo(() => {
-    if (catKey === "all") return categories;
-    if (group) return categories.filter((c) => group.keys.includes(c.key));
-    return categories.filter((c) => c.key === catKey);
-  }, [categories, catKey, group]);
+     Empty set = the whole shop, so the screen opens on something useful
+     instead of an empty list and a disabled button. */
+  const [picked, setPicked] = useState(() => new Set());
+  const groups = useMemo(() => categoryGroups(categories), [categories]);
+
+  const everything = picked.size === 0;
+  // The categories to print, always in the shop's own category order so the
+  // pages come out the same way however they were tapped.
+  const chosenCats = useMemo(
+    () => (everything ? categories : categories.filter((c) => picked.has(c.key))),
+    [categories, picked, everything]
+  );
   const chosenKeys = useMemo(() => chosenCats.map((c) => c.key), [chosenCats]);
+
+  const toggleCat = (key) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  /* A family button adds every kind at once. If the whole family is already on
+     it takes them all off again, so the same button undoes what it did. */
+  const familyOn = (g) => g.keys.every((k) => picked.has(k));
+  const toggleFamily = (g) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      const on = g.keys.every((k) => next.has(k));
+      for (const k of g.keys) (on ? next.delete(k) : next.add(k));
+      return next;
+    });
   // Date filter on when the item was ADDED: all | today | week | month | day.
   const [dateMode, setDateMode] = useState("all");
   const [onDay, setOnDay] = useState(""); // yyyy-mm-dd for the "specific day" option
@@ -1130,11 +1150,34 @@ export function PrintStockTab({ items, categories }) {
 
   // Apply BOTH filters (category is handled where used).
   const filtered = useMemo(
-    () => items.filter((i) => (catKey === "all" || chosenKeys.includes(i.cat)) && inDate(i)),
-    [items, catKey, chosenKeys, dateMode, onDay]
+    () => items.filter((i) => chosenKeys.includes(i.cat) && inDate(i)),
+    [items, chosenKeys, dateMode, onDay]
   );
   const countFor = (key) => items.filter((i) => i.cat === key && inDate(i)).length;
   const countForKeys = (keys) => items.filter((i) => keys.includes(i.cat) && inDate(i)).length;
+
+  /* What the printed list calls itself. With a few picked it names them, so the
+     page in someone's hand says what it is. Past that, naming eight categories
+     would be a paragraph rather than a heading, so it counts them instead.
+
+     A whole family that is fully picked is named as the family - "Side Mirrors"
+     reads better on a page than "Side Mirrors - With Indicator + Side Mirrors -
+     Plain", and it is what was asked for. */
+  const headline = () => {
+    if (everything) return "Full Stock List";
+    const covered = new Set();
+    const parts = [];
+    for (const g of groups) {
+      if (g.keys.every((k) => picked.has(k))) {
+        parts.push(g.label);
+        g.keys.forEach((k) => covered.add(k));
+      }
+    }
+    for (const c of chosenCats) if (!covered.has(c.key)) parts.push(c.label);
+    if (parts.length === 0) return "Stock List";
+    if (parts.length > 3) return `${parts.length} categories — Stock List`;
+    return `${parts.join(" + ")} — Stock List`;
+  };
 
   const dateLabel = () => {
     if (dateMode === "today") return "Added today";
@@ -1190,11 +1233,7 @@ export function PrintStockTab({ items, categories }) {
       .join("");
 
     const totalItems = filtered.length;
-    const catName =
-      catKey === "all"
-        ? "Full Stock List"
-        : `${(group || categories.find((c) => c.key === catKey))?.label || ""} — Stock List`;
-    const title = dateMode === "all" ? catName : `${catName} · ${dateLabel()}`;
+    const title = dateMode === "all" ? headline() : `${headline()} · ${dateLabel()}`;
 
     const body = sections || `<div class="empty">No items match this category / date.</div>`;
 
@@ -1252,34 +1291,82 @@ export function PrintStockTab({ items, categories }) {
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Export a stock listing" title="Print Stock" />
       <div className="text-[#5A6472] text-xs mb-4">
-        Print (or save as PDF) a list of the parts held. Choose a whole family —
-        <span className="font-semibold"> all side mirrors</span>, all bumpers, all lights — or a single
-        category, and optionally only those <span className="font-semibold">added on a chosen date</span>.
+        Print (or save as PDF) a list of the parts held. Tap as many as you want —
+        <span className="font-semibold"> bumpers and side mirrors together</span>, a whole family at
+        once, or the lot — and optionally only those{" "}
+        <span className="font-semibold">added on a chosen date</span>.
       </div>
 
       <Field
-        label="What to print"
-        hint="A whole family prints every kind at once — all side mirrors, with indicator and plain, on one list."
+        label="What to print — tap as many as you like"
+        hint="A family button turns on every kind at once. Tap it again to turn them all off."
       >
-        <select value={catKey} onChange={(e) => setCatKey(e.target.value)} className={inputCls}>
-          <option value="all">All categories (full stock list)</option>
-          {/* Whole families first: it's the usual ask, and burying it under the
-              individual shelves is what made people print twice. */}
-          <optgroup label="A whole family">
-            {groups.map((g) => (
-              <option key={g.key} value={g.key}>
-                {g.label} (all kinds) — {countForKeys(g.keys)} item(s)
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="One category only">
-            {categories.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label} — {countFor(c.key)} item(s)
-              </option>
-            ))}
-          </optgroup>
-        </select>
+        {/* Families first: it's the usual ask, and having to find the two kinds
+            of mirror separately is what made people print twice. */}
+        {groups.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {groups.map((g) => {
+              const on = familyOn(g);
+              return (
+                <button
+                  key={g.key}
+                  onClick={() => toggleFamily(g)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold border flex items-center gap-1.5 ${
+                    on
+                      ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]"
+                      : "border-[#DEE3E9] text-[#5A6472]"
+                  }`}
+                >
+                  {on ? <CheckSquare size={13} /> : <Square size={13} />}
+                  All {g.label.toLowerCase()} ({countForKeys(g.keys)})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="border border-[#DEE3E9] rounded-md divide-y divide-[#EEF2F6] overflow-hidden">
+          {categories.map((c) => {
+            const on = picked.has(c.key);
+            const n = countFor(c.key);
+            return (
+              <button
+                key={c.key}
+                onClick={() => toggleCat(c.key)}
+                className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors ${
+                  on ? "bg-[#2563EB0A]" : "bg-[#FFFFFF]"
+                }`}
+              >
+                <span className={on ? "text-[#2563EB]" : "text-[#5A6472]"}>
+                  {on ? <CheckSquare size={17} /> : <Square size={17} />}
+                </span>
+                <span className="w-2 h-4 rounded-sm shrink-0" style={{ backgroundColor: c.color || "#6B7480" }} />
+                <span className={`flex-1 min-w-0 truncate ${on ? "font-semibold text-[#1B2430]" : "text-[#5A6472]"}`}>
+                  {c.label}
+                </span>
+                <span className="text-xs text-[#5A6472] tabular-nums shrink-0">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between mt-2 text-xs">
+          <span className="text-[#5A6472]">
+            {everything ? (
+              <>Nothing ticked — the <span className="font-semibold">whole shop</span> will print.</>
+            ) : (
+              <>
+                <span className="font-semibold text-[#1B2430]">{picked.size}</span> categor
+                {picked.size === 1 ? "y" : "ies"} ticked
+              </>
+            )}
+          </span>
+          {!everything && (
+            <button onClick={() => setPicked(new Set())} className="text-[#2563EB] font-semibold">
+              Clear
+            </button>
+          )}
+        </div>
       </Field>
 
       <Field label="Date added">
@@ -1305,7 +1392,11 @@ export function PrintStockTab({ items, categories }) {
       )}
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 text-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[#5A6472] shrink-0">Printing</span>
+          <span className="text-xs font-semibold text-[#1B2430] text-right">{headline()}</span>
+        </div>
+        <div className="flex items-center justify-between mt-1">
           <span className="text-[#5A6472]">Items to be listed</span>
           <span className="font-bold text-[#2563EB]">{filtered.length}</span>
         </div>
@@ -1321,12 +1412,23 @@ export function PrintStockTab({ items, categories }) {
         </p>
       </div>
 
+      {/* Nothing to print is a dead end, so say why rather than opening a blank
+          page and leaving the reason to be guessed at. */}
       <button
         onClick={openPdf}
-        className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
+        disabled={filtered.length === 0}
+        className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50 disabled:active:scale-100"
       >
-        <FileText size={18} /> Generate PDF / Print
+        <FileText size={18} />
+        {filtered.length === 0 ? "Nothing to print" : "Generate PDF / Print"}
       </button>
+      {filtered.length === 0 && (
+        <p className="text-xs text-[#5A6472] mt-2 text-center">
+          {everything
+            ? "There is no stock in the shop yet."
+            : "None of the ticked categories has anything matching this date filter."}
+        </p>
+      )}
     </div>
   );
 }
