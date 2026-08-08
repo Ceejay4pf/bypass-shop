@@ -26,6 +26,56 @@ export const DEFAULT_CATEGORIES = [
   { key: "BPS", label: "Bumper Slides",                 shelf: "H-01", color: "#DC3B2E" },
 ];
 
+/* ---- FAMILIES OF PARTS ----
+   A printed list is usually wanted for a whole family, not one shelf of it:
+   "all side mirrors", not "side mirrors with indicator" and then again for the
+   plain ones. Categories are kept split because the shelf and the code prefix
+   differ, so the families are worked out here instead of being a second list
+   that someone has to remember to update.
+
+   Most of it is automatic: anything labelled "X - Y" belongs to family X, so
+   Wing - Left / Wing - Right become "Wings" and the two kinds of side mirror
+   become "Side Mirrors". That also covers any category an admin adds later,
+   as long as it is named the same way.
+
+   These few don't follow the pattern and are named by hand. Bumper Slides is
+   deliberately absent: it is a bracket, not a bumper, and printing it under
+   "all bumpers" would put the wrong parts on the list. */
+const EXTRA_FAMILIES = {
+  FBM: "Bumpers",
+  RBM: "Bumpers",
+  HDL: "Lights",
+  TLL: "Lights",
+};
+
+export function categoryGroups(categories = DEFAULT_CATEGORIES) {
+  const buckets = new Map();
+  for (const c of categories) {
+    const label = String(c.label || "").trim();
+    if (!label) continue;
+    // Split on a dash with spaces around it, whichever dash was typed.
+    const head = label.split(/\s+[—–-]\s+/)[0].trim();
+    // "Wing - Left" gives the family "Wing", but the option reads as a group,
+    // so it is printed as "Wings". Anything already plural is left alone.
+    const family = head && head !== label
+      ? (/s$/i.test(head) ? head : head + "s")
+      : EXTRA_FAMILIES[c.key];
+    if (!family) continue;
+    const slug = family.toLowerCase();
+    if (!buckets.has(slug)) buckets.set(slug, { family, keys: [] });
+    buckets.get(slug).keys.push(c.key);
+  }
+  // A family of one is just the category itself - offering both would be two
+  // options that print exactly the same thing.
+  return [...buckets.entries()]
+    .filter(([, g]) => g.keys.length > 1)
+    .map(([slug, g]) => ({
+      key: `grp:${slug.replace(/[^a-z0-9]+/g, "-")}`,
+      label: g.family,
+      keys: g.keys,
+    }));
+}
+
 export const CONDITIONS = ["Brand New", "Genuine Used", "Aftermarket", "Refurbished"];
 export const SIDES = ["Left", "Right", "Front", "Rear", "Pair", "Center", "Not Applicable"];
 export const PAYMENT = ["Paid", "Pending"];

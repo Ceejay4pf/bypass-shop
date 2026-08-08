@@ -49,7 +49,11 @@ and syncs live, so two staff on two phones always see the same stock.
 - **Add New Item** — auto code (e.g. `FBM-MZD-AXL-18-0001`), photos, location, condition, side, colour, low-stock level.
 - **Edit Parts** — correct details, price and photos after the fact.
 - **Add New Stock** — find a part, increase the quantity, logged with who and when.
-- **Print Stock** — a printable list for counting.
+- **Print Stock** — a printable list of the parts held. Print a whole family
+  (**all** side mirrors, bumpers or lights at once) or a single category, and
+  optionally only what was added on a chosen date. Deliberately shows **no
+  quantity and no price**, so the list can be handed to a customer or sent to
+  another branch as it is.
 
 **Selling**
 - **Sell Item** — quantity, customer, phone, paid or pending, and — when it was

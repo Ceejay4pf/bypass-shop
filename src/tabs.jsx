@@ -23,7 +23,7 @@ import {
 } from "./lib/appLock.js";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
-  LOW_STOCK_THRESHOLD,
+  LOW_STOCK_THRESHOLD, categoryGroups,
 } from "./data.js";
 import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
@@ -1088,8 +1088,21 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
 // Pick a category (Wings, Side Mirrors, Bumpers…) and print/save a PDF listing
 // of every existing item in it. Uses the browser's built-in "Save as PDF".
 export function PrintStockTab({ items, categories }) {
-  // "all" prints the whole shop grouped by category.
+  /* What to print:
+       "all"       the whole shop, grouped by category
+       "grp:..."   a whole family - every side mirror, every bumper
+       "<KEY>"     one category on its own                         */
   const [catKey, setCatKey] = useState("all");
+  const groups = useMemo(() => categoryGroups(categories), [categories]);
+  const group = groups.find((g) => g.key === catKey) || null;
+
+  // The categories this choice covers, in the order they should print.
+  const chosenCats = useMemo(() => {
+    if (catKey === "all") return categories;
+    if (group) return categories.filter((c) => group.keys.includes(c.key));
+    return categories.filter((c) => c.key === catKey);
+  }, [categories, catKey, group]);
+  const chosenKeys = useMemo(() => chosenCats.map((c) => c.key), [chosenCats]);
   // Date filter on when the item was ADDED: all | today | week | month | day.
   const [dateMode, setDateMode] = useState("all");
   const [onDay, setOnDay] = useState(""); // yyyy-mm-dd for the "specific day" option
@@ -1117,10 +1130,11 @@ export function PrintStockTab({ items, categories }) {
 
   // Apply BOTH filters (category is handled where used).
   const filtered = useMemo(
-    () => items.filter((i) => (catKey === "all" || i.cat === catKey) && inDate(i)),
-    [items, catKey, dateMode, onDay]
+    () => items.filter((i) => (catKey === "all" || chosenKeys.includes(i.cat)) && inDate(i)),
+    [items, catKey, chosenKeys, dateMode, onDay]
   );
   const countFor = (key) => items.filter((i) => i.cat === key && inDate(i)).length;
+  const countForKeys = (keys) => items.filter((i) => keys.includes(i.cat) && inDate(i)).length;
 
   const dateLabel = () => {
     if (dateMode === "today") return "Added today";
@@ -1136,10 +1150,14 @@ export function PrintStockTab({ items, categories }) {
       : "—";
 
   const openPdf = () => {
-    const chosen = catKey === "all" ? categories : categories.filter((c) => c.key === catKey);
     const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
 
-    const sections = chosen
+    /* Quantity and price are deliberately NOT printed. This is the list of what
+       the shop has, and it gets handed to customers and taken to other branches
+       - what each part sells for is the shop's business, and a quantity printed
+       on paper is out of date the moment something sells. Both are still on
+       screen, where they are live. */
+    const sections = chosenCats
       .map((c) => {
         const list = filtered
           .filter((i) => i.cat === c.key)
@@ -1153,20 +1171,17 @@ export function PrintStockTab({ items, categories }) {
               <td>${escapeHtml(i.name || `${i.brand || ""} ${i.model || ""}`)}</td>
               <td>${escapeHtml(i.side || "")}</td>
               <td>${escapeHtml(i.color || "")}</td>
-              <td class="c">${Number(i.qty || 0)}</td>
-              <td class="r">${Number(i.price) ? Number(i.price).toLocaleString() : "—"}</td>
               <td>${escapeHtml(i.location || "")}</td>
               <td>${escapeHtml(fmtAdded(i))}</td>
             </tr>`
           )
           .join("");
-        const qty = list.reduce((s, i) => s + Number(i.qty || 0), 0);
         return `<div class="sec">
-            <div class="sech">${escapeHtml(c.label)} <span class="sechn">${list.length} item(s) · ${qty} in stock · Shelf ${escapeHtml(c.shelf || "—")}</span></div>
+            <div class="sech">${escapeHtml(c.label)} <span class="sechn">${list.length} item(s) · Shelf ${escapeHtml(c.shelf || "—")}</span></div>
             <table>
               <thead><tr>
                 <th class="c">#</th><th>Code</th><th>Item</th><th>Side</th><th>Color</th>
-                <th class="c">Qty</th><th class="r">Price (KES)</th><th>Location</th><th>Date added</th>
+                <th>Location</th><th>Date added</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -1175,7 +1190,10 @@ export function PrintStockTab({ items, categories }) {
       .join("");
 
     const totalItems = filtered.length;
-    const catName = catKey === "all" ? "Full Stock List" : `${categories.find((c) => c.key === catKey)?.label || ""} — Stock List`;
+    const catName =
+      catKey === "all"
+        ? "Full Stock List"
+        : `${(group || categories.find((c) => c.key === catKey))?.label || ""} — Stock List`;
     const title = dateMode === "all" ? catName : `${catName} · ${dateLabel()}`;
 
     const body = sections || `<div class="empty">No items match this category / date.</div>`;
@@ -1211,7 +1229,7 @@ export function PrintStockTab({ items, categories }) {
     <div class="doc"><div class="t">${escapeHtml(title)}</div><div class="m">${today}</div><div class="m">${totalItems} item(s)</div></div>
   </div>
   ${body}
-  <div class="foot">Generated from Bypass Shop cloud inventory on ${today}. Prices shown are current selling prices.</div>
+  <div class="foot">Generated from Bypass Shop cloud inventory on ${today}. A list of parts held — ask the shop for prices and availability.</div>
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;
@@ -1234,19 +1252,33 @@ export function PrintStockTab({ items, categories }) {
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Export a stock listing" title="Print Stock" />
       <div className="text-[#5A6472] text-xs mb-4">
-        Print (or save as PDF) parts by category — Wings, Side Mirrors, Bumpers… and optionally only
-        those <span className="font-semibold">added on a chosen date</span>, so you can print a report
-        of newly-added stock.
+        Print (or save as PDF) a list of the parts held. Choose a whole family —
+        <span className="font-semibold"> all side mirrors</span>, all bumpers, all lights — or a single
+        category, and optionally only those <span className="font-semibold">added on a chosen date</span>.
       </div>
 
-      <Field label="Category to print">
+      <Field
+        label="What to print"
+        hint="A whole family prints every kind at once — all side mirrors, with indicator and plain, on one list."
+      >
         <select value={catKey} onChange={(e) => setCatKey(e.target.value)} className={inputCls}>
           <option value="all">All categories (full stock list)</option>
-          {categories.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.label} — {countFor(c.key)} item(s)
-            </option>
-          ))}
+          {/* Whole families first: it's the usual ask, and burying it under the
+              individual shelves is what made people print twice. */}
+          <optgroup label="A whole family">
+            {groups.map((g) => (
+              <option key={g.key} value={g.key}>
+                {g.label} (all kinds) — {countForKeys(g.keys)} item(s)
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="One category only">
+            {categories.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label} — {countFor(c.key)} item(s)
+              </option>
+            ))}
+          </optgroup>
         </select>
       </Field>
 
@@ -1282,8 +1314,10 @@ export function PrintStockTab({ items, categories }) {
           <span className="text-xs font-semibold text-[#1B2430]">{dateLabel()}</span>
         </div>
         <p className="text-xs text-[#5A6472] mt-2 leading-relaxed">
-          The PDF shows code, item, side, color, quantity, price, location and date added. On a phone the
-          print dialog has a “Save as PDF” option you can then share on WhatsApp.
+          The PDF lists code, item, side, colour, location and date added —
+          <span className="font-semibold"> no quantity and no price</span>, so it can be handed to a
+          customer or sent to another branch as it is. On a phone the print dialog has a
+          “Save as PDF” option you can then share on WhatsApp.
         </p>
       </div>
 
