@@ -13,12 +13,12 @@ import LockScreen from "./LockScreen.jsx";
 import PendingGate from "./PendingGate.jsx";
 import { isLockEnabled, isUnlocked, markUnlocked, lockNow } from "./lib/appLock.js";
 import { supabase, isConfigured } from "./lib/supabase.js";
-import { useInventory, useNotifications, useAuth, usePartCategories } from "./lib/hooks.js";
+import { useInventory, useNotifications, useAuth, usePartCategories, useSales } from "./lib/hooks.js";
 import { getProfileName, signOut } from "./lib/auth.js";
 import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
 import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
 import * as api from "./lib/api.js";
-import { generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
+import { generateCode, isLowStock } from "./data.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab, BulkAddTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
@@ -83,6 +83,10 @@ function useClock() {
 function BypassShop({ session }) {
   const { items, loading: itemsLoading, error, reload: reloadItems } = useInventory();
   const { notifications, reload: reloadNotifications } = useNotifications();
+  /* The full sales register, for Reports. The activity feed above is capped at
+     200 rows so it loads fast, which makes it the wrong source for a month or a
+     year of takings. */
+  const { sales: salesRegister, ready: registerReady, reload: reloadSales } = useSales();
   /* The built-in sections plus any the shop has added itself. Live, so a
      category created on one phone reaches the others without a refresh. */
   const { categories: CATEGORIES, reload: reloadCategories } = usePartCategories();
@@ -93,7 +97,9 @@ function BypassShop({ session }) {
   const refreshAfterUndo = useCallback(() => {
     reloadItems();
     reloadNotifications();
-  }, [reloadItems, reloadNotifications]);
+    // The register too, or Reports keeps counting money for goods that came back.
+    reloadSales();
+  }, [reloadItems, reloadNotifications, reloadSales]);
   const admin = isAdmin(session);
   // Shared role logins are pre-trusted — the role password is the
   // authorisation, so they never sit in the approval queue.
@@ -341,7 +347,7 @@ function BypassShop({ session }) {
   const handleLogout = async () => { clearRoleSession(); await signOut(); };
 
   const lowStockCount = useMemo(
-    () => items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD)).length,
+    () => items.filter(isLowStock).length,
     [items]
   );
 
@@ -579,6 +585,8 @@ function BypassShop({ session }) {
               admin={admin}
               onChanged={refreshAfterUndo}
               onNav={go}
+              salesRegister={salesRegister}
+              registerReady={registerReady}
             />
           )}
           {tab === "finance" && <FinanceTab user={user} admin={admin} />}

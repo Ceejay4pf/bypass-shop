@@ -81,7 +81,7 @@ The inventory table, with a row per part:
 | `variant` | e.g. Xenon, LED, With Sensor, Sunroof |
 | `color`, `name` | |
 | `price` numeric, `qty` int | |
-| `min_qty` int | this part's own low-stock level, default 3 |
+| `min_qty` int | this part's own low-stock level. **No default** — null means "warn when it's finished", which is right for a shelf of one-off body parts |
 | `location` | shelf address, e.g. `A / Rack 03 / Shelf 02 / Bin 05` |
 | `supplier`, `notes` | |
 | `images` jsonb | array of data URLs, up to 4 |
@@ -147,7 +147,11 @@ is the single most common thing to get wrong.
 - **Quick Transaction** — one fast screen for add / sell / adjust.
 - **Adjust** — correct a count, with a **required reason**.
 - **Inventory Ledger** — every movement of one part, with who and when.
-- **Low Stock** — everything at or below its own `min_qty`.
+- **Low Stock** — parts that are finished (`qty <= 0`), plus any part with a
+  `min_qty` somebody actually set that has reached it. Do **not** give `min_qty` a
+  default: with a default of 3 and the test being "at or below", every one-piece
+  body part is permanently in the list, and a reorder list naming the whole
+  inventory tells the owner nothing.
 - **Photos** — up to 4 per part, so a new staff member identifies the right
   bumper without asking. **Downscale on the client** (canvas, max ~1000px,
   JPEG ~0.7) before storing; phone photos are several MB and will bloat the

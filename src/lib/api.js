@@ -23,7 +23,11 @@ export function rowToItem(r) {
     name: r.name || "",
     price: Number(r.price) || 0,
     qty: Number(r.qty) || 0,
-    min: r.min_qty ?? 3,
+    /* Not `?? 3`. A missing level means nobody set one, and saying "3" on the
+       way in made that indistinguishable from a level somebody chose — which is
+       how every one-piece part ended up permanently in the reorder list. Null
+       travels as null; reorderLevel() in data.js decides what unset means. */
+    min: r.min_qty ?? null,
     location: r.location || "",
     supplier: r.supplier || "",
     notes: r.notes || "",
@@ -49,7 +53,8 @@ export function itemToRow(i) {
     name: i.name,
     price: i.price,
     qty: i.qty,
-    min_qty: i.min ?? 3,
+    // Write what the form actually said. Blank stays blank (warn when finished).
+    min_qty: i.min === "" || i.min === undefined ? null : i.min,
     location: i.location || null,
     supplier: i.supplier || null,
     notes: i.notes || null,
@@ -883,6 +888,33 @@ export function subscribeTransfers(onChange) {
 }
 
 /* ---- SALES ---- */
+
+/* A sales-register row in the same shape the activity feed uses, so a screen
+   can read its figures from either source without caring which.
+
+   Reports needs this. The feed is capped at 200 rows so it loads fast, which
+   is right for "what happened today" and quietly wrong for "what did we take
+   this year" — past a couple of weeks of trading, a month and a year read the
+   same figures off the same ten days. */
+export function rowToSale(r) {
+  return {
+    id: r.id,
+    ts: new Date(r.ts).getTime(),
+    type: "sale",
+    code: r.code || "",
+    name: r.name || "",
+    qty: Number(r.qty) || 0,
+    buyer: r.buyer || "",
+    phone: r.phone || "",
+    paid: Boolean(r.paid),
+    total: Number(r.total) || 0,
+    by: r.by_name || "",
+    // Both arrive with later migrations; absent is fine, never fatal.
+    method: r.method || "",
+    returnedAt: r.returned_at ? new Date(r.returned_at).getTime() : null,
+  };
+}
+
 export async function fetchSales(limit = 500) {
   const { data, error } = await supabase
     .from("sales")

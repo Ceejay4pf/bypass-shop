@@ -40,17 +40,25 @@ and syncs live, so two staff on two phones always see the same stock.
 
 **Stock**
 - **Dashboard** — stat cards, stock by category, 7-day sales trend, low stock, recent activity.
+  The first two cards count **different parts** and **pieces on the shelf**, which
+  are two different questions — see [Parts and pieces](#parts-and-pieces).
 - **Search Inventory** — pick a category or search everything. Press and hold a
   result for a menu: sell it, quote it, edit it, add information, add stock, or
   view its history.
 - **Inventory** — grouped by category, multi-select for bulk add-stock or delete.
-- **Low Stock** — everything at or below its own low-stock level, searchable,
-  narrowed by **Finished / Running low** and by section, with a **Print list**
-  button. See [Filtering and printing](#filtering-and-printing).
+  Every tile shows both parts and pieces, and the totals are spelled out at the
+  bottom so the dashboard's figures can be traced to the sections they came from.
+- **Low Stock** — parts that are **finished**, plus any part that has reached a
+  reorder level somebody typed on it. Searchable, narrowed by **Finished /
+  Running low** and by section, with a **Print list** button. See
+  [When a part counts as low](#when-a-part-counts-as-low) and
+  [Filtering and printing](#filtering-and-printing).
 - **Inventory Ledger** — the full movement history of any part.
 - **Add New Item** — auto code (e.g. `FBM-MZD-AXL-18-0001`), photos, location,
   condition, side, colour, low-stock level. Quantity starts at **1**, never 0 —
-  see [Quantity is never zero](#quantity-is-never-zero).
+  see [Quantity is never zero](#quantity-is-never-zero). **Low-stock at** starts
+  blank, which means *tell me when it's finished*; type a number only for a part
+  that has to be reordered before it runs out.
 - **Add a Whole List** — paste a written list and every line is read into a part.
   Anything on the line that isn't one of the fields is **kept as it was written**
   and saved as a note on the part: "with bracket, small crack on the corner"
@@ -97,10 +105,13 @@ and syncs live, so two staff on two phones always see the same stock.
 - **Staff Feed** — shop-floor messages.
 - **Notifications** — the activity log that reports to the main shop, with a
   search box and a row of names so a day's feed can be read by person or by part.
-- **Reports** — daily, weekly, monthly, yearly; top sellers; inventory summary.
-  Filter the sales by **who sold them** (tick several people at once), by **paid
-  or pending**, and by anything typed in the search box — every total, chart and
-  by-person figure follows the filter — then **Print report**. See
+- **Reports** — Today, Yesterday, Last 7 days, **This month**, **Last month**,
+  This year, or **pick your own two dates**; each period says how it compares with
+  the one before it; a sales trend chart; where the money came from by section; top
+  sellers; and (admin) estimated profit. Filter the sales by **who sold them**
+  (tick several people at once), by **paid or pending**, and by anything typed in
+  the search box — every total, chart and by-person figure follows the filter —
+  then **Print report**. See [What Reports tells you](#what-reports-tells-you) and
   [Filtering and printing](#filtering-and-printing).
 - **Staff Approvals / My Permissions** — an admin decides who may delete, edit,
   add items or use Quick Transaction.
@@ -165,6 +176,8 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `src/tabs.jsx` — every feature screen
 - `src/finance.jsx` — the financial statements screens
 - `src/lib/finance.js` — the statement arithmetic, kept testable on its own
+- `src/lib/reports.js` — the Reports arithmetic (periods, comparisons, trends),
+  kept free of React and the database so every sum can be checked on its own
 - `src/ui.jsx` — shared pieces (item cards, fields, charts)
 - `src/LoginGate.jsx` — the login screen (role + personal)
 - `src/lib/supabase.js` — the cloud connection
@@ -178,6 +191,8 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `supabase/email_verification.sql` — emailed sign-up codes (see below)
 - `supabase/finance.sql` — the financial statements (see below)
 - `supabase/part_categories.sql` — the sections the shop adds itself (see below)
+- `supabase/low_stock_reset.sql` — clears the reorder levels nobody chose; see
+  [When a part counts as low](#when-a-part-counts-as-low)
 
 ### The sections stock is filed under
 
@@ -246,6 +261,61 @@ reads as sold out. Staff turned customers away over it. **Only a sale, a
 deduction or a stock adjustment reaches zero** — so a zero on screen now means
 the shelf is genuinely empty.
 
+### When a part counts as low
+
+**A part is flagged when it is finished.** Not when it is nearly finished — when
+there are none left.
+
+That sounds obvious and it wasn't what the app did. Every part carried a
+low-stock level of **3**, and the test is *quantity at or below the level*. This
+shop holds body parts one at a time — one Premio bonnet, one Harrier bumper — and
+one piece is full stock, not a shortage. So nearly every part on the shelves sat
+in the reorder list permanently, the list named most of the inventory, and the
+number on the dashboard meant nothing. **An alert that is always on is not an
+alert.**
+
+The 3 was never anybody's decision. It was the column's default and a value
+pre-filled in the form, so it got stamped on parts automatically.
+
+**If a part does need reordering before it runs out** — bulbs, filters, anything
+fast-moving — type a number in its **Low-stock at** box. That number always wins,
+and the part is flagged the moment it reaches it. Left blank, the part is flagged
+only when it hits zero.
+
+Run `supabase/low_stock_reset.sql` once to clear the automatic 3s out of the
+database for good. Until you do, the app already ignores a stored 3, so the
+reorder list is honest either way — a fix that needs a migration the shop hasn't
+run is a fix the shop doesn't have. The one cost: while that SQL is unrun, a
+reorder level of *exactly* 3 can't be asked for by hand. Type 2 or 4.
+
+Stock badges follow the same rule. Red **None left** means finished; a blue badge
+means the part reached a level somebody set; green is just how many there are.
+
+### Parts and pieces
+
+The dashboard's first two cards count two different things, and used to be
+labelled as though they counted the same one — *Inventory Items* against *Total
+Stock Qty*. They never matched, and with nothing on screen saying why, that read
+as the system contradicting itself.
+
+- **Different parts** — one per row in the stock list. Eight identical headlights
+  are **one** part.
+- **Pieces on the shelf** — every physical piece added up. Those same eight
+  headlights are **eight** pieces.
+
+So the second number is normally the larger, and the two are *meant* to differ.
+Both cards now say which they are, and Inventory prints the same two totals at the
+bottom of the section tiles, so the dashboard figure can be traced to the sections
+it came from.
+
+There was also a real fault behind it. Inventory only drew a tile for a section
+the app could name, so a part filed under anything else was **invisible there
+while still counted on the dashboard** — the gap the two labels are now honest
+about. Those parts get a tile of their own now, headed *Section BTL* or whatever
+the three letters are, with a note saying the section needs a name. It happens
+when a section was added in Settings but `supabase/part_categories.sql` hasn't
+been run on that database.
+
 ### When the count says zero
 
 Parts keyed in before that rule existed are still sitting on 0, and Sell Item
@@ -264,6 +334,40 @@ these left* and offers the two things that are actually true:
 Confirming is blocked until one of those is done, because a sale deducted from a
 count of none records money against stock that was never there.
 
+### What Reports tells you
+
+**The periods are real calendar periods.** *This month* means the 1st to today,
+not the last thirty days; *Last month* is that whole month. **Pick dates** takes
+any two days — leave the end blank for "since then, up to today", and a backwards
+pair is read the way it was obviously meant rather than refused.
+
+**Every figure says how it compares with the period before.** This month against
+last month, Tuesday against Monday. A calendar period steps back a whole calendar
+unit, so February compares with January and not with "the 28 days before
+February". When there is nothing to compare against, the screen says nothing
+rather than printing a triumphant *+100%* against a month of no sales.
+
+**The trend chart** draws the period day by day, or month by month once it is
+longer than about two months, and names the best day and how many days were quiet.
+A day with no sales is drawn as a zero, not skipped — a dead Tuesday is a fact,
+and leaving it out draws a straight line through the week that was never there.
+
+**Where the money came from** breaks the takings down by section, worked out from
+the three letters at the front of each part code. That is deliberate: a part that
+sold out and was removed from stock still reports correctly, and that is exactly
+the part a report about last month is asking about.
+
+**Estimated profit** is admin-only and labelled as an estimate, because it is one:
+it is worked back from the sale price on the assumption stated in
+[Financial statements](#financial-statements), not from a cost price anybody typed.
+
+**One correctness note.** These figures come from the sales register, not the
+activity feed. The feed is capped at 200 rows so it loads fast, which is right for
+*what happened today* and wrong for *what did we take this year* — a monthly total
+built from it quietly showed roughly the weekly number. If the register can't be
+read, the screen says so in amber instead of showing confident, understated
+figures.
+
 ### Filtering and printing
 
 Three screens — **Reports**, **Notifications** and **Low Stock** — share the same
@@ -280,10 +384,14 @@ customer, phone number, who did it — so nobody has to know which field a word
 lives in. It has a clear button, because a filter left on by accident is a wrong
 number read off a right screen.
 
-**On Reports**, every figure obeys the filters: the four totals, the top-selling
-chart and the by-person list. The stock figures beside them (how many parts, what
-they're worth, how many are low) do not — how much is on the shelf doesn't change
-because you asked what one person sold.
+**On Reports**, every figure obeys the filters: the totals, the comparison with
+the period before, the trend chart, the by-section breakdown, the top-selling
+chart and the by-person list. The same filter is applied to *both* periods being
+compared, so "James this month against James last month" compares like with like —
+a filtered month set against an unfiltered one would read as a collapse in sales.
+The stock figures beside them (how many parts, what they're worth, how many are
+low) do not follow the filter — how much is on the shelf doesn't change because
+you asked what one person sold.
 
 **Two things print.**
 

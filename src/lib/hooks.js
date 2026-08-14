@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "./supabase.js";
 import {
   fetchInventory, fetchInventoryImages, fetchNotifications, rowToItem, rowToNotif,
-  fetchPartCategories, subscribePartCategories,
+  fetchPartCategories, subscribePartCategories, fetchSales, rowToSale,
 } from "./api.js";
 import { DEFAULT_CATEGORIES, mergeCategories } from "../data.js";
 
@@ -138,6 +138,62 @@ export function useNotifications() {
   }, []);
 
   return { notifications, loading, reload };
+}
+
+/* Live sales register — the money figures on Reports.
+
+   Separate from useNotifications on purpose. The feed is deliberately capped
+   at 200 rows so it loads fast, which is right for "what happened today" and
+   wrong for "what did we take this year": past a couple of weeks of trading
+   the month and the year would read the same figures off the same ten days,
+   with nothing on screen to say so.
+
+   `ready` says whether the register answered. If it didn't — the table is
+   there in schema.sql, but a database refusing it is not impossible — the
+   caller falls back to the feed rather than showing a screen of zeros as
+   though nothing had been sold. */
+export function useSales(limit = 5000) {
+  const [sales, setSales] = useState([]);
+  const [ready, setReady] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(async () => {
+    try {
+      const rows = await fetchSales(limit);
+      setSales(rows.map(rowToSale));
+      setReady(true);
+    } catch {
+      setReady(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [limit]);
+
+  useEffect(() => {
+    let active = true;
+    fetchSales(limit)
+      .then((rows) => { if (active) { setSales(rows.map(rowToSale)); setReady(true); } })
+      .catch(() => active && setReady(false))
+      .finally(() => active && setLoading(false));
+
+    const channel = supabase
+      .channel("sales-changes")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sales" }, (payload) => {
+        setSales((prev) => [rowToSale(payload.new), ...prev]);
+      })
+      // An undone sale is an UPDATE. Without this the takings would keep
+      // counting money for goods that came back.
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sales" }, (payload) => {
+        setSales((prev) => prev.map((s) => (s.id === payload.new.id ? rowToSale(payload.new) : s)));
+      })
+      .subscribe();
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [limit]);
+
+  return { sales, ready, loading, reload };
 }
 
 /* Current auth session + staff name. */

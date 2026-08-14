@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem } from "./lib/parseParts.js";
+import * as rpt from "./lib/reports.js";
+import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
 import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
 import { changeRolePassword } from "./lib/auth.js";
@@ -23,7 +25,8 @@ import {
 } from "./lib/appLock.js";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
-  LOW_STOCK_THRESHOLD, categoryGroups, CATEGORY_COLORS,
+  LOW_STOCK_THRESHOLD, isLowStock, isOutOfStock, reorderLevel,
+  categoryGroups, CATEGORY_COLORS,
   suggestCategoryKey, suggestShelf,
 } from "./data.js";
 import {
@@ -95,7 +98,8 @@ const matchesQuery = (i, cat, q) => {
 export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger, admin = false }) {
   const totalItems = items.length;
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
-  const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
+  const lowStock = items.filter(isLowStock);
+  const outOfStock = items.filter(isOutOfStock).length;
 
   // Live list of shop staff (names) for the team panel. Admin-only, so we
   // don't even fetch it for regular staff.
@@ -178,11 +182,52 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       <SectionTitle eyebrow={`Welcome, ${user}`} title="Dashboard" />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-        <StatCard icon={Boxes} label="Inventory Items" value={totalItems} tone="purple" onClick={() => onNav("inventory")} />
-        <StatCard icon={Layers} label="Total Stock Qty" value={totalQty} tone="blue" onClick={() => onNav("inventory")} />
+        {/* These two count different things and used to be labelled as though
+            they counted the same one — "Inventory Items" against "Total Stock
+            Qty" — so the two figures never matching read as a bug in the
+            system. They are one row per part against every piece on the shelf:
+            eight headlights are one part and eight pieces. Each card now says
+            which it is, and the second says how the first turns into it. */}
+        <StatCard
+          icon={Boxes}
+          label="Different Parts"
+          value={totalItems}
+          sub="rows in the stock list"
+          tone="purple"
+          onClick={() => onNav("inventory")}
+        />
+        <StatCard
+          icon={Layers}
+          label="Pieces On The Shelf"
+          value={totalQty}
+          sub={
+            totalItems
+              ? `${totalItems} part${totalItems === 1 ? "" : "s"}, ${
+                  (totalQty / totalItems).toFixed(1)
+                } pieces each on average`
+              : "nothing in stock yet"
+          }
+          tone="blue"
+          onClick={() => onNav("inventory")}
+        />
         <StatCard icon={ShoppingCart} label="Items Sold Today" value={soldToday} tone="green" onClick={() => onNav("sell")} />
         <StatCard icon={DollarSign} label="Today's Sales" value={`KES ${revenueToday.toLocaleString()}`} tone="yellow" onClick={() => onNav("reports")} />
-        <StatCard icon={AlertTriangle} label="Low Stock Items" value={lowStock.length} tone="red" onClick={() => onNav("reports")} />
+        {/* Straight to Low Stock. It used to open Reports, which meant hunting
+            for the panel that this number came from. */}
+        <StatCard
+          icon={AlertTriangle}
+          label={outOfStock ? "Finished / Running Low" : "Running Low"}
+          value={lowStock.length}
+          sub={
+            lowStock.length === 0
+              ? "everything in stock"
+              : outOfStock
+              ? `${outOfStock} finished${lowStock.length > outOfStock ? `, ${lowStock.length - outOfStock} near its level` : ""}`
+              : "at their own reorder level"
+          }
+          tone="red"
+          onClick={() => onNav("lowstock")}
+        />
         {/* Counts parts, not feed entries - a bulk summary stands for many. */}
         {admin && (
           <StatCard
@@ -826,8 +871,37 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
     return map;
   }, [items, categories]);
 
+  /* Sections the app can't name, but which hold parts anyway.
+
+     This screen only ever drew a tile per known category, so a part filed under
+     anything else was invisible here while the dashboard still counted it — which
+     is exactly how the parts total stopped matching what Inventory showed, and
+     there was nothing on screen to explain the gap. It happens whenever a custom
+     section was added in Settings but supabase/part_categories.sql hasn't been
+     run on this database, so the section list comes back without it.
+
+     The parts are real and on a shelf, so they get a tile. The three-letter code
+     prefix is the only name available, and it beats hiding them. */
+  const unnamed = useMemo(() => {
+    const known = new Set(categories.map((c) => c.key));
+    return Object.keys(grouped)
+      .filter((k) => !known.has(k) && (grouped[k] || []).length > 0)
+      .sort()
+      .map((k) => ({
+        key: k,
+        label: k ? `Section ${k}` : "No section",
+        shelf: "—",
+        color: "#6B7480",
+        unnamed: true,
+      }));
+  }, [grouped, categories]);
+
+  // Every tile this screen can show, named or not. Used for the tiles, and for
+  // resolving the open section's heading.
+  const sections = useMemo(() => [...categories, ...unnamed], [categories, unnamed]);
+
   const lowCount = (list) =>
-    list.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD)).length;
+    list.filter(isLowStock).length;
 
   // Leaving a section (or toggling select off) always clears the selection.
   const exitSelect = () => { setSelectMode(false); setSelected(new Set()); };
@@ -841,7 +915,7 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
 
   /* ---------- Level 2: a single category's item list ---------- */
   if (openCat) {
-    const cat = categories.find((c) => c.key === openCat) || {};
+    const cat = sections.find((c) => c.key === openCat) || {};
     const list = grouped[openCat] || [];
     const allSelected = list.length > 0 && list.every((it) => selected.has(it.code));
     const selCount = selected.size;
@@ -903,6 +977,18 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
             <span className="text-[#DC3B2E] font-semibold">· {lowCount(list)} low</span>
           )}
         </div>
+
+        {/* A section with no name behind it. The parts are fine — it's the
+            section list that's missing an entry, and saying so beats leaving
+            somebody to wonder what "Section BTL" is. */}
+        {cat.unnamed && (
+          <div className="mb-3 border border-[#E0A400] bg-[#E0A40012] rounded-md p-3 text-xs text-[#5A6472]">
+            <span className="font-semibold text-[#1B2430]">This section has no name yet.</span>{" "}
+            The parts below are counted in your totals, but the app doesn't know what
+            <span className="font-mono"> {cat.key}</span> stands for. Add it under
+            Settings → Categories to give it a name, a shelf and a colour.
+          </div>
+        )}
 
         {/* Select-all row while in multi-select mode */}
         {selectMode && list.length > 0 && (
@@ -1003,21 +1089,28 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Tap a section to view its parts" title="Inventory" />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {categories.map((cat) => {
+        {sections.map((cat) => {
           const list = grouped[cat.key] || [];
           const low = lowCount(list);
+          const pieces = list.reduce((s, i) => s + Number(i.qty || 0), 0);
           return (
             <button
               key={cat.key}
               onClick={() => openSection(cat.key)}
-              className="text-left bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 hover:border-[#2563EB] active:scale-[0.99] transition-all flex items-center gap-3"
+              className={`text-left bg-[#FFFFFF] border rounded-lg p-4 hover:border-[#2563EB] active:scale-[0.99] transition-all flex items-center gap-3 ${
+                cat.unnamed ? "border-[#E0A400]" : "border-[#DEE3E9]"
+              }`}
             >
               <span className="w-3 h-10 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
               <div className="flex-1 min-w-0">
                 <div className="font-bold uppercase tracking-wide text-sm truncate">{cat.label}</div>
                 <div className="text-[#5A6472] text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
                   <span>Shelf {cat.shelf}</span>
-                  <span>· {list.length} item(s)</span>
+                  {/* Parts and pieces both, because the dashboard shows both and
+                      one number here would look like it disagreed with one there. */}
+                  <span>· {list.length} part(s)</span>
+                  <span>· {pieces} piece(s)</span>
+                  {cat.unnamed && <span className="text-[#E0A400] font-semibold">· unnamed section</span>}
                   {low > 0 && (
                     <span className="text-[#DC3B2E] font-semibold flex items-center gap-0.5">
                       <AlertCircle size={11} /> {low} low
@@ -1029,6 +1122,26 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
             </button>
           );
         })}
+      </div>
+
+      {/* The totals, spelled out. The dashboard shows two numbers that never
+          match each other — parts against pieces — and with no statement of
+          which is which that read as the system contradicting itself. Adding up
+          the tiles here should give exactly these two figures; if it doesn't,
+          something really is wrong and it's worth saying so. */}
+      <div className="mt-4 text-xs text-[#5A6472] border-t border-[#DEE3E9] pt-3">
+        <span className="font-semibold text-[#1B2430]">{items.length}</span> different part
+        {items.length === 1 ? "" : "s"} across{" "}
+        <span className="font-semibold text-[#1B2430]">
+          {sections.filter((c) => (grouped[c.key] || []).length > 0).length}
+        </span>{" "}
+        section{sections.filter((c) => (grouped[c.key] || []).length > 0).length === 1 ? "" : "s"},{" "}
+        <span className="font-semibold text-[#1B2430]">
+          {items.reduce((s, i) => s + Number(i.qty || 0), 0)}
+        </span>{" "}
+        piece{items.reduce((s, i) => s + Number(i.qty || 0), 0) === 1 ? "" : "s"} on the shelves in
+        total. One part can be several pieces — eight headlights of the same kind are one
+        part and eight pieces — so these two figures are meant to differ.
       </div>
     </div>
   );
@@ -1052,7 +1165,7 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
   const allLow = useMemo(
     () =>
       items
-        .filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD))
+        .filter(isLowStock)
         .sort((a, b) => Number(a.qty) - Number(b.qty)),
     [items]
   );
@@ -1090,7 +1203,11 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
       ? pickedCats.map(catLabel).join(" + ")
       : "All sections";
     const urgencyLabel =
-      urgency === "out" ? "Finished only" : urgency === "left" ? "Running low (still some left)" : "At or below reorder level";
+      urgency === "out"
+        ? "Finished only"
+        : urgency === "left"
+        ? "Running low (still some left)"
+        : "Finished, or at a reorder level set on the part";
     const rows = lowStock
       .map(
         (i, idx) => `<tr>
@@ -1100,7 +1217,7 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
           <td>${escapeHtml(catLabel(i.cat))}</td>
           <td>${escapeHtml(i.location || "")}</td>
           <td class="c ${Number(i.qty) === 0 ? "out" : ""}">${Number(i.qty)}</td>
-          <td class="c">${Number(i.min ?? LOW_STOCK_THRESHOLD)}</td>
+          <td class="c">${reorderLevel(i) || "finished"}</td>
           <td class="c"></td>
         </tr>`
       )
@@ -1139,7 +1256,7 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
       <th class="c">#</th><th>Code</th><th>Item</th><th>Section</th><th>Location</th>
       <th class="c">Left</th><th class="c">Reorder at</th><th class="c">Bought</th>
     </tr></thead><tbody>${rows}</tbody></table>`
-      : `<div class="empty">Nothing is below its reorder level.</div>`}
+      : `<div class="empty">Nothing is finished, and nothing has reached a reorder level set on it.</div>`}
   <div class="foot">“Left” is what the system held on ${today} — check the shelf before buying. The last column is for writing in how many were actually brought back.</div>
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
@@ -1174,11 +1291,27 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
           </>
         ) : (
           <>
-            {allLow.length} item{allLow.length !== 1 ? "s" : ""} at or below their reorder level
-            {outCount ? <> — <span className="text-[#DC3B2E] font-semibold">{outCount} finished</span></> : ""}.
+            <span className="text-[#DC3B2E] font-semibold">{outCount} finished</span>
+            {allLow.length > outCount ? (
+              <>
+                , {allLow.length - outCount} at the reorder level set on{" "}
+                {allLow.length - outCount === 1 ? "it" : "them"}
+              </>
+            ) : ""}
+            .
           </>
         )}{" "}
         Tap any row to view its history.
+      </div>
+
+      {/* What this screen will and won't tell you. Worth stating: it used to
+          list nearly every part in the shop, because each one carried a reorder
+          level of 3 that nobody had chosen, and a list that long got ignored. */}
+      <div className="text-[11px] text-[#5A6472] mb-3">
+        A part appears here when it is <span className="font-semibold text-[#1B2430]">finished</span>,
+        or when it reaches a <span className="font-semibold text-[#1B2430]">Low-stock at</span> number
+        typed on the part itself. One piece on the shelf is full stock for a body part, so it is not
+        listed — set that number on a fast mover if you want warning earlier.
       </div>
 
       {allLow.length > 0 && (
@@ -1230,7 +1363,9 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
         <div className="bg-[#E6F6EF] border border-[#15926A55] rounded-lg p-6 text-center">
           <Check size={22} className="text-[#15926A] mx-auto mb-2" />
           <div className="text-sm font-semibold text-[#15926A]">All good</div>
-          <div className="text-xs text-[#5A6472] mt-1">Every item is above its reorder level.</div>
+          <div className="text-xs text-[#5A6472] mt-1">
+            Nothing is finished, and nothing has reached a reorder level you set.
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
@@ -2057,7 +2192,12 @@ export function AddItemTab({ items, categories, onAdd }) {
   const [color, setColor] = useState("");
   const [price, setPrice] = useState("");
   const [qty, setQty] = useState("");
-  const [min, setMin] = useState("3");
+  /* Blank, not "3". A pre-filled 3 was never a decision anybody made — it just
+     sat in the box — and it put every one-off body part into the reorder list for
+     ever. Blank means "warn me when it's finished", which is right for a part the
+     shop holds one of. Type a number only for something that has to be reordered
+     before it runs out. */
+  const [min, setMin] = useState("");
   const [warehouse, setWarehouse] = useState("");
   const [rack, setRack] = useState("");
   const [shelf, setShelf] = useState("");
@@ -2109,7 +2249,10 @@ export function AddItemTab({ items, categories, onAdd }) {
          stock" on a shelf that has the part on it reads as sold out - staff
          turned customers away over it. Only a sale or a deduction reaches zero. */
       qty: Math.max(1, Number(qty) || 0),
-      min: Number(min) || LOW_STOCK_THRESHOLD,
+      /* Blank stays blank rather than becoming a number — see reorderLevel() in
+         data.js. Left empty, the part is only flagged once it's finished, which
+         is what "one bonnet on the shelf" needs. */
+      min: min.trim() === "" ? null : Number(min) || LOW_STOCK_THRESHOLD,
       location: previewLoc,
       notes: notes.trim(),
       images,
@@ -2234,8 +2377,8 @@ export function AddItemTab({ items, categories, onAdd }) {
           </Field>
         </div>
         <div className="flex-1">
-          <Field label="Low-stock at">
-            <input type="number" value={min} onChange={(e) => setMin(e.target.value)} className={inputCls} />
+          <Field label="Low-stock at" hint="Leave blank to be warned when it's finished. Set a number only for a fast mover you reorder early.">
+            <input type="number" min="0" value={min} onChange={(e) => setMin(e.target.value)} placeholder="when finished" className={inputCls} />
           </Field>
         </div>
       </div>
@@ -2837,7 +2980,10 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
   const [color, setColor] = useState(item.color || "");
   const [name, setName] = useState(item.name || "");
   const [price, setPrice] = useState(item.price ?? "");
-  const [min, setMin] = useState(item.min ?? 3);
+  /* A stored 3 shows as blank, because a stored 3 is the old column default that
+     nobody typed — showing it would invite somebody to save it back as a real
+     choice and put the part in the reorder list for good. */
+  const [min, setMin] = useState(reorderLevel(item) || "");
   const [location, setLocation] = useState(item.location || "");
   const [supplier, setSupplier] = useState(item.supplier || "");
   const [notes, setNotes] = useState(item.notes || "");
@@ -2904,7 +3050,8 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
         color: color.trim(),
         name: name.trim(),
         price: Number(price),
-        min: Number(min) || LOW_STOCK_THRESHOLD,
+        // Blank stays blank: warn only when the part is finished.
+        min: String(min).trim() === "" ? null : Number(min) || LOW_STOCK_THRESHOLD,
         location: location.trim(),
         supplier: supplier.trim(),
         notes: notes.trim(),
@@ -2996,7 +3143,9 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
           <Field label="Price (KES)"><input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} /></Field>
         </div>
         <div className="flex-1">
-          <Field label="Low-stock at"><input type="number" value={min} onChange={(e) => setMin(e.target.value)} className={inputCls} /></Field>
+          <Field label="Low-stock at" hint="Blank means warn when it's finished.">
+            <input type="number" min="0" value={min} onChange={(e) => setMin(e.target.value)} placeholder="when finished" className={inputCls} />
+          </Field>
         </div>
       </div>
 
@@ -3977,8 +4126,12 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
 }
 
 /* ======================= REPORTS ======================= */
-export function ReportsTab({ items, notifications, categories, admin = false, onChanged, onNav }) {
-  const [range, setRange] = useState("daily");
+export function ReportsTab({
+  items, notifications, categories, admin = false, onChanged, onNav,
+  salesRegister = [], registerReady = false,
+}) {
+  const [range, setRange] = useState("today");
+  const [custom, setCustom] = useState({ from: "", to: "" });
   // Drill-down: the individual sales behind the totals.
   const [showSales, setShowSales] = useState(false);
   const [showGone, setShowGone] = useState(false);
@@ -3991,19 +4144,29 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
   const [people, setPeople] = useState([]);
   const [payFilter, setPayFilter] = useState("all");
 
-  const now = new Date();
-  const startOf = {
-    daily: () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); },
-    weekly: () => now.getTime() - 7 * 86400000,
-    monthly: () => now.getTime() - 30 * 86400000,
-    yearly: () => now.getTime() - 365 * 86400000,
-  }[range]();
+  /* One instant for the whole screen, so the totals, the trend and the printed
+     page are all measured against the same moment — recomputing per useMemo can
+     straddle midnight and make them disagree with each other.
 
-  // Undone sales don't count towards takings — the goods came back.
-  const allSales = useMemo(
-    () => notifications.filter((n) => n.type === "sale" && n.ts >= startOf && !n.returnedAt),
-    [notifications, startOf]
-  );
+     Keyed on the date rather than held forever: a phone left open on this screen
+     overnight would otherwise still call yesterday "Today". */
+  const dayStamp = new Date().toDateString();
+  const now = useMemo(() => new Date(), [dayStamp]);
+  const period = useMemo(() => rpt.periodRange(range, now, custom), [range, now, custom]);
+  const prevPeriod = useMemo(() => rpt.previousRange(range, period, now), [range, period, now]);
+
+  /* The money comes from the sales register, not the activity feed.
+
+     The feed is capped at 200 rows so it loads fast. That's right for "what
+     happened today" and quietly wrong for "what did we take this year": past a
+     couple of weeks of trading, a month and a year read the same figures off
+     the same handful of days, with nothing on screen to say so. The register is
+     the full record. If it can't be read we fall back to the feed and say so,
+     rather than showing a screen of zeros as though nothing had been sold. */
+  const source = registerReady ? salesRegister : notifications.filter((n) => n.type === "sale");
+  const inWindow = (list, w) => list.filter((s) => s.ts >= w.from && s.ts < w.to && !s.returnedAt);
+  const allSales = useMemo(() => inWindow(source, period), [source, period]);
+  const prevSales = useMemo(() => inWindow(source, prevPeriod), [source, prevPeriod]);
 
   /* Who sold anything in this period, for the pills. Built from the unfiltered
      list so picking one person never makes the others disappear from the row -
@@ -4019,9 +4182,12 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
       .map(([person, count]) => ({ key: person, label: person, count }));
   }, [allSales]);
 
-  const sales = useMemo(() => {
+  /* The same filter applied to both windows, so a comparison of "James this
+     month vs James last month" compares like with like. Comparing a filtered
+     figure against an unfiltered one would read as a collapse in sales. */
+  const applyFilters = (list) => {
     const q = query.trim().toLowerCase();
-    return allSales.filter((n) => {
+    return list.filter((n) => {
       if (people.length && !people.includes(n.by || "Unknown")) return false;
       if (payFilter === "paid" && !n.paid) return false;
       if (payFilter === "pending" && n.paid) return false;
@@ -4032,49 +4198,55 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
       return [n.code, n.name, n.by, n.buyer, n.phone]
         .filter(Boolean).join(" ").toLowerCase().includes(q);
     });
-  }, [allSales, query, people, payFilter]);
+  };
+  const sales = useMemo(() => applyFilters(allSales), [allSales, query, people, payFilter]);
+  const before = useMemo(() => applyFilters(prevSales), [prevSales, query, people, payFilter]);
 
   const filtering = Boolean(query.trim() || people.length || payFilter !== "all");
-  const unitsSold = sales.reduce((s, n) => s + Number(n.qty || 0), 0);
-  const revenue = sales.reduce((s, n) => s + Number(n.total || 0), 0);
-  const paidRevenue = sales.filter((n) => n.paid).reduce((s, n) => s + Number(n.total || 0), 0);
-  const pending = revenue - paidRevenue;
+  const t = useMemo(() => rpt.totals(sales), [sales]);
+  const tBefore = useMemo(() => rpt.totals(before), [before]);
+  const { units: unitsSold, revenue, paidRevenue, pending } = t;
 
-  const topSelling = useMemo(() => {
-    const map = {};
-    for (const n of sales) {
-      map[n.code] = map[n.code] || { label: n.code, value: 0, color: "#2563EB" };
-      map[n.code].value += Number(n.qty || 0);
-    }
-    return Object.values(map).sort((a, b) => b.value - a.value).slice(0, 8);
-  }, [sales]);
+  /* What the shop earned, by the owner's own rule — three times the VAT inside
+     a sale. Revenue on its own gets read as earnings, which is how a good month
+     of turnover turns into a bad month of profit without anyone noticing. Same
+     arithmetic the financial statements use, so the two screens agree, and
+     labelled an estimate everywhere because the shop doesn't record what it
+     paid for each part. */
+  const profit = useMemo(() => estimatedProfit(revenue), [revenue]);
+  const profitBefore = useMemo(() => estimatedProfit(tBefore.revenue), [tBefore.revenue]);
+
+  const topSelling = useMemo(() => rpt.topSelling(sales, items), [sales, items]);
+  const sections = useMemo(() => rpt.bySection(sales, categories), [sales, categories]);
+  const grain = rpt.trendGrain(period);
+  const trendPoints = useMemo(() => rpt.trend(sales, period, grain), [sales, period, grain]);
+  // The day that carried the period, and how many days did nothing at all.
+  const best = useMemo(
+    () => trendPoints.reduce((b, p) => (b && b.value >= p.value ? b : p), null),
+    [trendPoints]
+  );
+  const quietDays = useMemo(() => trendPoints.filter((p) => p.value === 0).length, [trendPoints]);
 
   /* Stock counts, deliberately NOT touched by the sales filters above: "how
      many bumpers are on the shelf" doesn't change because you asked what James
      sold. */
-  const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
+  const lowStock = items.filter(isLowStock);
   const outOfStock = lowStock.filter((i) => Number(i.qty) === 0).length;
   const inventoryValue = items.reduce((s, i) => s + Number(i.qty) * Number(i.price), 0);
 
   // Who sold what, over the chosen range.
-  const sellers = useMemo(() => {
-    const map = {};
-    for (const n of sales) {
-      const who = n.by || "Unknown";
-      map[who] = map[who] || { person: who, count: 0, units: 0, revenue: 0 };
-      map[who].count += 1;
-      map[who].units += Number(n.qty || 0);
-      map[who].revenue += Number(n.total || 0);
-    }
-    return Object.values(map).sort((a, b) => b.revenue - a.revenue);
-  }, [sales]);
+  const sellers = useMemo(() => rpt.sellers(sales), [sales]);
 
   /* Stock taken off the books in this period, grouped by where it went.
      This is the answer to "the part is gone, who has it?" - and it is the
-     one report the head office asks for when a count comes up short. */
+     one report the head office asks for when a count comes up short.
+
+     This one does read the feed: removals are only ever written there. It is
+     capped at 200 rows, so on a long period it can be short — the panel says
+     so rather than letting a quiet gap read as "nothing went missing". */
   const removed = useMemo(
-    () => notifications.filter((n) => n.type === "delete" && n.ts >= startOf),
-    [notifications, startOf]
+    () => notifications.filter((n) => n.type === "delete" && n.ts >= period.from && n.ts < period.to),
+    [notifications, period]
   );
   const removedGroups = useMemo(() => {
     const map = {};
@@ -4089,13 +4261,22 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
     return Object.values(map).sort((a, b) => b.parts - a.parts);
   }, [removed]);
 
+  /* Real calendar periods. "Monthly" used to mean the last rolling 30 days,
+     which on the 20th covered half of one month and half of another — a figure
+     the owner could not check against the books, so it never got used. */
   const ranges = [
-    ["daily", "Daily"],
-    ["weekly", "Weekly"],
-    ["monthly", "Monthly"],
-    ["yearly", "Yearly"],
+    { key: "today", label: "Today" },
+    { key: "yesterday", label: "Yesterday" },
+    { key: "week7", label: "Last 7 days" },
+    { key: "month", label: "This month" },
+    { key: "lastMonth", label: "Last month" },
+    { key: "year", label: "This year" },
+    { key: "custom", label: "Pick dates" },
   ];
-  const rangeLabel = { daily: "Today", weekly: "Last 7 days", monthly: "Last 30 days", yearly: "Last 12 months" }[range];
+  const rangeLabel = period.label;
+  // ISO yyyy-mm-dd for the date inputs' max, so nobody reports on next week.
+  const todayISO = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
 
   /* The sales report on paper, exactly as filtered on screen. The filters are
      printed in the header on purpose: a page of figures with no statement of
@@ -4130,9 +4311,30 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
           <td class="c">${s.count}</td>
           <td class="c">${s.units}</td>
           <td class="r">${s.revenue.toLocaleString()}</td>
+          <td class="r ${s.pending ? "due" : ""}">${s.pending ? s.pending.toLocaleString() : "—"}</td>
         </tr>`
       )
       .join("");
+    const perSection = sections
+      .map(
+        (s) => `<tr>
+          <td>${escapeHtml(s.label)}</td>
+          <td class="c">${s.count}</td>
+          <td class="c">${s.units}</td>
+          <td class="r">${s.revenue.toLocaleString()}</td>
+          <td class="r">${revenue > 0 ? Math.round((s.revenue / revenue) * 100) : 0}%</td>
+        </tr>`
+      )
+      .join("");
+    // "vs the period before" in words, or nothing at all when there is nothing
+    // to compare against — a printed "+100%" against a zero misleads.
+    const vs = (nowV, beforeV) => {
+      const c = rpt.change(nowV, beforeV);
+      if (!c) return "";
+      if (c.first) return ` <span class="up">(new)</span>`;
+      const cls = c.pct >= 0 ? "up" : "down";
+      return ` <span class="${cls}">(${c.pct >= 0 ? "+" : ""}${Math.round(c.pct)}% vs before)</span>`;
+    };
     const html = `<!doctype html><html><head><meta charset="utf-8">
 <title>Sales Report</title>
 <style>
@@ -4158,6 +4360,10 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
   th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
   td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
   td.ok { color:#15926A; font-weight:700; } td.due { color:#DC3B2E; font-weight:700; }
+  .up { color:#15926A; font-size:10px; font-weight:700; } .down { color:#DC3B2E; font-size:10px; font-weight:700; }
+  .note { font-size:10px; color:#5A6472; font-style:italic; margin-top:3px; }
+  .cols { display:flex; gap:18px; align-items:flex-start; }
+  .cols > div { flex:1; min-width:0; }
   tfoot td { font-weight:800; border-top:2px solid #1B2430; }
   .empty { color:#5A6472; padding:40px; text-align:center; }
   .foot { margin-top:24px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px; }
@@ -4171,12 +4377,17 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
   </div>
   <div class="scope">Period: <b>${escapeHtml(rangeLabel)}</b> · Sold by: <b>${escapeHtml(who)}</b> · <b>${escapeHtml(pay)}</b>${query.trim() ? ` · matching <b>“${escapeHtml(query.trim())}”</b>` : ""}</div>
   <div class="tot">
-    <div><div class="k">Units sold</div><div class="v">${unitsSold}</div></div>
-    <div><div class="k">Revenue</div><div class="v">KES ${revenue.toLocaleString()}</div></div>
+    <div><div class="k">Units sold</div><div class="v">${unitsSold}${vs(unitsSold, tBefore.units)}</div></div>
+    <div><div class="k">Revenue</div><div class="v">KES ${revenue.toLocaleString()}${vs(revenue, tBefore.revenue)}</div></div>
     <div><div class="k">Paid</div><div class="v" style="color:#15926A">KES ${paidRevenue.toLocaleString()}</div></div>
     <div><div class="k">Pending</div><div class="v" style="color:#DC3B2E">KES ${pending.toLocaleString()}</div></div>
+    ${admin ? `<div><div class="k">Profit (estimate)</div><div class="v">KES ${Math.round(profit).toLocaleString()}${vs(profit, profitBefore)}</div></div>` : ""}
   </div>
-  ${sellers.length > 1 ? `<h3>By person</h3><table><thead><tr><th>Person</th><th class="c">Sales</th><th class="c">Pcs</th><th class="r">Revenue (KES)</th></tr></thead><tbody>${perPerson}</tbody></table>` : ""}
+  <div class="note">“vs before” compares this period with the one of the same length immediately before it${admin ? `. Profit is an estimate — ${PROFIT_VAT_MULTIPLE}× the VAT inside a sale, the shop's own rule — because what each part cost is not recorded` : ""}.</div>
+  <div class="cols">
+    ${sellers.length > 1 ? `<div><h3>By person</h3><table><thead><tr><th>Person</th><th class="c">Sales</th><th class="c">Pcs</th><th class="r">Revenue</th><th class="r">Unpaid</th></tr></thead><tbody>${perPerson}</tbody></table></div>` : ""}
+    ${sections.length > 1 ? `<div><h3>By section</h3><table><thead><tr><th>Section</th><th class="c">Sales</th><th class="c">Pcs</th><th class="r">Revenue</th><th class="r">Share</th></tr></thead><tbody>${perSection}</tbody></table></div>` : ""}
+  </div>
   <h3>Every sale</h3>
   ${sales.length
       ? `<table><thead><tr>
@@ -4219,11 +4430,58 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
         }
       />
 
-      <div className="mb-4">
-        <Pills options={ranges.map(([k, label]) => ({ key: k, label }))} value={range} onChange={setRange} />
+      <div className="mb-3">
+        <Pills options={ranges} value={range} onChange={setRange} />
+        <div className="text-[11px] text-[#5A6472] mt-1.5">
+          Showing <span className="font-semibold text-[#1B2430]">{period.label}</span>
+        </div>
       </div>
 
-      {/* Filters. Everything below — the four totals, the top-selling chart, the
+      {/* Any two dates. The pills cover what gets asked for daily; this covers
+          "the week of the Nakuru job" and the odd stretch the books need. */}
+      {range === "custom" && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 mb-4 flex items-end gap-3 flex-wrap">
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1">From</label>
+            <input
+              type="date"
+              value={custom.from}
+              max={todayISO}
+              onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
+              className={inputCls + " w-auto"}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1">To</label>
+            <input
+              type="date"
+              value={custom.to}
+              max={todayISO}
+              onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
+              className={inputCls + " w-auto"}
+            />
+          </div>
+          <span className="text-[11px] text-[#5A6472] pb-2.5">
+            {custom.from
+              ? "Both days are counted, start and end."
+              : "Pick a start date. Leave the end blank for “up to today”."}
+          </span>
+        </div>
+      )}
+
+      {/* The register is where the money lives. If it can't be read, the screen
+          says the figures are short rather than passing off ten days of feed as
+          a year's trading. */}
+      {!registerReady && (
+        <div className="bg-[#FFF7E6] border border-[#E0A40055] rounded-lg p-3 mb-4 text-[11px] text-[#5A6472] leading-relaxed">
+          <span className="font-bold uppercase tracking-wide text-[#1B2430]">Figures may be short.</span>{" "}
+          The sales register could not be read, so these totals come from the activity feed, which
+          only keeps the most recent 200 entries. Today and this week are right; a month or a year
+          may be missing older sales.
+        </div>
+      )}
+
+      {/* Filters. Everything below — the totals, the trend, the charts, the
           by-person list and the printed page — follows them, so the numbers
           always belong to what the pills say and never to a wider period. */}
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
@@ -4271,12 +4529,59 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
         )}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <StatCard icon={ShoppingCart} label="Units Sold" value={unitsSold} tone="green" />
-        <StatCard icon={DollarSign} label="Revenue" value={`KES ${revenue.toLocaleString()}`} tone="gold" />
-        <StatCard icon={Check} label="Paid" value={`KES ${paidRevenue.toLocaleString()}`} tone="green" />
-        <StatCard icon={AlertTriangle} label="Pending" value={`KES ${pending.toLocaleString()}`} tone="red" />
+      {/* The totals, each against the same-length period before it. A figure on
+          its own says nothing — "KES 84,000" is only good or bad next to last
+          week — and it was the one thing the owner had to work out on paper. */}
+      <div className={`grid grid-cols-2 gap-3 mb-4 ${admin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+        <StatCard icon={ShoppingCart} label="Units Sold" value={unitsSold} tone="green"
+          sub={<Delta now={unitsSold} before={tBefore.units} />} />
+        <StatCard icon={DollarSign} label="Revenue" value={`KES ${revenue.toLocaleString()}`} tone="gold"
+          sub={<Delta now={revenue} before={tBefore.revenue} />} />
+        <StatCard icon={Check} label="Paid" value={`KES ${paidRevenue.toLocaleString()}`} tone="green"
+          sub={<Delta now={paidRevenue} before={tBefore.paidRevenue} />} />
+        <StatCard icon={AlertTriangle} label="Pending" value={`KES ${pending.toLocaleString()}`} tone="red"
+          sub={
+            pending > 0
+              ? `${sales.filter((s) => !s.paid).length} unpaid sale${sales.filter((s) => !s.paid).length !== 1 ? "s" : ""}`
+              : "Everything collected"
+          } />
+        {/* Admin only, to match the financial statements: turnover is everyone's
+            business, what the shop earns is the owner's. */}
+        {admin && (
+          <StatCard icon={TrendingUp} label="Profit (est.)" value={`KES ${Math.round(profit).toLocaleString()}`} tone="purple"
+            sub={<Delta now={profit} before={profitBefore} />} />
+        )}
       </div>
+      {admin && (
+        <p className="text-[11px] text-[#5A6472] -mt-2 mb-4">
+          Profit is an <span className="font-semibold text-[#1B2430]">estimate</span> — {PROFIT_VAT_MULTIPLE}× the
+          VAT inside a sale, the shop's own rule — because what each part cost is not recorded. Same
+          figure the financial statements use.
+        </p>
+      )}
+
+      {/* Which days carried the period. A flat total hides that Tuesday was
+          dead and Saturday was everything. */}
+      {trendPoints.length > 1 && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <div className="text-sm font-bold uppercase tracking-wide">
+              Sales {grain === "month" ? "by month" : "by day"}
+            </div>
+            <span className="text-[11px] text-[#5A6472]">
+              {best && best.value > 0 ? (
+                <>Best: <span className="font-semibold text-[#1B2430]">{rpt.fmtDay(best.ts)}</span> — {best.value} pcs</>
+              ) : null}
+            </span>
+          </div>
+          <TrendChart points={trendPoints} />
+          {quietDays > 0 && (
+            <div className="text-[11px] text-[#5A6472] mt-1">
+              {quietDays} {grain === "month" ? "month" : "day"}{quietDays !== 1 ? "s" : ""} with no sales at all.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* The individual sales behind those totals. */}
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
@@ -4440,24 +4745,99 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
                     stock goes. New removals always carry a reason.
                   </div>
                 )}
+                {/* Removals are only ever written to the activity feed, which
+                    keeps the most recent 200 entries. On a long period this list
+                    can be short, and a quiet gap must not read as "nothing went
+                    missing". */}
+                {notifications.length >= 200 && (grain === "month" || range === "month" || range === "lastMonth") && (
+                  <div className="text-[11px] text-[#5A6472] italic">
+                    This list comes from the activity feed, which keeps the most recent 200 entries —
+                    over a long period, older removals may not appear.
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
 
+      {/* Which sections earn. `categories` was already being passed into this
+          screen and never used, so "do bumpers or lights make more money" — the
+          question that decides what to buy next — had no answer anywhere.
+
+          Read off the part code's own prefix, not the stock list, so a part that
+          has since sold out and been removed still counts towards its section.
+          That is exactly the part a report about the past is asking about. */}
+      {sections.length > 1 && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+          <div className="text-sm font-bold uppercase tracking-wide mb-3">Where The Money Came From</div>
+          <div className="space-y-2">
+            {sections.map((s) => (
+              <div key={s.key} className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                <span className="text-sm text-[#1B2430] flex-1 min-w-0 truncate">{s.label}</span>
+                <span className="text-[11px] text-[#5A6472] shrink-0 tabular-nums">{s.units} pcs</span>
+                <span className="text-sm font-bold text-[#1B2430] shrink-0 tabular-nums w-24 text-right">
+                  {s.revenue.toLocaleString()}
+                </span>
+                <span className="text-[11px] text-[#5A6472] shrink-0 tabular-nums w-9 text-right">
+                  {revenue > 0 ? Math.round((s.revenue / revenue) * 100) : 0}%
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="text-[11px] text-[#5A6472] mt-2">
+            Revenue in KES, and each section's share of the takings.
+          </div>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-2 gap-4 mb-4">
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="text-sm font-bold uppercase tracking-wide mb-3">Top Selling Parts</div>
-          <BarChart data={topSelling} />
+          {/* Labelled with the part's name. These bars used to be captioned with
+              the code — FBM-TOY-PRE-16-0042 — which nobody reads as a front
+              bumper, so the one chart meant to say what is selling said nothing. */}
+          {topSelling.length === 0 ? (
+            <div className="text-[#5A6472] text-sm italic">No sales in this period.</div>
+          ) : (
+            <div className="space-y-2.5">
+              {topSelling.map((p) => {
+                const max = topSelling[0].units || 1;
+                return (
+                  <div key={p.code}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs text-[#1B2430] font-medium flex-1 min-w-0 truncate" title={p.label}>
+                        {p.label}
+                      </span>
+                      <span className="text-xs font-bold text-[#1B2430] shrink-0 tabular-nums">{p.units} pcs</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-3 bg-[#EEF2F6] rounded overflow-hidden">
+                        <div className="h-full rounded bg-[#2563EB]" style={{ width: `${(p.units / max) * 100}%` }} />
+                      </div>
+                      <span className="text-[10px] text-[#5A6472] shrink-0 tabular-nums">
+                        KES {p.revenue.toLocaleString()}
+                      </span>
+                    </div>
+                    {/* The code still earns its place — it's what you search by
+                        to find the part on the shelf — just not as the label. */}
+                    <div className="font-mono text-[10px] text-[#5A6472] truncate">{p.code}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
           <div className="text-sm font-bold uppercase tracking-wide mb-3">Inventory Summary</div>
           <div className="space-y-2 text-sm">
-            <Row label="Total items" value={items.length} />
-            <Row label="Total stock quantity" value={items.reduce((s, i) => s + Number(i.qty), 0)} />
+            {/* Named the way the dashboard names them — one part can be many
+                pieces, and two figures that never match need to say why. */}
+            <Row label="Different parts" value={items.length} />
+            <Row label="Pieces on the shelf" value={items.reduce((s, i) => s + Number(i.qty), 0)} />
             <Row label="Inventory value" value={`KES ${inventoryValue.toLocaleString()}`} />
-            <Row label="Low-stock items" value={lowStock.length} tone={lowStock.length ? "red" : undefined} />
+            <Row label="Finished or running low" value={lowStock.length} tone={lowStock.length ? "red" : undefined} />
           </div>
         </div>
       </div>
@@ -4472,15 +4852,18 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
           <AlertTriangle size={15} className="text-[#DC3B2E]" /> Low Stock
         </div>
         {lowStock.length === 0 ? (
-          <div className="text-[#5A6472] text-sm italic">All items above their reorder level.</div>
+          <div className="text-[#5A6472] text-sm italic">
+            Nothing is finished, and nothing has reached a reorder level you set.
+          </div>
         ) : (
           <>
             <p className="text-sm text-[#1B2430]">
-              <span className="font-bold text-[#DC3B2E]">{lowStock.length}</span> part
-              {lowStock.length !== 1 ? "s" : ""} at or below the reorder level
-              {outOfStock ? (
+              <span className="font-bold text-[#DC3B2E]">{outOfStock}</span> part
+              {outOfStock !== 1 ? "s" : ""} finished
+              {lowStock.length > outOfStock ? (
                 <>
-                  , <span className="font-bold text-[#DC3B2E]">{outOfStock}</span> of them finished
+                  , <span className="font-bold text-[#DC3B2E]">{lowStock.length - outOfStock}</span>{" "}
+                  at the reorder level set on {lowStock.length - outOfStock === 1 ? "it" : "them"}
                 </>
               ) : null}
               .
@@ -4503,6 +4886,24 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
     </div>
   );
 }
+/* "↑ 38% vs last month" under a total.
+
+   Says nothing at all when there is nothing to compare against, rather than
+   printing "+100%" against a period that had no sales — a percentage off a
+   zero is arithmetic, not information, and the owner would act on it. */
+function Delta({ now, before }) {
+  const c = rpt.change(now, before);
+  if (!c) return null;
+  if (c.first) return <span className="text-[#15926A] font-semibold">first sales in this period</span>;
+  const up = c.pct >= 0;
+  return (
+    <span className={up ? "text-[#15926A] font-semibold" : "text-[#DC3B2E] font-semibold"}>
+      {up ? "↑" : "↓"} {Math.abs(Math.round(c.pct))}%{" "}
+      <span className="text-[#5A6472] font-normal">vs before</span>
+    </span>
+  );
+}
+
 function Row({ label, value, tone }) {
   return (
     <div className="flex items-center justify-between">

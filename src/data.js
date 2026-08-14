@@ -346,7 +346,48 @@ export const condColor = (c) =>
     Refurbished: "#7C5CD6",
   }[c] || "#6B7480");
 
-export const LOW_STOCK_THRESHOLD = 3;
+/* When to warn that a part is running out.
+
+   Zero. Not three.
+
+   Three was wrong for this shop. A body part is held as one piece — one Premio
+   bonnet, one Harrier bumper — and one piece is full stock, not a shortage. With
+   the level at 3 and the test being "at or below", every single-piece part on the
+   shelves was permanently in the reorder list, so the list named nearly the whole
+   inventory and told the owner nothing. An alert that is always on is not an
+   alert.
+
+   Zero means the warning fires when the part is actually finished, which is the
+   moment there is something to do about it. A part that genuinely needs reordering
+   earlier — fast-moving bulbs, say — gets its own level typed in on the part
+   itself ("Low-stock at"), and that per-part number always wins over this one. */
+export const LOW_STOCK_THRESHOLD = 0;
+
+/* Every part already in the database carries min_qty = 3, because that was the
+   old column default and the old pre-filled form value — so it was stamped on
+   parts automatically, never chosen by anybody. Read literally, those parts stay
+   in the reorder list for ever and the change above fixes nothing that is
+   actually on the shelves today.
+
+   So a stored 3 is read as "nobody set this" and falls back to the level above.
+   supabase/low_stock_reset.sql makes it permanent in the database; until it is
+   run, this keeps the alert honest anyway — a fix that needs a migration the
+   shop hasn't run is a fix the shop doesn't have.
+
+   The cost, stated plainly: a reorder level of exactly 3 can't be asked for by
+   hand. Type 2 or 4. Everything else means what it says. */
+const LEGACY_MIN = 3;
+
+export function reorderLevel(item) {
+  const m = item?.min;
+  if (m === null || m === undefined || m === "" || Number(m) === LEGACY_MIN) return LOW_STOCK_THRESHOLD;
+  return Number(m) || LOW_STOCK_THRESHOLD;
+}
+
+/* The two states worth telling apart. Finished means it cannot be sold at all;
+   low means it is above zero but at or under its own level. */
+export const isOutOfStock = (item) => Number(item?.qty || 0) <= 0;
+export const isLowStock = (item) => Number(item?.qty || 0) <= reorderLevel(item);
 
 /* ---------------- seed inventory ---------------- */
 export const SEED_ITEMS = [

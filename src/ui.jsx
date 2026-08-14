@@ -3,7 +3,7 @@
 --------------------------------------------------------- */
 import React, { useState } from "react";
 import { MapPin, Trash2, ImagePlus, X, Search, CheckSquare, Square } from "lucide-react";
-import { condColor, LOW_STOCK_THRESHOLD } from "./data.js";
+import { condColor, reorderLevel, isOutOfStock } from "./data.js";
 import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 export const inputCls =
@@ -109,16 +109,21 @@ export function SectionTitle({ eyebrow, title, right }) {
 }
 
 export function StockBadge({ item }) {
-  const min = item.min ?? LOW_STOCK_THRESHOLD;
-  const cls =
-    item.qty === 0
-      ? "bg-[#DC3B2E22] text-[#DC3B2E]"
-      : item.qty <= min
-      ? "bg-[#2563EB22] text-[#2563EB]"
-      : "bg-[#15926A22] text-[#15926A]";
+  /* Red only when the part is actually finished. It used to go amber at three
+     pieces or fewer, which on a shelf of one-off body parts meant nearly every
+     badge in the shop was a warning — and a warning on everything reads as
+     decoration. Amber now means the part carries its own reorder level and has
+     reached it, so it says something when it appears. */
+  const out = isOutOfStock(item);
+  const low = !out && Number(item.qty) <= reorderLevel(item);
+  const cls = out
+    ? "bg-[#DC3B2E22] text-[#DC3B2E]"
+    : low
+    ? "bg-[#2563EB22] text-[#2563EB]"
+    : "bg-[#15926A22] text-[#15926A]";
   return (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${cls}`}>
-      {item.qty} in stock
+      {out ? "None left" : `${item.qty} in stock`}
     </span>
   );
 }

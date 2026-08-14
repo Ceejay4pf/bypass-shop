@@ -46,7 +46,11 @@ create table if not exists public.inventory (
   name        text,
   price       numeric default 0,
   qty         int default 0,
-  min_qty     int default 3,
+  -- No default on purpose. Null means "warn when this part is finished", which
+  -- is right for a shelf of one-off body parts. A default of 3 used to be
+  -- stamped on every row, which put nearly the whole inventory in the reorder
+  -- list for ever — see supabase/low_stock_reset.sql.
+  min_qty     int,
   location    text,
   supplier    text,
   notes       text,

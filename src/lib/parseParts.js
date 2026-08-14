@@ -718,7 +718,11 @@ export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
        that as sold out and turned customers away. Nothing reaches zero except
        by being sold or deducted. */
     qty: Math.max(1, Number(row.qty) || 0),
-    min: 3,
+    /* No reorder level. A pasted list says nothing about when to reorder, and
+       the 3 that used to be stamped here was a guess that put every one-piece
+       part in the low-stock list for ever. Null means "warn when it's finished";
+       a real level gets typed on the part itself. */
+    min: null,
     location: String(row.location || "").trim() || "Unassigned",
     supplier: String(row.supplier || "").trim(),
     notes,
