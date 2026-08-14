@@ -1,0 +1,44 @@
+Add your own categories, keep what was written, never save zero
+
+Four things the shop asked for.
+
+Sections of its own. Thirteen built-in categories don't cover what is
+actually on the shelves, so Settings gains a Categories card where an
+admin names one: boot lights, hinges, bulbs, headlight computers. An
+added section behaves like a built-in one everywhere, because App.jsx
+now gets the list from usePartCategories() instead of a module-level
+constant - so all sixteen screens picked it up with no further change.
+The list reader learns the name too, or a pasted "boot light - Toyota
+Premio 2016" would come back asking which category it is, which is the
+place the feature is needed most.
+
+Its three-letter code can never change and the section can never be
+deleted. The code is already inside every part code the section issued;
+deleting the section would leave real stock with nothing to name its
+shelf with. part_categories.sql ships with no delete policy at all, so
+that holds for an admin too. The read fails open: an unrun migration
+leaves the built-in thirteen rather than a shop that cannot list its own
+sections.
+
+Extra information survives. A pasted line's colour, shelf and supplier
+are read off it, and whatever is left once every field has taken its
+words is kept word for word as a note on the part. "with bracket, small
+crack on the corner" was being thrown away, so the person who typed it
+watched their own note vanish. A plain "from" no longer eats the
+vehicle: "taillight from Nissan Note 2012" is a Note, not a supplier
+called Note.
+
+Quantity is never zero. A part being typed in is a part the shop holds,
+so blank saves as 1 - in Add New Item, Quick Transaction and every line
+of a list. "0 in stock" on a full shelf reads as sold out and staff
+turned customers away over it. Only a sale or a deduction reaches zero.
+
+Sell Item takes a price. Parts get haggled over, and the sale was being
+recorded at the shelf price regardless, so the drawer never matched the
+sales figure and every profit number downstream was wrong. Blank still
+means the shelf price. A typed 0 is honoured - a part genuinely given
+away free is real, and pretending it sold at list would put money in the
+cash book that never arrived. A changed price is stated on screen, since
+it is what reaches the receipt and the cash book.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>

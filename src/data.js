@@ -7,8 +7,9 @@
    This file holds constants + pure helpers (code gen, matching).
 --------------------------------------------------------- */
 
-/* Fixed starting categories. Admin can add more (stored separately,
-   merged with these at runtime). Each has a 3-letter code prefix,
+/* The categories the shop starts with. An admin adds more in Settings;
+   those live in the `part_categories` table and are merged with these at
+   runtime by mergeCategories() below. Each has a 3-letter code prefix,
    a shelf prefix, and an accent color. */
 export const DEFAULT_CATEGORIES = [
   { key: "WNL", label: "Wing — Left",                   shelf: "A-01", color: "#2563EB" },
@@ -74,6 +75,104 @@ export function categoryGroups(categories = DEFAULT_CATEGORIES) {
       label: g.family,
       keys: g.keys,
     }));
+}
+
+/* ---- CATEGORIES THE SHOP ADDS ITSELF ----
+   The starting thirteen do not cover everything that gets bought and sold -
+   boot lights, hinges, bulbs, headlight computers, bumper slides for shapes
+   nobody listed. A part with nowhere to go got filed under something it
+   isn't, which then hid it from whoever went looking, so any category the
+   shop needs can be created in Settings.
+
+   An added category is an ordinary category from then on: it appears in every
+   picker, gets its own code prefix, its own shelf and its own colour. */
+
+/* A 3-letter code prefix from the name, avoiding the ones already taken.
+   "Boot Lights" -> BTL, "Hinges" -> HNG, "Headlight Computers" -> HLC.
+   The prefix is stamped into every code that category ever issues, so it
+   must be unique and it must never change afterwards. */
+export function suggestCategoryKey(label, taken = []) {
+  const used = new Set(taken.map((k) => String(k).toUpperCase()));
+  const words = String(label || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "";
+
+  const letters = (w) => w.replace(/[^A-Z]/g, "");
+  const candidates = [];
+  // First letter of each of the first three words: "Boot Light Cover" -> BLC.
+  if (words.length >= 3) candidates.push(words.slice(0, 3).map((w) => w[0]).join(""));
+  /* Two words: first letter of each, plus a consonant from the first word so
+     "Boot Lights" reads as BTL rather than the bare BL. */
+  if (words.length === 2) {
+    const a = letters(words[0]);
+    const b = letters(words[1]);
+    const mid = a.slice(1).replace(/[AEIOU]/g, "")[0] || a[1] || b[1] || "X";
+    candidates.push((a[0] || "") + mid + (b[0] || ""));
+    candidates.push((a[0] || "") + (b[0] || "") + (b[1] || "X"));
+  }
+  // One word: its consonants, then its plain first three letters.
+  const first = letters(words[0]);
+  const consonants = first[0] + first.slice(1).replace(/[AEIOU]/g, "");
+  candidates.push(consonants.slice(0, 3));
+  candidates.push(first.slice(0, 3));
+  candidates.push(words.join("").slice(0, 3));
+
+  for (const c of candidates) {
+    const key = String(c || "").replace(/[^A-Z0-9]/g, "").slice(0, 3).padEnd(3, "X");
+    if (key.length === 3 && !used.has(key)) return key;
+  }
+  /* Everything sensible is taken. Walk a digit through the last slot rather
+     than hand back a duplicate - a repeated prefix would put two different
+     kinds of part under one code, which no amount of renaming later fixes. */
+  const stem = (candidates[0] || "CAT").replace(/[^A-Z0-9]/g, "").slice(0, 2).padEnd(2, "X");
+  for (let i = 1; i <= 9; i++) if (!used.has(stem + i)) return stem + i;
+  return "";
+}
+
+/* The next free shelf letter, so a new category lands somewhere of its own
+   instead of sharing a shelf label with an existing one. */
+export function suggestShelf(categories = DEFAULT_CATEGORIES) {
+  const used = new Set(
+    categories.map((c) => String(c.shelf || "").trim().charAt(0).toUpperCase()).filter(Boolean)
+  );
+  for (let i = 0; i < 26; i++) {
+    const letter = String.fromCharCode(65 + i);
+    if (!used.has(letter)) return `${letter}-01`;
+  }
+  return "Z-01";
+}
+
+/* Colours offered for a new category. Kept to the shop's own palette so an
+   added section looks like it always belonged. */
+export const CATEGORY_COLORS = [
+  "#2563EB", "#15926A", "#DC3B2E", "#D4A72C", "#7C5CD6",
+  "#F07A4F", "#2E86DE", "#E86A6A", "#8FD6A6", "#6B7480",
+];
+
+/* The starting categories plus whatever the shop has added, in one list.
+   Added ones come last so the built-in order (and every shelf label printed
+   on it) stays exactly where staff expect it. A saved category whose key
+   collides with a built-in one is dropped: the built-in wins, because parts
+   are already coded under it. */
+export function mergeCategories(extra = [], base = DEFAULT_CATEGORIES) {
+  const seen = new Set(base.map((c) => c.key));
+  const added = [];
+  for (const c of extra) {
+    const key = String(c?.key || "").toUpperCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    added.push({
+      key,
+      label: String(c.label || key).trim(),
+      shelf: String(c.shelf || "").trim() || "—",
+      color: String(c.color || "#6B7480"),
+      custom: true,
+    });
+  }
+  return [...base, ...added];
 }
 
 export const CONDITIONS = ["Brand New", "Genuine Used", "Aftermarket", "Refurbished"];

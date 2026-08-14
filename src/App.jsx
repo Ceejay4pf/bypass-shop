@@ -13,12 +13,12 @@ import LockScreen from "./LockScreen.jsx";
 import PendingGate from "./PendingGate.jsx";
 import { isLockEnabled, isUnlocked, markUnlocked, lockNow } from "./lib/appLock.js";
 import { supabase, isConfigured } from "./lib/supabase.js";
-import { useInventory, useNotifications, useAuth } from "./lib/hooks.js";
+import { useInventory, useNotifications, useAuth, usePartCategories } from "./lib/hooks.js";
 import { getProfileName, signOut } from "./lib/auth.js";
 import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
 import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
 import * as api from "./lib/api.js";
-import { DEFAULT_CATEGORIES, generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
+import { generateCode, LOW_STOCK_THRESHOLD } from "./data.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab, BulkAddTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
@@ -56,8 +56,6 @@ const NAV = [
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
-const CATEGORIES = DEFAULT_CATEGORIES;
-
 export default function App() {
   const session = useAuth();
 
@@ -85,6 +83,9 @@ function useClock() {
 function BypassShop({ session }) {
   const { items, loading: itemsLoading, error, reload: reloadItems } = useInventory();
   const { notifications, reload: reloadNotifications } = useNotifications();
+  /* The built-in sections plus any the shop has added itself. Live, so a
+     category created on one phone reaches the others without a refresh. */
+  const { categories: CATEGORIES, reload: reloadCategories } = usePartCategories();
 
   /* An undone sale changes both stock and the activity log, and it happens
      inside a database function that realtime can't fully describe — so pull
@@ -578,7 +579,15 @@ function BypassShop({ session }) {
           {tab === "finance" && <FinanceTab user={user} admin={admin} />}
           {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
           {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
-          {tab === "settings" && <SettingsTab categories={CATEGORIES} user={user} email={session.user.email} admin={admin} />}
+          {tab === "settings" && (
+            <SettingsTab
+              categories={CATEGORIES}
+              user={user}
+              email={session.user.email}
+              admin={admin}
+              onCategoriesChanged={reloadCategories}
+            />
+          )}
         </main>
       </div>
 

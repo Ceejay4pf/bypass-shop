@@ -165,6 +165,22 @@ const VARIANT_WORDS = [
 const VARIANT_PHRASES = VARIANT_WORDS.flatMap(({ variant, words }) => words.map((w) => ({ variant, w })))
   .sort((a, b) => b.w.length - a.w.length);
 
+/* ---------- colour words ---------- */
+/* Colour is written on half the lines that come in ("black rear bumper",
+   "side mirror - silver") and it was being dropped, or worse, read as part of
+   the model name. Compound colours first, so "gunmetal grey" doesn't come out
+   as plain "Grey". */
+const COLOUR_WORDS = [
+  "gunmetal grey", "gun metal grey", "pearl white", "off white", "dark grey",
+  "light grey", "navy blue", "sky blue", "dark blue", "light blue", "wine red",
+  "dark red", "champagne", "beige", "bronze", "burgundy", "maroon", "silver",
+  "graphite", "charcoal", "magenta", "purple", "violet", "orange", "yellow",
+  "golden", "gold", "green", "brown", "white", "black", "cream", "grey",
+  "gray", "blue", "red", "clear", "smoked", "chrome", "primer", "unpainted",
+];
+const COLOUR_PHRASES = COLOUR_WORDS.map((w) => ({ w })).sort((a, b) => b.w.length - a.w.length);
+const titleCase = (s) => String(s).replace(/\b[a-z]/g, (c) => c.toUpperCase());
+
 /* ---------- condition words ---------- */
 const CONDITION_WORDS = [
   { condition: "Brand New", words: ["brand new", "new", "bnew", "b/new"] },
@@ -210,6 +226,30 @@ function findPhrase(hay, needle) {
   }
 }
 const has = (hay, needle) => findPhrase(hay, needle) !== -1;
+
+/* Search phrases for the categories the shop added itself. Their names are the
+   only thing we know about them, so match the name, its singular, and the name
+   with any "X - Y" qualifier dropped: "Boot Lights" also answers to "boot
+   light" and "Side Mirrors - Tinted" to "side mirrors". */
+function categoryPhrases(categories = []) {
+  const out = [];
+  for (const c of categories) {
+    if (!c?.custom || !c.key) continue;
+    const label = String(c.label || "").trim().toLowerCase();
+    if (!label) continue;
+    const forms = new Set([label]);
+    if (label.endsWith("s")) forms.add(label.slice(0, -1));
+    else forms.add(label + "s");
+    const head = label.split(/\s+[—–-]\s+/)[0].trim();
+    if (head && head !== label) {
+      forms.add(head);
+      if (head.endsWith("s")) forms.add(head.slice(0, -1));
+      else forms.add(head + "s");
+    }
+    for (const w of forms) if (w.length >= 3) out.push({ key: c.key, w });
+  }
+  return out;
+}
 
 /* Strip the leading "1." / "1)" / "- " / bullet a pasted list carries. */
 function stripBullet(line) {
@@ -290,19 +330,65 @@ function readQty(text) {
   return { qty: n, at: m.index, len: m[0].length };
 }
 
+/* ---------- shelf / location ---------- */
+/* "shelf D-01", "rack 3 shelf 2", "bin 05", "loc A-R03-S02". Written on a
+   supplier's list as often as not, and it is the one detail that decides
+   whether the part can actually be found on the shelf. */
+function readLocation(text) {
+  const m =
+    text.match(/\b(?:loc(?:ation)?|shelf|rack|bin)\s*[:=]?\s*([A-Za-z]?[\w-]*(?:\s*[-/]\s*\w+)*)/i) ||
+    text.match(/\b([A-Z]-R\d{1,2}-S\d{1,2}(?:-B\d{1,2})?)\b/);
+  if (!m) return null;
+  const value = String(m[1] || "").trim().replace(/\s*-\s*/g, "-");
+  if (!value) return null;
+  return { location: value.toUpperCase(), at: m.index, len: m[0].length };
+}
+
+/* ---------- supplier ---------- */
+/* "supplier: Kariobangi", "bought from Gikomba", ", from Ex Japan". Where a
+   part came from is what the shop uses to reorder it.
+
+   The bare word "from" is treated carefully. "taillight from Nissan Note 2012"
+   names a vehicle, not a supplier, and reading it as one threw the brand and the
+   model away — the part then came back asking for both, which is worse than not
+   reading the supplier at all. So a capture that carries a year, a brand or a
+   model we know is handed back to the vehicle reader instead. */
+function readSupplier(text) {
+  const m =
+    text.match(/\b(?:supplier|source|bought from|sourced from)\s*[:=]?\s*([^,;()]{2,40})/i) ||
+    text.match(/\bfrom\s*[:=]?\s*([^,;()]{2,40})/i);
+  if (!m) return null;
+  const value = String(m[1] || "").trim().replace(/[.\s]+$/, "");
+  if (!value || /^\d+$/.test(value)) return null;
+  const low = value.toLowerCase();
+  if (/\b(?:19|20)\d{2}\b/.test(low)) return null;
+  if (BRAND_KEYS.some((k) => has(low, k))) return null;
+  if (MODEL_KEYS.some((k) => has(low, k))) return null;
+  return { supplier: value, at: m.index, len: m[0].length };
+}
+
 /* ---------- one line ---------- */
 
 /* Read a single written line into inventory fields.
    Returns null for a line with nothing in it (blank, or a heading like
    "Here's your list written clearly:"). */
-export function parsePartLine(rawLine) {
+export function parsePartLine(rawLine, categories = []) {
   const raw = tidy(rawLine);
   if (!raw) return null;
   const line = stripBullet(raw);
   if (!line) return null;
 
+  /* Sections the shop added itself are matched by their own name, so a pasted
+     "boot light - Toyota Premio 2016" files itself the same way a built-in
+     category does. Without this, every part in a new section would come back
+     asking which category it is. */
+  const extraCats = categoryPhrases(categories);
+  const allCatPhrases = extraCats.length
+    ? [...extraCats, ...CAT_PHRASES].sort((a, b) => b.w.length - a.w.length)
+    : CAT_PHRASES;
+
   // A heading, not a part: no letters that could be a part, ends in a colon.
-  if (/^[^:]{0,60}:$/.test(line) && !CAT_PHRASES.some((c) => has(line.toLowerCase(), c.w))) {
+  if (/^[^:]{0,60}:$/.test(line) && !allCatPhrases.some((c) => has(line.toLowerCase(), c.w))) {
     return null;
   }
 
@@ -319,6 +405,12 @@ export function parsePartLine(rawLine) {
     side: "",
     variant: "",
     condition: "",
+    color: "",
+    location: "",
+    supplier: "",
+    // Anything written on the line that isn't one of the fields above. Kept
+    // word for word - see the comment where it is worked out below.
+    extra: "",
     price: "",
     qty: "",
     missing: [],
@@ -333,7 +425,7 @@ export function parsePartLine(rawLine) {
     /* "front bumper" / "rear bumper" / "front door": the word is naming the
        part, not the side. Take it as a side only if no category phrase
        starting at the same place claims it. */
-    const claimedByCat = CAT_PHRASES.some((c) => c.w.startsWith(w + " ") && findPhrase(low, c.w) === at);
+    const claimedByCat = allCatPhrases.some((c) => c.w.startsWith(w + " ") && findPhrase(low, c.w) === at);
     if (claimedByCat && (side === "Front" || side === "Rear")) continue;
     out.side = side;
     sideSpan = { at, len: w.length };
@@ -342,7 +434,7 @@ export function parsePartLine(rawLine) {
 
   /* --- category --- */
   let catSpan = null;
-  for (const { key, w } of CAT_PHRASES) {
+  for (const { key, w } of allCatPhrases) {
     const at = findPhrase(low, w);
     if (at === -1) continue;
     out.cat = key;
@@ -381,19 +473,52 @@ export function parsePartLine(rawLine) {
   const qty = readQty(line);
   if (qty) out.qty = qty.qty;
 
-  /* --- variant / condition --- */
+  /* --- location / supplier --- */
+  const loc = readLocation(line);
+  if (loc) out.location = loc.location;
+  const sup = readSupplier(line);
+  if (sup) out.supplier = sup.supplier;
+
+  /* --- variant / condition / colour --- */
+  let variantSpan = null;
   for (const { variant, w } of VARIANT_PHRASES) {
-    if (has(low, w)) { out.variant = variant; break; }
+    const at = findPhrase(low, w);
+    if (at === -1) continue;
+    out.variant = variant;
+    variantSpan = { at, len: w.length };
+    break;
   }
+  let condSpan = null;
   for (const { condition, w } of CONDITION_PHRASES) {
-    if (has(low, w)) { out.condition = condition; break; }
+    const at = findPhrase(low, w);
+    if (at === -1) continue;
+    out.condition = condition;
+    condSpan = { at, len: w.length };
+    break;
+  }
+  let colourSpan = null;
+  for (const { w } of COLOUR_PHRASES) {
+    const at = findPhrase(low, w);
+    if (at === -1) continue;
+    /* A colour word inside a condition or variant phrase is not the colour:
+       "brand new" has no colour in it, but "clear" in "clear lens" does. The
+       guard is for overlaps like "Non Xenon" vs nothing - cheap insurance. */
+    const inside = (span) => span && at >= span.at && at < span.at + span.len;
+    if (inside(condSpan) || inside(variantSpan)) continue;
+    out.color = titleCase(w);
+    colourSpan = { at, len: w.length };
+    break;
   }
 
   /* --- brand --- */
   /* Blank out the parts of the line we have already understood, so a
      category or side word can never be read as a model name. */
-  const blanks = [catSpan, sideSpan, years && { at: years.at, len: years.len },
-                  price && { at: price.at, len: price.len }, qty && { at: qty.at, len: qty.len }]
+  const blanks = [catSpan, sideSpan, colourSpan, condSpan, variantSpan,
+                  years && { at: years.at, len: years.len },
+                  price && { at: price.at, len: price.len },
+                  qty && { at: qty.at, len: qty.len },
+                  loc && { at: loc.at, len: loc.len },
+                  sup && { at: sup.at, len: sup.len }]
     .filter(Boolean);
   let rest = low;
   for (const b of blanks) rest = rest.slice(0, b.at) + " ".repeat(b.len) + rest.slice(b.at + b.len);
@@ -472,6 +597,35 @@ export function parsePartLine(rawLine) {
     }
   }
 
+  /* --- anything else that was written down ---
+     Whatever is left once every field has taken its own words. This is the
+     point of the whole change: a line that says "with bracket, small crack on
+     the corner" was having that thrown away, so the person who typed it saw
+     their own note vanish and had no reason to trust the screen again. It is
+     kept word for word rather than interpreted - a note nobody understands is
+     still worth more than no note. */
+  {
+    let leftover = restRaw;
+    for (const b of [brandSpan, modelSpan].filter(Boolean)) {
+      leftover = leftover.slice(0, b.at) + " ".repeat(b.len) + leftover.slice(b.at + b.len);
+    }
+    // The series was lifted out of the text after the model, so take it out too.
+    if (out.series) {
+      const at = leftover.toUpperCase().indexOf(out.series);
+      if (at !== -1) leftover = leftover.slice(0, at) + " ".repeat(out.series.length) + leftover.slice(at + out.series.length);
+    }
+    /* Split on the punctuation a person uses to separate thoughts, not on
+       spaces: "small crack on the corner" is one note, not five words. */
+    const NOISE = /^(?:model|year|yr|for|the|a|an|of|and|with|hand|side|type|shape|series|pc|pcs|piece|pieces|is|it|its|to|no|km|only|each|from|at|in|on|by|as|its)$/i;
+    const bits = leftover
+      .split(/[,;()\[\]{}]|\s+[-–—]\s+|\s*\/\s*/)
+      .map((s) => s.replace(/\s+/g, " ").trim())
+      .filter((s) => s.length > 1 && /[a-z]{2}/i.test(s))
+      // A fragment that is nothing but filler words is not a note.
+      .filter((s) => s.split(/\s+/).some((w) => !NOISE.test(w.replace(/[^\w]/g, ""))));
+    if (bits.length) out.extra = bits.join("; ");
+  }
+
   /* --- what still needs a human --- */
   if (!out.cat) out.missing.push(out.catAsk || "category");
   if (!out.brand) out.missing.push("brand");
@@ -494,7 +648,7 @@ export function parsePartLine(rawLine) {
 /* Split on new lines, and also on ";" or " / " so a list pasted as one
    long paragraph still comes apart. Returns one row per part, each with
    an id so the review screen can edit them independently. */
-export function parsePartsList(text) {
+export function parsePartsList(text, categories = []) {
   const chunks = tidy(String(text || ""))
     // A numbered list pasted as one line: put the numbers back on their own.
     .replace(/\s+(\d{1,3})[.)]\s+/g, "\n$1. ")
@@ -504,7 +658,7 @@ export function parsePartsList(text) {
 
   const rows = [];
   for (const chunk of chunks) {
-    const row = parsePartLine(chunk);
+    const row = parsePartLine(chunk, categories);
     if (row) rows.push({ id: `r${rows.length}`, ...row });
   }
   return rows;
@@ -518,6 +672,16 @@ export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
   // An unknown year is saved as unknown, not as this year. Defaulting to
   // the current year made every yearless part look like a new model.
   const from = Number(row.yearFrom) || null;
+  const color = String(row.color || "").trim();
+
+  /* The note kept on the part. The extra words the person wrote come first,
+     because that is the bit somebody chose to say; the original line follows
+     so nothing they typed is lost even if it was read wrongly. */
+  const notes = [
+    String(row.extra || "").trim(),
+    row.raw && row.raw !== nameParts ? `From bulk entry: ${row.raw}` : "",
+  ].filter(Boolean).join("\n");
+
   return {
     cat: row.cat,
     brand: String(row.brand || "").trim(),
@@ -528,13 +692,19 @@ export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
     condition: row.condition || "Genuine Used",
     side: row.side || "Not Applicable",
     variant: String(row.variant || "").trim(),
-    color: "",
-    name: `${catLabel}${nameParts ? " - " + nameParts : ""}`.trim(),
+    color,
+    name: `${catLabel}${nameParts ? " - " + nameParts : ""}${color ? ` (${color})` : ""}`.trim(),
     price: Number(row.price) || 0,
-    qty: Number(row.qty) || 0,
+    /* A part being written into the system is a part the shop is holding, so
+       the smallest true quantity is one. Blank used to save as 0, which then
+       showed as "0 in stock" on a shelf that had the part on it - staff read
+       that as sold out and turned customers away. Nothing reaches zero except
+       by being sold or deducted. */
+    qty: Math.max(1, Number(row.qty) || 0),
     min: 3,
-    location: "Unassigned",
-    notes: row.raw && row.raw !== nameParts ? `From bulk entry: ${row.raw}` : "",
+    location: String(row.location || "").trim() || "Unassigned",
+    supplier: String(row.supplier || "").trim(),
+    notes,
     images: [],
     status: "Active",
   };

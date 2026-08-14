@@ -395,6 +395,77 @@ async function itemName(code) {
   return data?.name || code;
 }
 
+/* ---- CATEGORIES THE SHOP ADDS ITSELF ----
+   The built-in thirteen are in data.js; these are the extra sections an admin
+   creates in Settings (boot lights, hinges, bulbs, headlight computers…).
+   See supabase/part_categories.sql. */
+
+export async function fetchPartCategories() {
+  const { data, error } = await supabase
+    .from("part_categories")
+    .select("key,label,shelf,color,sort,created_by,created_at")
+    .order("sort", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map((c) => ({
+    key: c.key,
+    label: c.label,
+    shelf: c.shelf || "",
+    color: c.color || "#6B7480",
+    createdBy: c.created_by || "",
+    custom: true,
+  }));
+}
+
+export async function addPartCategory({ key, label, shelf, color }, byName) {
+  const { data, error } = await supabase
+    .from("part_categories")
+    .insert({
+      key: String(key || "").toUpperCase(),
+      label: String(label || "").trim(),
+      shelf: shelf || null,
+      color: color || null,
+      created_by: byName || null,
+    })
+    .select()
+    .single();
+  /* 23505 is a duplicate key. Two people naming a section at the same moment
+     is an ordinary thing to happen in a shop, and "duplicate key value
+     violates unique constraint" tells the person nothing they can act on. */
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error(`The code ${String(key).toUpperCase()} is already in use — try a different one.`);
+    }
+    throw error;
+  }
+  return { key: data.key, label: data.label, shelf: data.shelf || "", color: data.color || "#6B7480", custom: true };
+}
+
+/* Rename a section, or recolour it. The KEY is deliberately not editable:
+   it is stamped into every code that category has ever issued, so changing it
+   would leave the existing parts pointing at a category that no longer
+   exists. The label is only what it's called, so that can change freely. */
+export async function updatePartCategory(key, { label, shelf, color }) {
+  const patch = {};
+  if (label !== undefined) patch.label = String(label).trim();
+  if (shelf !== undefined) patch.shelf = shelf || null;
+  if (color !== undefined) patch.color = color || null;
+  if (!Object.keys(patch).length) return;
+  const { error } = await supabase.from("part_categories").update(patch).eq("key", key);
+  if (error) throw error;
+}
+
+/* Live-subscribe to added/renamed categories. A section created on the counter
+   phone has to reach the workshop phone, or the second person cannot file the
+   part they are holding. Returns an unsubscribe function. */
+export function subscribePartCategories(onChange) {
+  const ch = supabase
+    .channel("part-categories-changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "part_categories" }, (p) => onChange(p))
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
 /* ---- NOTIFICATIONS ---- */
 // Map a DB row to the shape the UI components already expect
 // (ts as a millisecond number, `by` instead of `by_name`).

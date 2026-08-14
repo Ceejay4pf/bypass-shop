@@ -6,11 +6,13 @@
    these hooks update state — so Bypass Shop and Jaspare Auto
    see changes within a second, no refresh needed.
 --------------------------------------------------------- */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "./supabase.js";
 import {
   fetchInventory, fetchInventoryImages, fetchNotifications, rowToItem, rowToNotif,
+  fetchPartCategories, subscribePartCategories,
 } from "./api.js";
+import { DEFAULT_CATEGORIES, mergeCategories } from "../data.js";
 
 /* Live inventory. Returns { items, loading, error, reload }. */
 export function useInventory() {
@@ -65,6 +67,33 @@ export function useInventory() {
   }, [reload]);
 
   return { items, loading, error, reload };
+}
+
+/* The category list: the built-in sections plus whatever the shop has added.
+   Returns { categories, reload }.
+
+   It never fails closed. If part_categories.sql has not been run, or the read
+   errors, the built-in thirteen are used - a shop that cannot list its own
+   sections cannot sell anything, so losing the added ones is bad but losing
+   all of them would stop the counter. */
+export function usePartCategories() {
+  const [extra, setExtra] = useState([]);
+
+  const reload = useCallback(async () => {
+    try {
+      setExtra(await fetchPartCategories());
+    } catch {
+      /* keep whatever we already have - see above */
+    }
+  }, []);
+
+  useEffect(() => {
+    reload();
+    return subscribePartCategories(() => reload());
+  }, [reload]);
+
+  const categories = useMemo(() => mergeCategories(extra, DEFAULT_CATEGORIES), [extra]);
+  return { categories, reload };
 }
 
 /* Live notifications feed. */

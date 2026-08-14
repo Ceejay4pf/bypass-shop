@@ -23,7 +23,8 @@ import {
 } from "./lib/appLock.js";
 import {
   CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
-  LOW_STOCK_THRESHOLD, categoryGroups,
+  LOW_STOCK_THRESHOLD, categoryGroups, CATEGORY_COLORS,
+  suggestCategoryKey, suggestShelf,
 } from "./data.js";
 import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
@@ -1932,7 +1933,11 @@ export function AddItemTab({ items, categories, onAdd }) {
           color.trim() ? ` (${color.trim()})` : ""
         }`.trim(),
       price: Number(price) || 0,
-      qty: Number(qty) || 0,
+      /* A part being written into the system is a part the shop is holding, so
+         one is the smallest true quantity. Blank used to save as 0, and "0 in
+         stock" on a shelf that has the part on it reads as sold out - staff
+         turned customers away over it. Only a sale or a deduction reaches zero. */
+      qty: Math.max(1, Number(qty) || 0),
       min: Number(min) || LOW_STOCK_THRESHOLD,
       location: previewLoc,
       notes: notes.trim(),
@@ -1951,8 +1956,10 @@ export function AddItemTab({ items, categories, onAdd }) {
 
       <div className="text-[#5A6472] text-xs mb-4 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
         Only a <span className="font-semibold text-[#1B2430]">brand or model</span> is required.
-        Fill in whatever else you know now — price, quantity, year, colour and photos can all be
-        added or edited later from Edit Parts and Add Stock.
+        Fill in whatever else you know now — price, year, colour and photos can all be
+        added or edited later from Edit Parts and Add Stock. Quantity starts at{" "}
+        <span className="font-semibold text-[#1B2430]">1</span> if you leave it blank: the part
+        is here, so it is in stock.
       </div>
 
       <Field label="Category / section">
@@ -2051,8 +2058,8 @@ export function AddItemTab({ items, categories, onAdd }) {
           </Field>
         </div>
         <div className="flex-1">
-          <Field label="Starting qty — optional">
-            <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" className={inputCls} />
+          <Field label="Starting qty">
+            <input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="1" className={inputCls} />
           </Field>
         </div>
         <div className="flex-1">
@@ -2134,7 +2141,9 @@ export function BulkAddTab({ items, categories, onAddMany }) {
   const [done, setDone] = useState(null); // { added, failed }
 
   const read = () => {
-    const parsed = parsePartsList(text);
+    // The shop's own sections are passed in, so "boot light - Toyota Premio"
+    // files itself instead of coming back asking which category it is.
+    const parsed = parsePartsList(text, categories);
     setRows(parsed);
     setOpenId(null);
     setDone(null);
@@ -2191,11 +2200,15 @@ export function BulkAddTab({ items, categories, onAddMany }) {
             Left-hand side headlight - Toyota Prado 150 (2016 model)
           </div>
           <div className="mt-2">
-            You can add a price and quantity if you know them — <span className="font-mono">@ 8500</span>{" "}
-            and <span className="font-mono">x2</span> — and words like{" "}
-            <span className="font-mono">brand new</span>, <span className="font-mono">ex japan</span>,{" "}
-            <span className="font-mono">xenon</span> are picked up too. Anything left out can be filled
-            in on the next screen or later from Edit Parts.
+            <span className="font-semibold text-[#1B2430]">Write everything you know</span> — it all
+            gets kept. Price <span className="font-mono">@ 8500</span>, quantity{" "}
+            <span className="font-mono">x2</span>, colour <span className="font-mono">silver</span>,
+            shelf <span className="font-mono">shelf D-01</span>, where it came from{" "}
+            <span className="font-mono">from Ex Japan</span>, and words like{" "}
+            <span className="font-mono">brand new</span>, <span className="font-mono">xenon</span>.
+            Anything the shop has no field for — “with bracket”, “small crack on the corner” — is
+            saved onto the part as a note rather than dropped. Everything is shown for checking on
+            the next screen.
           </div>
         </div>
 
@@ -2343,12 +2356,25 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
               row.side,
               row.variant,
               row.condition,
-              row.qty ? `${row.qty} pcs` : "",
+              row.color,
+              // Blank means 1, not 0 — the part is here. Say so on the line so
+              // nobody is surprised by what gets saved.
+              `${Math.max(1, Number(row.qty) || 0)} pc${Math.max(1, Number(row.qty) || 0) !== 1 ? "s" : ""}`,
               row.price ? `KES ${Number(row.price).toLocaleString()}` : "",
+              row.location && `Shelf ${row.location}`,
+              row.supplier && `from ${row.supplier}`,
             ]
               .filter(Boolean)
               .join(" · ") || row.raw}
           </div>
+          {/* The words that didn't belong to any field. Shown here because a
+              note the person typed and can't see is a note they assume was
+              lost — which is exactly what used to happen. */}
+          {row.extra && (
+            <div className="text-[11px] text-[#2563EB] truncate mt-0.5" title={row.extra}>
+              Also noted: {row.extra}
+            </div>
+          )}
           {bad && (
             <div className="text-[11px] text-[#DC3B2E] font-semibold mt-0.5">
               Still needs: {row.missing.join(", ")}
@@ -2437,11 +2463,45 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
               </Field>
             </div>
             <div className="flex-1">
-              <Field label="Quantity — optional">
-                <input type="number" value={row.qty} onChange={(e) => onPatch({ qty: e.target.value })} placeholder="0" className={inputCls} />
+              <Field label="Quantity">
+                <input type="number" min="1" value={row.qty} onChange={(e) => onPatch({ qty: e.target.value })} placeholder="1" className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Colour">
+                <input value={row.color || ""} onChange={(e) => onPatch({ color: e.target.value })} placeholder="Silver" className={inputCls} />
               </Field>
             </div>
           </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label="Shelf / location">
+                <input value={row.location || ""} onChange={(e) => onPatch({ location: e.target.value })} placeholder="Unassigned" className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Supplier">
+                <input value={row.supplier || ""} onChange={(e) => onPatch({ supplier: e.target.value })} placeholder="Ex Japan" className={inputCls} />
+              </Field>
+            </div>
+          </div>
+
+          {/* Anything else the line said, kept as written and editable. It is
+              saved onto the part, so what the person typed survives even when
+              the shop has no field for it. */}
+          <Field
+            label="Anything else written on the line"
+            hint="Saved onto the part as a note. Nothing you typed is thrown away."
+          >
+            <textarea
+              value={row.extra || ""}
+              onChange={(e) => onPatch({ extra: e.target.value })}
+              rows={2}
+              placeholder="e.g. with bracket, small crack on the corner"
+              className={inputCls}
+            />
+          </Field>
 
           {preview && (
             <div className="text-xs text-[#5A6472] mb-3">
@@ -2833,6 +2893,12 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
     () => (initialCode ? items.find((i) => i.code === initialCode) || null : null)
   );
   const [qty, setQty] = useState("1");
+  /* What it actually sold for, per piece. Parts get haggled over and sold at a
+     discount or above the shelf price, and the sale was being recorded at the
+     list price regardless — so the money in the drawer never matched the sales
+     figure, and every profit number downstream was wrong. Blank means the
+     shelf price, so the ordinary sale is still one less thing to type. */
+  const [unitPrice, setUnitPrice] = useState("");
   const [buyer, setBuyer] = useState("");
   const [phone, setPhone] = useState("");
   const [payment, setPayment] = useState("Paid");
@@ -2852,8 +2918,15 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
   // from another branch there is no local cap.
   const cap = deduct ? (selected ? selected.qty : 0) : Infinity;
   const n = selected ? Math.max(1, Math.min(Number(qty) || 1, cap)) : 0;
-  const total = selected ? n * Number(selected.price) : 0;
-  const reset = () => { setSelected(null); setQty("1"); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); setMethod("Cash"); };
+  const listPrice = selected ? Number(selected.price) || 0 : 0;
+  /* A typed 0 is honoured — a part genuinely given away free is a real thing
+     and pretending it sold at list price would put money in the cash book that
+     never arrived. Only a BLANK box falls back to the shelf price. */
+  const typedPrice = unitPrice.trim() === "" ? null : Number(unitPrice);
+  const effectivePrice = typedPrice !== null && isFinite(typedPrice) && typedPrice >= 0 ? typedPrice : listPrice;
+  const total = selected ? n * effectivePrice : 0;
+  const priceChanged = selected && effectivePrice !== listPrice;
+  const reset = () => { setSelected(null); setQty("1"); setUnitPrice(""); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); setMethod("Cash"); };
 
   return (
     <div className="bp-fade-up">
@@ -2908,9 +2981,53 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
               <input value={sourceBranch} onChange={(e) => setSourceBranch(e.target.value)} placeholder="e.g. Jaspare Auto Main" className={inputCls} />
             </Field>
           )}
-          <Field label={deduct ? `Quantity sold (max ${selected.qty})` : "Quantity sold"}>
-            <input type="number" min="1" max={deduct ? selected.qty : undefined} value={qty} onChange={(e) => setQty(e.target.value)} className={inputCls} />
-          </Field>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field label={deduct ? `Quantity sold (max ${selected.qty})` : "Quantity sold"}>
+                <input type="number" min="1" max={deduct ? selected.qty : undefined} value={qty} onChange={(e) => setQty(e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field
+                label="Price each (KES)"
+                hint={
+                  listPrice
+                    ? `Shelf price is ${listPrice.toLocaleString()}. Change it if it sold for something else.`
+                    : "This part has no price on the shelf — type what it sold for."
+                }
+              >
+                <input
+                  type="number"
+                  min="0"
+                  value={unitPrice}
+                  onChange={(e) => setUnitPrice(e.target.value)}
+                  placeholder={listPrice ? String(listPrice) : "0"}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+          </div>
+          {/* A changed price is worth saying out loud: it is what goes on the
+              receipt and into the cash book, and a mistyped figure here is a
+              figure nobody can reconcile later. */}
+          {priceChanged && (
+            <div className="text-xs mb-4 -mt-2 flex items-start gap-1.5 text-[#B45309]">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>
+                Selling at{" "}
+                <span className="font-semibold">KES {effectivePrice.toLocaleString()}</span> each
+                {listPrice ? (
+                  <>
+                    {" "}instead of the shelf price of {listPrice.toLocaleString()} —{" "}
+                    {effectivePrice < listPrice
+                      ? `${(listPrice - effectivePrice).toLocaleString()} less`
+                      : `${(effectivePrice - listPrice).toLocaleString()} more`}
+                    . The shelf price itself is unchanged.
+                  </>
+                ) : "."}
+              </span>
+            </div>
+          )}
           <div className="flex gap-3">
             <div className="flex-1">
               <Field label="Customer name">
@@ -2974,7 +3091,7 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
           <div className="text-sm text-[#5A6472] mb-3">
             Total:{" "}
             <span className="text-[#2563EB] font-bold">KES {total.toLocaleString()}</span>{" "}
-            ({n} × {Number(selected.price).toLocaleString()})
+            ({n} × {effectivePrice.toLocaleString()})
             {!deduct && (
               <div className="mt-1 text-[12px] text-[#B45309]">
                 Stock here will NOT change — recorded as supplied by {sourceBranch || "another branch"}.
@@ -4395,7 +4512,214 @@ function RolePasswordsCard({ admin }) {
   );
 }
 
-export function SettingsTab({ categories, user, email, admin }) {
+/* ---- Categories, including the ones the shop adds itself ----
+   The built-in thirteen never covered everything: boot lights, hinges, bulbs,
+   headlight computers. A part with nowhere to go was getting filed under
+   something it isn't, which then hid it from whoever went looking. */
+function CategoriesCard({ categories, admin, user, onChanged }) {
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState("");
+  const [key, setKey] = useState("");
+  // Whether the person has typed a code themselves. Until they do, it follows
+  // the name they're typing — but it must stop the moment they take it over.
+  const [keyEdited, setKeyEdited] = useState(false);
+  const [shelf, setShelf] = useState("");
+  const [color, setColor] = useState(CATEGORY_COLORS[0]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+
+  const taken = categories.map((c) => c.key);
+  const autoKey = suggestCategoryKey(label, taken);
+  const finalKey = (keyEdited ? key : autoKey).toUpperCase();
+  const clash = finalKey.length === 3 && taken.includes(finalKey);
+  const nameClash = categories.some(
+    (c) => c.label.trim().toLowerCase() === label.trim().toLowerCase()
+  );
+
+  const open = () => {
+    setAdding(true);
+    setLabel(""); setKey(""); setKeyEdited(false);
+    setShelf(suggestShelf(categories));
+    setColor(CATEGORY_COLORS[categories.length % CATEGORY_COLORS.length]);
+    setErr(""); setOk("");
+  };
+
+  const save = async () => {
+    if (!label.trim()) { setErr("Give the section a name."); return; }
+    if (finalKey.length !== 3) { setErr("The code must be exactly 3 letters."); return; }
+    if (clash) { setErr(`The code ${finalKey} is already used by another section.`); return; }
+    setBusy(true); setErr("");
+    try {
+      await api.addPartCategory(
+        { key: finalKey, label: label.trim(), shelf: shelf.trim(), color },
+        user
+      );
+      setOk(`${label.trim()} added — parts filed here will be coded ${finalKey}-…`);
+      setAdding(false);
+      onChanged?.();
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const custom = categories.filter((c) => c.custom);
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="text-sm font-bold uppercase tracking-wide">Categories</div>
+        {admin && !adding && (
+          <button
+            onClick={open}
+            className="text-xs font-bold uppercase tracking-wide text-[#2563EB] border border-[#DEE3E9] rounded-md px-3 py-1.5 flex items-center gap-1.5 hover:border-[#2563EB]"
+          >
+            <Plus size={13} /> Add a category
+          </button>
+        )}
+      </div>
+
+      {ok && (
+        <div className="text-xs bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-2.5 mb-3 flex items-start gap-1.5">
+          <Check size={13} className="mt-0.5 shrink-0" /> {ok}
+        </div>
+      )}
+
+      {adding && (
+        <div className="border border-[#DEE3E9] rounded-md p-3 mb-3 bg-[#EEF2F6]">
+          <p className="text-xs text-[#5A6472] mb-3 leading-relaxed">
+            Anything the shop stocks that doesn’t fit the sections above — boot lights,
+            hinges, bulbs, headlight computers. It behaves like any other section
+            afterwards: it shows up everywhere a category is chosen, and gets its own
+            code prefix and shelf.
+          </p>
+
+          <Field label="What is it called?">
+            <input
+              value={label}
+              onChange={(e) => { setLabel(e.target.value); setErr(""); }}
+              placeholder="Boot Lights"
+              className={inputCls}
+              autoFocus
+            />
+          </Field>
+          {nameClash && (
+            <p className="text-xs text-[#DC3B2E] -mt-2 mb-3">
+              There is already a section called that.
+            </p>
+          )}
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Field
+                label="Code prefix"
+                hint="3 letters, stamped on every code this section issues. It cannot be changed later."
+              >
+                <input
+                  value={keyEdited ? key : autoKey}
+                  onChange={(e) => {
+                    setKeyEdited(true);
+                    setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3));
+                    setErr("");
+                  }}
+                  placeholder="BTL"
+                  maxLength={3}
+                  className={inputCls + " font-mono uppercase"}
+                />
+              </Field>
+            </div>
+            <div className="flex-1">
+              <Field label="Shelf">
+                <input value={shelf} onChange={(e) => setShelf(e.target.value)} placeholder="I-01" className={inputCls} />
+              </Field>
+            </div>
+          </div>
+          {clash && (
+            <p className="text-xs text-[#DC3B2E] -mt-2 mb-3">
+              {finalKey} is already used by{" "}
+              {categories.find((c) => c.key === finalKey)?.label}.
+            </p>
+          )}
+
+          <Field label="Colour">
+            <div className="flex flex-wrap gap-2">
+              {CATEGORY_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  className={`w-8 h-8 rounded-md border-2 ${color === c ? "border-[#1B2430]" : "border-transparent"}`}
+                  style={{ backgroundColor: c }}
+                  title={c}
+                  aria-label={`Colour ${c}`}
+                />
+              ))}
+            </div>
+          </Field>
+
+          {label.trim() && finalKey.length === 3 && (
+            <div className="text-xs text-[#5A6472] mb-3">
+              Codes will read{" "}
+              <span className="font-mono text-[#2563EB]">{finalKey}-TOY-PRE-16-0042</span>
+            </div>
+          )}
+
+          {err && (
+            <div className="text-[#DC3B2E] text-xs mb-3 flex items-start gap-1.5">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {err}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={save}
+              disabled={busy || !label.trim() || finalKey.length !== 3 || clash}
+              className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide text-xs rounded-md py-2.5 flex items-center justify-center gap-1.5 disabled:opacity-40"
+            >
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+              {busy ? "Saving…" : "Add the section"}
+            </button>
+            <button
+              onClick={() => { setAdding(false); setErr(""); }}
+              className="text-xs font-bold uppercase tracking-wide text-[#5A6472] border border-[#DEE3E9] rounded-md px-3"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {categories.map((c) => (
+          <span
+            key={c.key}
+            className="flex items-center gap-1.5 text-xs bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1"
+          >
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+            <span className="font-mono">{c.key}</span> {c.label}
+            {c.custom && (
+              <span className="text-[9px] font-bold uppercase tracking-wide text-[#15926A]">added</span>
+            )}
+          </span>
+        ))}
+      </div>
+
+      <p className="text-[11px] text-[#5A6472] mt-3 leading-relaxed">
+        {custom.length > 0 && (
+          <>
+            {custom.length} section{custom.length !== 1 ? "s" : ""} added by the shop.{" "}
+          </>
+        )}
+        A section can’t be removed once parts are filed under it — their codes start with
+        its prefix, so deleting it would leave real stock with no section to belong to.
+        {!admin && " Only an admin can add one."}
+      </p>
+    </div>
+  );
+}
+
+export function SettingsTab({ categories, user, email, admin, onCategoriesChanged }) {
   return (
     <div className="bp-fade-up">
       <SectionTitle eyebrow="System" title="Settings" />
@@ -4465,17 +4789,12 @@ export function SettingsTab({ categories, user, email, admin }) {
 
       <StaffDirectoryCard admin={admin} />
 
-      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
-        <div className="text-sm font-bold uppercase tracking-wide mb-3">Categories</div>
-        <div className="flex flex-wrap gap-2">
-          {categories.map((c) => (
-            <span key={c.key} className="flex items-center gap-1.5 text-xs bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-              <span className="font-mono">{c.key}</span> {c.label}
-            </span>
-          ))}
-        </div>
-      </div>
+      <CategoriesCard
+        categories={categories}
+        admin={admin}
+        user={user}
+        onChanged={onCategoriesChanged}
+      />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">System Information &amp; Future Features</div>

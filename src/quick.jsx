@@ -88,7 +88,12 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
           yearTo: Number(year) || null,
           condition, side, variant: variant.trim(), color: color.trim(),
           name: `${catLabel} — ${brand.trim()} ${model.trim()}${variant.trim() ? ` (${variant.trim()})` : ""}`,
-          price: Number(price), qty: Number(qty), min: LOW_STOCK_THRESHOLD,
+          price: Number(price),
+          /* One is the smallest true quantity for a part being created: it is
+             in the shop, or it wouldn't be being typed in. "0 in stock" on a
+             full shelf reads as sold out and loses a sale. */
+          qty: Math.max(1, Number(qty) || 0),
+          min: LOW_STOCK_THRESHOLD,
           location: formatLocation({ warehouse, rack, shelf, bin }),
           supplier: supplier.trim(), notes: "", images: [], status: "Active",
         },

@@ -46,7 +46,15 @@ and syncs live, so two staff on two phones always see the same stock.
 - **Inventory** — grouped by category, multi-select for bulk add-stock or delete.
 - **Low Stock** — everything at or below its own low-stock level.
 - **Inventory Ledger** — the full movement history of any part.
-- **Add New Item** — auto code (e.g. `FBM-MZD-AXL-18-0001`), photos, location, condition, side, colour, low-stock level.
+- **Add New Item** — auto code (e.g. `FBM-MZD-AXL-18-0001`), photos, location,
+  condition, side, colour, low-stock level. Quantity starts at **1**, never 0 —
+  see [Quantity is never zero](#quantity-is-never-zero).
+- **Add a Whole List** — paste a written list and every line is read into a part.
+  Anything on the line that isn't one of the fields is **kept as it was written**
+  and saved as a note on the part: "with bracket, small crack on the corner"
+  stays on the part instead of being thrown away. Price, quantity, colour, shelf
+  and supplier are read off the line too, and sections the shop added itself are
+  recognised by name, so a pasted "boot light — Toyota Premio 2016" files itself.
 - **Edit Parts** — correct details, price and photos after the fact.
 - **Add New Stock** — find a part, increase the quantity, logged with who and when.
 - **Print Stock** — a printable list of the parts held. Tick **as many
@@ -57,11 +65,14 @@ and syncs live, so two staff on two phones always see the same stock.
   be handed to a customer or sent to another branch as it is.
 
 **Selling**
-- **Sell Item** — quantity, customer, phone, paid or pending, and — when it was
-  paid — whether the money went into **Cash**, **M-PESA** or the **Bank**, which
-  is what keeps the cash book's three columns apart. Choose per sale whether the
-  goods leave *this* branch's stock or were supplied by another branch (in which
-  case our count is untouched).
+- **Sell Item** — quantity, **the price it actually sold for**, customer, phone,
+  paid or pending, and — when it was paid — whether the money went into **Cash**,
+  **M-PESA** or the **Bank**, which is what keeps the cash book's three columns
+  apart. The price box starts blank and means *the shelf price*, so an ordinary
+  sale is one less thing to type; type over it and the screen says how much above
+  or below the shelf price the part went for. The shelf price itself is unchanged
+  — only this sale. Choose per sale whether the goods leave *this* branch's stock
+  or were supplied by another branch (in which case our count is untouched).
 - **Quick Transaction** — one fast screen for add / sell / adjust.
 - **Quotation** — priced quotes, printable or sent on WhatsApp.
 - **Receipt** — receipt, invoice or delivery note; automatic **PAID /
@@ -84,7 +95,8 @@ and syncs live, so two staff on two phones always see the same stock.
 - **Staff Approvals / My Permissions** — an admin decides who may delete, edit,
   add items or use Quick Transaction.
 - **Settings** — role passwords, staff directory, biometric app lock, shop
-  contacts, categories.
+  contacts, and **categories — where an admin adds a section of their own**. See
+  [Adding a category](#adding-a-category).
 
 ## Who logs in
 
@@ -155,6 +167,56 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `supabase/receipts.sql`, `credit_accounts.sql`, `transfers.sql` — the later tables
 - `supabase/email_verification.sql` — emailed sign-up codes (see below)
 - `supabase/finance.sql` — the financial statements (see below)
+- `supabase/part_categories.sql` — the sections the shop adds itself (see below)
+
+### Adding a category
+
+The system starts with thirteen sections — bumpers, mirrors, lights, doors and
+the rest. A shop stocks more than that. **Settings → Categories → Add a
+section** lets an admin name one: boot lights, hinges, bulbs, headlight
+computers, bumper slides, whatever is on the shelf.
+
+An added section behaves exactly like a built-in one. It appears in Add New
+Item, Search, Inventory, Print Stock, Sell, Reports and the dashboard, it gets
+its own colour and shelf label, and the plain-English list reader learns its
+name — so pasting *"boot light — Toyota Premio 2016"* files itself without
+anyone choosing a category.
+
+Each section owns a **three-letter code** that starts every part code it ever
+issues (`BTL-TOY-PRE-16-0042`). The app suggests one from the name and refuses a
+code already in use. Two things follow from that code, and the screen says both:
+
+- **The code can never be changed.** It is already printed inside the code of
+  every part filed under it. The name, colour and shelf label can be corrected
+  at any time; the three letters cannot.
+- **A section can never be deleted.** Deleting it would not delete the parts —
+  their codes still start with those letters, and the app would have nothing left
+  to name the section with, so a shelf of real stock would read as *unknown*. The
+  database has no delete policy at all, so this holds even for an admin.
+
+Adding a section is admin-only; **everybody** can read the list, because a staff
+member has to be able to say which section a part belongs to.
+
+To switch it on: run `supabase/part_categories.sql` in the Supabase SQL editor.
+It seeds Boot Lights, Hinges, Bulbs and Headlight Computers to start with. Until
+you run it the shop simply sees the built-in thirteen and everything else keeps
+working — the app never fails closed on this, because a shop that can't list its
+own sections can't sell anything.
+
+The admin list in `part_categories.sql`'s `is_shop_admin()` must match
+`ADMIN_EMAILS` in `src/lib/roles.js`, or the Add button appears for someone the
+database will refuse.
+
+### Quantity is never zero
+
+A part being typed into the system is a part the shop is holding, so the smallest
+true quantity is **one**. Leave the box blank and it saves as 1 — in Add New
+Item, in Quick Transaction and on every line of a pasted list.
+
+Blank used to save as 0, and "0 in stock" on a shelf with the part sitting on it
+reads as sold out. Staff turned customers away over it. **Only a sale, a
+deduction or a stock adjustment reaches zero** — so a zero on screen now means
+the shelf is genuinely empty.
 
 ### Financial statements
 
