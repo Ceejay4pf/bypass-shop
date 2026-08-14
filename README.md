@@ -73,6 +73,9 @@ and syncs live, so two staff on two phones always see the same stock.
   or below the shelf price the part went for. The shelf price itself is unchanged
   — only this sale. Choose per sale whether the goods leave *this* branch's stock
   or were supplied by another branch (in which case our count is untouched).
+  A part the system says it has **none of is still sellable**: tap it and either
+  put the real shelf count in right there, or record it as another branch's
+  goods. See [When the count says zero](#when-the-count-says-zero).
 - **Quick Transaction** — one fast screen for add / sell / adjust.
 - **Quotation** — priced quotes, printable or sent on WhatsApp.
 - **Receipt** — receipt, invoice or delivery note; automatic **PAID /
@@ -169,17 +172,35 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `supabase/finance.sql` — the financial statements (see below)
 - `supabase/part_categories.sql` — the sections the shop adds itself (see below)
 
-### Adding a category
+### The sections stock is filed under
 
-The system starts with thirteen sections — bumpers, mirrors, lights, doors and
-the rest. A shop stocks more than that. **Settings → Categories → Add a
-section** lets an admin name one: boot lights, hinges, bulbs, headlight
-computers, bumper slides, whatever is on the shelf.
+Twenty-six of them, built in and ready to use:
+
+| | |
+|---|---|
+| **Body** | Wing — Left / Right · Doors · Front Bumpers · Rear Bumpers · Bonnets · Boots · Bumper Slides · Grilles |
+| **Lights** | Headlights · Taillights · Boot Lights · Fog Lights · Indicators |
+| **Electrical** | Bulbs · Headlight Computers (ballasts, modules) |
+| **Mirrors** | Side Mirrors — With Indicator / Plain |
+| **Mechanical** | Radiators · Engine Parts · Suspension · Boot Shocks · Hinges |
+| **Other** | Interior Parts · Glass & Windscreens · **Other Parts** |
+
+**Other Parts** is the honest home for anything genuinely one-off, so a part
+never has to be filed under something it isn't just to get it saved.
+
+There is no *Fenders* section on purpose — a fender **is** a wing, and the two
+Wing sections already hold them. A second name for the same shelf would split
+the same parts across two codes.
+
+### Adding a section of your own
+
+Still something missing? **Settings → Categories → Add a section** lets an admin
+name one — wiper blades, mud flaps, whatever turns up.
 
 An added section behaves exactly like a built-in one. It appears in Add New
 Item, Search, Inventory, Print Stock, Sell, Reports and the dashboard, it gets
 its own colour and shelf label, and the plain-English list reader learns its
-name — so pasting *"boot light — Toyota Premio 2016"* files itself without
+name — so pasting *"wiper blade — Toyota Premio 2016"* files itself without
 anyone choosing a category.
 
 Each section owns a **three-letter code** that starts every part code it ever
@@ -197,11 +218,11 @@ code already in use. Two things follow from that code, and the screen says both:
 Adding a section is admin-only; **everybody** can read the list, because a staff
 member has to be able to say which section a part belongs to.
 
-To switch it on: run `supabase/part_categories.sql` in the Supabase SQL editor.
-It seeds Boot Lights, Hinges, Bulbs and Headlight Computers to start with. Until
-you run it the shop simply sees the built-in thirteen and everything else keeps
-working — the app never fails closed on this, because a shop that can't list its
-own sections can't sell anything.
+Adding sections of your own needs `supabase/part_categories.sql` run once in the
+Supabase SQL editor. That is **optional** — the twenty-six above are built into
+the app and need no SQL at all. Until you run it the *Add a section* form is the
+only thing that doesn't work; everything else is unaffected, because a shop that
+can't list its own sections can't sell anything.
 
 The admin list in `part_categories.sql`'s `is_shop_admin()` must match
 `ADMIN_EMAILS` in `src/lib/roles.js`, or the Add button appears for someone the
@@ -217,6 +238,24 @@ Blank used to save as 0, and "0 in stock" on a shelf with the part sitting on it
 reads as sold out. Staff turned customers away over it. **Only a sale, a
 deduction or a stock adjustment reaches zero** — so a zero on screen now means
 the shelf is genuinely empty.
+
+### When the count says zero
+
+Parts keyed in before that rule existed are still sitting on 0, and Sell Item
+used to grey them out — a dead end with a customer standing there, so the sale
+went in the exercise book and the system fell further behind.
+
+Now the part is tappable. The screen says *the system says there are none of
+these left* and offers the two things that are actually true:
+
+- **It is on the shelf and the count is wrong.** Type how many are really there
+  and it is corrected on the spot, logged as a restock with your name on it, then
+  the sale goes through. No leaving the screen and searching for the part twice.
+- **It came from another branch.** Choose **Another branch** and our count is
+  left alone, which is what should happen to goods that were never ours.
+
+Confirming is blocked until one of those is done, because a sale deducted from a
+count of none records money against stock that was never there.
 
 ### Financial statements
 

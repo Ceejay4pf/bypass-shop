@@ -16,3 +16,8 @@ supabase/.temp/
 
 # Claude Code local tool permissions - not part of the shop
 .claude/
+
+# Scratch files: throwaway test scripts and commit messages
+_msg.txt
+_t*.mjs
+_live.js

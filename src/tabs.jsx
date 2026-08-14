@@ -2886,12 +2886,27 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
 }
 
 /* ======================= SELL ======================= */
-export function SellTab({ items, categories, onSell, initialCode = "" }) {
+export function SellTab({ items, categories, onSell, onAddStock, initialCode = "" }) {
   const [query, setQuery] = useState("");
   // A part long-pressed in Search arrives already chosen.
-  const [selected, setSelected] = useState(
+  const [picked, setPicked] = useState(
     () => (initialCode ? items.find((i) => i.code === initialCode) || null : null)
   );
+  /* Always the live row, not the copy taken when it was tapped. The count can
+     change under us — another phone sells one, or the count is corrected right
+     here — and a stale copy would price and cap the sale against a number that
+     is no longer true. */
+  const selected = useMemo(
+    () => (picked ? items.find((i) => i.code === picked.code) || picked : null),
+    [items, picked]
+  );
+  const setSelected = setPicked;
+  /* Correcting a wrong count from this screen, without leaving the sale.
+     A part the system says it holds none of but which is sitting on the shelf
+     used to be a dead end here: the row greyed out with nothing to tap, so the
+     sale went in the exercise book instead and the system fell further behind. */
+  const [fixQty, setFixQty] = useState("");
+  const [fixing, setFixing] = useState(false);
   const [qty, setQty] = useState("1");
   /* What it actually sold for, per piece. Parts get haggled over and sold at a
      discount or above the shelf price, and the sale was being recorded at the
@@ -2926,6 +2941,10 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
   const effectivePrice = typedPrice !== null && isFinite(typedPrice) && typedPrice >= 0 ? typedPrice : listPrice;
   const total = selected ? n * effectivePrice : 0;
   const priceChanged = selected && effectivePrice !== listPrice;
+  /* Nothing to deduct and nothing said about where it came from: the sale would
+     record against stock that isn't there. Correcting the count or marking it as
+     another branch's goods both clear it. */
+  const blocked = Boolean(selected && deduct && selected.qty === 0);
   const reset = () => { setSelected(null); setQty("1"); setUnitPrice(""); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); setMethod("Cash"); };
 
   return (
@@ -2937,14 +2956,19 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Code, name, or vehicle…" className={inputCls} autoFocus />
           </Field>
           <div className="space-y-2">
+            {/* A part showing none in stock is still tappable. It may be on the
+                shelf with the count wrong, or it may be coming from another
+                branch — both are real sales, and refusing the tap meant the only
+                way to record either was on paper. What to do about the zero is
+                asked on the next screen, where the part is in front of us. */}
             {matches.map((it) => (
-              <button
-                key={it.code}
-                onClick={() => it.qty > 0 && setSelected(it)}
-                disabled={it.qty === 0}
-                className={`w-full text-left ${it.qty === 0 ? "opacity-50" : ""}`}
-              >
+              <button key={it.code} onClick={() => setSelected(it)} className="w-full text-left">
                 <ItemCard item={it} categories={categories} />
+                {it.qty === 0 && (
+                  <div className="text-[11px] text-[#B45309] pl-1 pt-0.5">
+                    System says none left — tap if you have it, or it came from another branch.
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -2981,10 +3005,63 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
               <input value={sourceBranch} onChange={(e) => setSourceBranch(e.target.value)} placeholder="e.g. Jaspare Auto Main" className={inputCls} />
             </Field>
           )}
+          {/* The count says none, but the part is here. Put the real number in
+              from this screen: sending the person to Add New Stock to fix it and
+              back again to sell is two screens too many while a customer waits,
+              and what happened instead was that the sale never got typed in. */}
+          {selected.qty === 0 && deduct && (
+            <div className="mb-4 rounded-md border border-[#D4A72C] bg-[#D4A72C14] p-3">
+              <div className="text-[13px] font-semibold text-[#B45309] mb-1">
+                The system says there are none of these left.
+              </div>
+              <div className="text-[12px] text-[#5A6472] mb-2">
+                If it is on the shelf the count is wrong — type how many are actually
+                there and it is corrected before the sale. If it came from another
+                branch, choose <b>Another branch</b> above instead.
+              </div>
+              {onAddStock ? (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    value={fixQty}
+                    onChange={(e) => setFixQty(e.target.value)}
+                    placeholder="How many are on the shelf?"
+                    className={inputCls + " flex-1"}
+                  />
+                  <button
+                    onClick={async () => {
+                      const n = Number(fixQty);
+                      if (!(n > 0)) return;
+                      setFixing(true);
+                      try {
+                        /* No optimistic bump: the count shown comes from `items`,
+                           so it moves only when the write really landed. A save
+                           that failed leaves the banner up, which is the truth. */
+                        await onAddStock(selected.code, n);
+                        setFixQty("");
+                      } finally {
+                        setFixing(false);
+                      }
+                    }}
+                    disabled={fixing || !(Number(fixQty) > 0)}
+                    className="px-4 rounded-md bg-[#B45309] text-[#F3F5F8] font-bold uppercase text-xs tracking-wide disabled:opacity-50"
+                  >
+                    {fixing ? "Saving…" : "Correct it"}
+                  </button>
+                </div>
+              ) : (
+                <div className="text-[12px] text-[#B45309]">
+                  Ask someone who can add stock to correct the count, or record it as
+                  supplied by another branch.
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex gap-3">
             <div className="flex-1">
-              <Field label={deduct ? `Quantity sold (max ${selected.qty})` : "Quantity sold"}>
-                <input type="number" min="1" max={deduct ? selected.qty : undefined} value={qty} onChange={(e) => setQty(e.target.value)} className={inputCls} />
+              <Field label={deduct && selected.qty > 0 ? `Quantity sold (max ${selected.qty})` : "Quantity sold"}>
+                <input type="number" min="1" max={deduct && selected.qty > 0 ? selected.qty : undefined} value={qty} onChange={(e) => setQty(e.target.value)} className={inputCls} />
               </Field>
             </div>
             <div className="flex-1">
@@ -3097,6 +3174,11 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
                 Stock here will NOT change — recorded as supplied by {sourceBranch || "another branch"}.
               </div>
             )}
+            {blocked && (
+              <div className="mt-1 text-[12px] text-[#B45309]">
+                Correct the count above, or mark it as supplied by another branch, before confirming.
+              </div>
+            )}
           </div>
           <div className="flex gap-3">
             <button
@@ -3105,13 +3187,17 @@ export function SellTab({ items, categories, onSell, initialCode = "" }) {
             >
               Cancel
             </button>
+            {/* Selling from a count of none would deduct nothing and leave the
+                sale sitting against stock we never had. Either the count gets
+                corrected above, or it is recorded as another branch's goods. */}
             <button
               onClick={() => {
                 onSell({ code: selected.code, qty: n, buyer, phone, paid: payment === "Paid",
                          total, method, deduct, sourceBranch });
                 reset();
               }}
-              className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2"
+              disabled={blocked}
+              className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <ShoppingCart size={18} /> Confirm sale
             </button>

@@ -39,6 +39,21 @@ const CATEGORY_WORDS = {
   SMI: ["side mirror with indicator", "mirror with indicator", "side mirror indicator", "indicator mirror", "mirror with signal"],
   SMN: ["side mirror", "side mirrors", "door mirror", "wing mirror", "mirror", "mirrors", "plain mirror", "side mirror plain"],
   BPS: ["bumper slide", "bumper slides", "bumper support", "bumper bracket", "bumper slider"],
+  BTL: ["boot light", "boot lights", "boot lamp", "tailgate light", "boot garnish light"],
+  FGL: ["fog light", "fog lights", "fog lamp", "fog lamps", "foglight", "foglamp", "spot light", "spot lamp"],
+  IND: ["indicator", "indicators", "indicator light", "signal light", "turn signal", "side repeater", "blinker"],
+  /* "headlight bulb" is a bulb, not a headlight — the longest phrase wins, so
+     the compound forms have to be listed or the unit categories claim them. */
+  BLB: ["headlight bulb", "headlamp bulb", "taillight bulb", "indicator bulb", "fog light bulb",
+        "light bulb", "bulb", "bulbs", "globe", "h4 bulb", "h7 bulb"],
+  HLC: ["headlight computer", "headlight computers", "headlamp computer", "hid ballast", "ballast", "headlight ballast", "xenon ballast", "headlight module", "led driver"],
+  HNG: ["hinge", "hinges", "door hinge", "door hinges", "bonnet hinge", "boot hinge", "hood hinge"],
+  GRL: ["grille", "grilles", "grill", "grills", "front grille", "radiator grille"],
+  RDT: ["radiator", "radiators", "condenser", "intercooler", "radiator fan", "cooling fan"],
+  ENG: ["engine mounting", "engine mount", "alternator", "starter motor", "compressor", "power steering pump", "fuel pump", "engine part", "engine parts"],
+  SUS: ["shock absorber", "shock absorbers", "strut", "struts", "control arm", "lower arm", "ball joint", "stabiliser link", "stabilizer link", "tie rod", "coil spring", "suspension"],
+  INT: ["dashboard", "dash board", "glove box", "seat belt", "seatbelt", "steering wheel", "gear knob", "door trim", "door card", "interior part", "interior parts", "carpet"],
+  GLS: ["windscreen", "windshield", "window glass", "door glass", "quarter glass", "rear screen", "rear glass", "mirror glass", "glass"],
 };
 
 /* Part families that need a second word before we know the category.
@@ -636,8 +651,10 @@ export function parsePartLine(rawLine, categories = []) {
      because it looks just as certain as a checked one. The row is saved
      with the year unknown and can be filled in later from Edit Parts. */
   /* Side matters for the parts that come in twos. Bumpers, bonnets and
-     boots don't, so we don't nag about them. */
-  const SIDED = ["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR"];
+     boots don't, so we don't nag about them. Fog lights, indicators and boot
+     lights come in pairs too, and a left one won't fit the right. Bulbs,
+     ballasts, radiators and grilles are single parts, so they aren't here. */
+  const SIDED = ["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR", "BTL", "FGL", "IND"];
   if (SIDED.includes(out.cat) && !out.side) out.missing.push("side");
 
   return out;

@@ -1,12 +1,17 @@
 -- BYPASS SHOP - Categories the shop adds itself
 -- Run once in Supabase -> SQL Editor -> New query -> Run. Safe to re-run.
 --
--- The thirteen categories built into the app do not cover everything that
--- comes through the door: boot lights, hinges, bulbs, headlight computers,
--- bumper slides for shapes nobody listed. A part with nowhere to go was
--- being filed under something it isn't, which then hid it from whoever went
--- looking for it. This table holds the extra sections, and an added one
--- behaves like any other from then on.
+-- The app already has sections for everything the shop said it stocks - boot
+-- lights, fog lights, indicators, bulbs, headlight computers, hinges, grilles,
+-- radiators, engine parts, suspension, interior, glass, and Other Parts for
+-- whatever is left. Those are built in and need no SQL at all.
+--
+-- This table is for the section nobody has thought of yet. A part with nowhere
+-- to go gets filed under something it isn't, which then hides it from whoever
+-- goes looking. An added section behaves like a built-in one from then on.
+--
+-- Running this is OPTIONAL. Without it the shop simply cannot add new sections;
+-- everything already listed keeps working.
 
 create table if not exists public.part_categories (
   key         text primary key,          -- 3-letter code prefix, e.g. 'BTL'
@@ -76,16 +81,11 @@ do $$ begin
   execute 'alter publication supabase_realtime add table public.part_categories';
 exception when others then null; end $$;
 
--- ---------- A few the shop already asked for ----------
--- Seeded so the sections exist the moment this runs. Re-running changes
--- nothing: an existing key is left exactly as it is, prefix included,
--- because parts are already coded under it.
-insert into public.part_categories (key, label, shelf, color, sort) values
-  ('BTL', 'Boot Lights',          'I-01', '#D4A72C', 10),
-  ('HNG', 'Hinges',               'I-02', '#6B7480', 20),
-  ('BLB', 'Bulbs',                'I-03', '#E86A6A', 30),
-  ('HLC', 'Headlight Computers',  'I-04', '#7C5CD6', 40)
-on conflict (key) do nothing;
+-- Nothing is seeded here. Boot lights, hinges, bulbs and headlight computers
+-- used to be inserted by this file, but they are built into the app now - a
+-- real shelf of bulbs had nowhere to be filed while this migration sat unrun.
+-- A key that matches a built-in one is ignored by the app anyway: the built-in
+-- wins, because parts are already coded under it.
 
 -- Check it worked:
 -- select key, label, shelf from public.part_categories order by sort;

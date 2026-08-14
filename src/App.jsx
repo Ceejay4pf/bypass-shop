@@ -553,6 +553,10 @@ function BypassShop({ session }) {
               items={items}
               categories={CATEGORIES}
               onSell={handleSell}
+              /* So a wrong count can be corrected without leaving the sale. It
+                 is the same action as Add New Stock, which everybody may use —
+                 just reached from where the wrong count actually shows up. */
+              onAddStock={handleAddStock}
               initialCode={pickFor("sell")}
             />
           )}

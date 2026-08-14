@@ -25,6 +25,26 @@ export const DEFAULT_CATEGORIES = [
   { key: "SMI", label: "Side Mirrors — With Indicator", shelf: "G-01", color: "#15926A" },
   { key: "SMN", label: "Side Mirrors — Plain",          shelf: "G-02", color: "#6B7480" },
   { key: "BPS", label: "Bumper Slides",                 shelf: "H-01", color: "#DC3B2E" },
+  /* The rest of what is actually on the shelves. These are built in rather than
+     added through Settings so they are simply there — waiting on a migration to
+     be run meant a real shelf of bulbs had nowhere to be filed. Anything still
+     missing an admin adds in Settings → Categories. */
+  { key: "BTL", label: "Boot Lights",                   shelf: "I-01", color: "#D4A72C" },
+  { key: "FGL", label: "Fog Lights",                    shelf: "I-02", color: "#F07A4F" },
+  { key: "IND", label: "Indicators",                    shelf: "I-03", color: "#FFA53C" },
+  { key: "BLB", label: "Bulbs",                         shelf: "I-04", color: "#E86A6A" },
+  { key: "HLC", label: "Headlight Computers",           shelf: "I-05", color: "#7C5CD6" },
+  { key: "HNG", label: "Hinges",                        shelf: "J-01", color: "#6B7480" },
+  /* No "Fenders" here on purpose: a fender IS a wing, and the two Wing
+     sections already hold them. A second name for the same shelf would split
+     the same parts across two codes. */
+  { key: "GRL", label: "Grilles",                       shelf: "K-01", color: "#2E86DE" },
+  { key: "RDT", label: "Radiators",                     shelf: "L-01", color: "#15926A" },
+  { key: "ENG", label: "Engine Parts",                  shelf: "M-01", color: "#8FD6A6" },
+  { key: "SUS", label: "Suspension",                    shelf: "N-01", color: "#2563EB" },
+  { key: "INT", label: "Interior Parts",                shelf: "O-01", color: "#7C5CD6" },
+  { key: "GLS", label: "Glass & Windscreens",           shelf: "P-01", color: "#9BB7F0" },
+  { key: "OTH", label: "Other Parts",                   shelf: "Z-01", color: "#6B7480" },
 ];
 
 /* ---- FAMILIES OF PARTS ----
@@ -47,6 +67,12 @@ const EXTRA_FAMILIES = {
   RBM: "Bumpers",
   HDL: "Lights",
   TLL: "Lights",
+  BTL: "Lights",
+  FGL: "Lights",
+  IND: "Lights",
+  /* Bulbs and headlight computers are deliberately NOT lights. Someone asking
+     for "all lights" wants light units to sell, not a box of bulbs and a shelf
+     of ballasts — the same reason Bumper Slides is not a bumper. */
 };
 
 export function categoryGroups(categories = DEFAULT_CATEGORIES) {
