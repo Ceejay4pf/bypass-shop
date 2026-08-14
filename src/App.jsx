@@ -100,6 +100,18 @@ function BypassShop({ session }) {
     // The register too, or Reports keeps counting money for goods that came back.
     reloadSales();
   }, [reloadItems, reloadNotifications, reloadSales]);
+
+  /* After the instruction box has written something. It can add a section as
+     well as change parts, and a new section that doesn't appear in the pickers
+     until the app is restarted looks like it wasn't saved — so the section list
+     is pulled back down too. */
+  const refreshAfterCommand = useCallback(async () => {
+    await Promise.all([
+      reloadItems(),
+      reloadNotifications(),
+      reloadCategories(),
+    ].map((p) => Promise.resolve(p).catch(() => {})));
+  }, [reloadItems, reloadNotifications, reloadCategories]);
   const admin = isAdmin(session);
   // Shared role logins are pre-trusted — the role password is the
   // authorisation, so they never sit in the approval queue.
@@ -530,9 +542,31 @@ function BypassShop({ session }) {
           )}
           {tab === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
           {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={can("delete") ? handleDelete : undefined} />}
-          {tab === "add" && can("additem") && <AddItemTab items={items} categories={CATEGORIES} onAdd={handleAddItem} />}
+          {/* The instruction box lives at the bottom of both adding screens, so
+              it needs who is asking (for the ledger entry), whether they may
+              change a section or many parts, and a way to pull the stock list
+              and the section list back down once it has. */}
+          {tab === "add" && can("additem") && (
+            <AddItemTab
+              items={items}
+              categories={CATEGORIES}
+              onAdd={handleAddItem}
+              user={user}
+              admin={admin}
+              canEdit={can("edit")}
+              onChanged={refreshAfterCommand}
+            />
+          )}
           {tab === "bulk" && can("additem") && (
-            <BulkAddTab items={items} categories={CATEGORIES} onAddMany={handleAddMany} />
+            <BulkAddTab
+              items={items}
+              categories={CATEGORIES}
+              onAddMany={handleAddMany}
+              user={user}
+              admin={admin}
+              canEdit={can("edit")}
+              onChanged={refreshAfterCommand}
+            />
           )}
           {tab === "edit" && can("edit") && (
             <EditPartsTab

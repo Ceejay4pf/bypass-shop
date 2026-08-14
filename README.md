@@ -65,6 +65,10 @@ and syncs live, so two staff on two phones always see the same stock.
   stays on the part instead of being thrown away. Price, quantity, colour, shelf
   and supplier are read off the line too, and sections the shop added itself are
   recognised by name, so a pasted "boot light — Toyota Premio 2016" files itself.
+- **Tell the system** — a box at the bottom of both adding screens. Type
+  *"add a category for wiper blades"* or *"put all quantities as one"* and it shows
+  you exactly what would change before doing it. See
+  [Telling the system what to do](#telling-the-system-what-to-do).
 - **Edit Parts** — correct details, price and photos after the fact.
 - **Add New Stock** — find a part, increase the quantity, logged with who and when.
 - **Print Stock** — a printable list of the parts held. Tick **as many
@@ -178,6 +182,8 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `src/lib/finance.js` — the statement arithmetic, kept testable on its own
 - `src/lib/reports.js` — the Reports arithmetic (periods, comparisons, trends),
   kept free of React and the database so every sum can be checked on its own
+- `src/lib/command.js` — reads a typed instruction into a description of what
+  would change; no React, no database, and it never acts on its own
 - `src/ui.jsx` — shared pieces (item cards, fields, charts)
 - `src/LoginGate.jsx` — the login screen (role + personal)
 - `src/lib/supabase.js` — the cloud connection
@@ -250,6 +256,65 @@ The admin list in `part_categories.sql`'s `is_shop_admin()` must match
 `ADMIN_EMAILS` in `src/lib/roles.js`, or the Add button appears for someone the
 database will refuse.
 
+### Telling the system what to do
+
+At the bottom of **Add New Item** and **Add a Whole List** there is a box headed
+*Tell the system*. Type what you want done, in the words you'd use out loud, and
+it does it — instead of somebody having to change the app and redeploy it:
+
+```
+add a category for wiper blades
+new section for mud flaps, shelf H
+put all quantities as one
+set all bumper quantities to 2
+all side mirror prices are 4500
+```
+
+It reads the sentence and **shows you what would happen before anything happens** —
+every part it would change, named, with the old figure beside the new one. Nothing
+is written until you press the button. That split is the whole design: an
+instruction that acted on its own first guess would one day read *"set all bumpers
+to 2"* as the wrong bumpers and rewrite forty stock counts with nobody having seen
+the list. Showing it first costs one tap.
+
+It understands the two jobs it was asked for, and says so plainly when it doesn't
+understand rather than guessing:
+
+- **Sections** — add one, or rename an existing one. Admin only, because the
+  three-letter code gets stamped into every part filed there. Renaming never
+  touches that code.
+- **Quantities and prices, across many parts at once** — narrowed however you say
+  it: a section (*bumper quantities*), a model (*all premio*), or both together
+  (*all premio bumper quantities*). Needs edit rights.
+
+Three refusals are deliberate, and each says why on screen:
+
+- **It won't set quantities to zero in bulk.** Zero across the board can't be told
+  apart from a real sell-out afterwards, and only a sale or a deduction is supposed
+  to reach zero. Removing stock has its own screen, which asks where it went.
+- **A word it doesn't know narrows to nothing — it never widens to everything.**
+  *"set all lamborghini quantities to 2"* is answered with *"I don't know
+  lamborghini"*, not by changing every part in the shop. This is the one mistake in
+  here a confirmation screen can't save you from, because a list of everything looks
+  exactly like a deliberate everything.
+- **It won't sell, delete or add parts, and won't answer questions.** Each of those
+  sends you to the screen that does it properly.
+
+Only parts that would **actually change** appear in the list. Forty parts where
+thirty-eight already say 1 is not a change of forty, and the count says how many
+were already right. A change of 25 or more is flagged for a second look, not
+blocked. Quantity changes go in the ledger as an adjustment against each part with
+your name on it, and the whole batch gets **one** notification rather than one per
+part.
+
+The reading lives in `src/lib/command.js` — no React, no database, so every reading
+can be checked by reading it. It shares one vocabulary with the pasted-list reader
+in `src/lib/parseParts.js`, so a word the shop uses is never understood on one
+screen and blank on the other.
+
+Adding a section from this box needs `supabase/part_categories.sql` run once, same
+as the Settings form. Everything else in the box works with no SQL at all.
+
 ### Quantity is never zero
 
 A part being typed into the system is a part the shop is holding, so the smallest
@@ -307,6 +372,14 @@ So the second number is normally the larger, and the two are *meant* to differ.
 Both cards now say which they are, and Inventory prints the same two totals at the
 bottom of the section tiles, so the dashboard figure can be traced to the sections
 it came from.
+
+The pieces card used to print an average underneath — *"0.7 pieces each"*. That was
+worse than useless: no part holds seven tenths of a bumper, and the fraction hid
+what the number was actually reporting. An average below one can only happen if
+parts are sitting at **zero**, because nothing keyed in goes below one piece unless
+it was sold or deducted. So the card says that instead — *"across 40 parts — 12
+finished, holding no pieces"* — or, when they all hold one, *"40 parts, one piece
+each"*. No fractions of a part appear anywhere.
 
 There was also a real fault behind it. Inventory only drew a tile for a section
 the app could name, so a part filed under anything else was **invisible there

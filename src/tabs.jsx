@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem } from "./lib/parseParts.js";
+import { readCommand, EXAMPLES } from "./lib/command.js";
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
@@ -196,16 +197,25 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
           tone="purple"
           onClick={() => onNav("inventory")}
         />
+        {/* An average was the wrong thing to print here. "0.7 pieces each" is
+            not a thing that exists — no part holds seven tenths of a bumper —
+            and it hid the fact it was actually reporting: an average below 1
+            can only mean parts are sitting at zero, because nothing keyed in
+            goes below one piece unless it was sold or deducted. So say that
+            instead. The gap between the two cards is exactly the finished
+            parts plus the pieces stacked on the parts that have several. */}
         <StatCard
           icon={Layers}
           label="Pieces On The Shelf"
           value={totalQty}
           sub={
-            totalItems
-              ? `${totalItems} part${totalItems === 1 ? "" : "s"}, ${
-                  (totalQty / totalItems).toFixed(1)
-                } pieces each on average`
-              : "nothing in stock yet"
+            !totalItems
+              ? "nothing in stock yet"
+              : outOfStock
+              ? `across ${totalItems} part${totalItems === 1 ? "" : "s"} — ${outOfStock} finished, holding no pieces`
+              : totalQty === totalItems
+              ? `${totalItems} part${totalItems === 1 ? "" : "s"}, one piece each`
+              : `across ${totalItems} part${totalItems === 1 ? "" : "s"} — ${totalQty - totalItems} spare${totalQty - totalItems === 1 ? "" : "s"} beyond one each`
           }
           tone="blue"
           onClick={() => onNav("inventory")}
@@ -2179,8 +2189,291 @@ export function MyPermissionsTab({ userId }) {
   );
 }
 
+/* ======================= THE INSTRUCTION BOX =======================
+   A box at the bottom of the adding screens where the shop types what it wants
+   done, in its own words, instead of somebody having to change the app:
+
+     add a category for wiper blades
+     put all quantities as one
+     set all bumper prices to 9000
+
+   src/lib/command.js reads the sentence and returns a DESCRIPTION of what would
+   happen — which parts, and what each one changes from and to. This screen shows
+   that description and nothing happens until the button is pressed. That split
+   is deliberate: an instruction that acted on its own first guess would one day
+   read "set all bumpers to 2" as the wrong bumpers and rewrite forty stock
+   counts with nobody having seen the list.
+
+   It understands two jobs — sections, and quantities/prices in bulk — and says
+   so plainly when it doesn't understand, rather than guessing.
+*/
+function CommandBox({ items, categories, user, admin = false, canEdit = false, onChanged }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
+  const [err, setErr] = useState("");
+
+  /* Re-read on every keystroke. It is pure text work on a list already in
+     memory — no database, no network — so there is nothing to debounce, and
+     seeing the answer form as you type is what teaches the wording. */
+  const intent = useMemo(
+    () => readCommand(text, { items, categories }),
+    [text, items, categories]
+  );
+
+  const actionable = ["addSection", "renameSection", "setField"].includes(intent.kind);
+  /* Adding or renaming a section is an admin job — it changes the shape of the
+     whole shop's stock list, and its 3-letter code can never be changed after
+     the first part is filed under it. Bulk quantity and price only need edit
+     rights, which is the same permission the Edit Parts screen asks for. */
+  const allowed =
+    intent.kind === "setField" ? canEdit : admin;
+  const blocked = actionable && !allowed;
+
+  const run = async () => {
+    setBusy(true);
+    setErr("");
+    setDone("");
+    /* Tracked in a local, not read back off state. `err` inside this function is
+       the value from the render that created it — setErr above hasn't landed yet
+       — so testing it would have cleared the box on a half-failed change and
+       thrown away the wording that needs retrying. */
+    let problem = "";
+    try {
+      if (intent.kind === "addSection") {
+        await api.addPartCategory(
+          { key: intent.key, label: intent.label, shelf: intent.shelf, color: intent.color },
+          user
+        );
+        setDone(`Section “${intent.label}” created, code ${intent.key}.`);
+      } else if (intent.kind === "renameSection") {
+        await api.updatePartCategory(intent.key, { label: intent.to });
+        setDone(`Renamed to “${intent.to}”. Its code is still ${intent.key}.`);
+      } else if (intent.kind === "setField") {
+        const reason = `Instruction: ${intent.raw}`;
+        /* One at a time, and the failures are counted rather than swallowed.
+           A bulk change that half-worked and reported success is how a stock
+           list stops matching the shelf. */
+        const changed = [];
+        const failed = [];
+        for (const c of intent.changes) {
+          try {
+            /* batch: true so neither call announces itself. Each part still
+               gets its own ledger line — the movement is the record of what
+               happened to that part and is never summarised away. */
+            if (intent.field === "qty") {
+              await api.adjustQty(c.code, intent.value, reason, user, { batch: true });
+            } else {
+              await api.updateItem(c.code, { price: intent.value }, user, {
+                batch: true,
+                reason: `Price set to ${intent.value} — ${reason}`,
+              });
+            }
+            changed.push({ code: c.code, name: c.name, qty: intent.field === "qty" ? intent.value : null });
+          } catch (e) {
+            failed.push(c.code);
+          }
+        }
+        /* One notification for the whole change, not one per part. A batch of
+           forty individually-announced adjustments buries everything else that
+           happened today. */
+        if (changed.length) {
+          try {
+            await api.addBatchNotification({
+              type: "adjust",
+              by_name: user,
+              parts: changed,
+              /* `name` is the column the feed prints as the summary line, and
+                 the notifications table has no free-text column to put the
+                 instruction in — so the instruction IS the summary. Overriding
+                 it rather than adding a field keeps this working on a database
+                 that hasn't had any migration run. */
+              extra: {
+                name: `${changed.length} part${changed.length === 1 ? "" : "s"} — ${
+                  intent.field === "qty" ? "quantity" : "price"
+                } set to ${intent.value} (“${intent.raw}”)`,
+                /* On a stock batch `qty` means "this many pieces came in". An
+                   adjustment adds nothing, so a number here would be read as
+                   stock arriving that never did. The figure is in the summary
+                   line above, where it can't be mistaken for an intake. */
+                qty: null,
+              },
+            });
+          } catch {
+            /* The change itself went through; a missing summary line is not
+               worth telling the shop the change failed. */
+          }
+        }
+        const ok = changed.length;
+        if (failed.length) {
+          problem = `${ok} of ${intent.changes.length} changed. These didn't: ${failed.join(", ")}. Nothing else was touched — read the list again and retry.`;
+          setErr(problem);
+        } else {
+          setDone(
+            `${ok} part${ok === 1 ? "" : "s"} changed. ${
+              intent.field === "qty" ? "Each one is in the ledger as an adjustment." : ""
+            }`
+          );
+        }
+      }
+      if (onChanged) await onChanged();
+      // Keep what was typed when something failed, so it can be retried as-is.
+      if (!problem) setText("");
+    } catch (e) {
+      /* The message from the database is shown as it comes. api.js already
+         turns the ones that matter into readable English (a duplicate code, a
+         table that hasn't been created yet), and inventing a friendlier
+         sentence here would hide which of those it was. */
+      setErr(e?.message || "That didn't save. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+      <div className="flex items-center gap-2 mb-1">
+        <Wand2 size={16} className="text-[#2563EB]" />
+        <span className="font-bold uppercase tracking-wide text-xs text-[#1B2430]">
+          Tell the system
+        </span>
+      </div>
+      <p className="text-xs text-[#5A6472] mb-2">
+        Type what you want done and it will show you exactly what would change before
+        anything happens. It can add or rename a section, and set quantities or prices
+        across many parts at once.
+      </p>
+
+      <textarea
+        value={text}
+        onChange={(e) => { setText(e.target.value); setDone(""); setErr(""); }}
+        rows={2}
+        placeholder="e.g. put all quantities as one"
+        className={`${inputCls} resize-none`}
+      />
+
+      {/* Examples, tappable. A box with no examples gets typed into once,
+          misunderstood once, and never used again. */}
+      {!text.trim() && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {EXAMPLES.map((ex) => (
+            <button
+              key={ex}
+              onClick={() => setText(ex)}
+              className="text-[11px] px-2 py-1 rounded-full border border-[#DEE3E9] text-[#5A6472] bg-[#F3F5F8] active:scale-[0.98]"
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* What it understood. Shown before there is anything to press. */}
+      {actionable && (
+        <div className="mt-3 border border-[#2563EB]/30 bg-[#2563EB]/[0.04] rounded-md p-2.5">
+          <ul className="text-xs text-[#1B2430] space-y-1">
+            {intent.lines.map((l, i) => (
+              <li key={i} className="flex gap-1.5">
+                <Check size={13} className="text-[#2563EB] mt-0.5 shrink-0" /> <span>{l}</span>
+              </li>
+            ))}
+          </ul>
+
+          {/* Every part it would change, named, with the old figure beside the
+              new one. This is the list that makes a wrong reading obvious. */}
+          {intent.kind === "setField" && (
+            <div className="mt-2 max-h-52 overflow-y-auto border-t border-[#DEE3E9] pt-2">
+              {intent.changes.map((c) => (
+                <div key={c.code} className="flex items-center justify-between gap-2 text-[11px] py-0.5">
+                  <span className="font-mono text-[#2563EB] shrink-0">{c.code}</span>
+                  <span className="text-[#5A6472] truncate flex-1">{c.name}</span>
+                  <span className="text-[#1B2430] shrink-0">
+                    {intent.field === "price" ? `KES ${c.from.toLocaleString()}` : c.from}
+                    {" → "}
+                    <span className="font-bold">
+                      {intent.field === "price" ? `KES ${c.to.toLocaleString()}` : c.to}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {intent.heavy && (
+            <div className="mt-2 text-[11px] text-[#B45309] flex gap-1.5">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>
+                That is {intent.changes.length} parts at once — nearly the whole list. Read it
+                through before you press.
+              </span>
+            </div>
+          )}
+
+          {intent.needsMigration && (
+            <div className="mt-2 text-[11px] text-[#5A6472]">
+              Sections are stored in the database. If this comes back saying the table is
+              missing, the one-off <span className="font-mono">part_categories.sql</span> hasn't
+              been run yet.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Understood, but nothing would change — worth saying, because silence
+          reads as "it didn't understand me". */}
+      {intent.kind === "nothingToDo" && (
+        <div className="mt-3 text-xs text-[#5A6472] flex gap-1.5">
+          <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-[#1E9E6A]" />
+          <span>{intent.why}</span>
+        </div>
+      )}
+
+      {/* Didn't understand, and says why. Never a blank box. */}
+      {intent.kind === "unknown" && (
+        <div className="mt-3 text-xs text-[#5A6472] flex gap-1.5">
+          <AlertCircle size={13} className="mt-0.5 shrink-0 text-[#B45309]" />
+          <span>{intent.why}</span>
+        </div>
+      )}
+
+      {blocked && (
+        <div className="mt-2 text-xs text-[#B45309] flex gap-1.5">
+          <Lock size={13} className="mt-0.5 shrink-0" />
+          <span>
+            {intent.kind === "setField"
+              ? "Changing many parts at once needs edit rights. Ask an admin."
+              : "Only an admin can add or rename a section — its code is stamped into every part filed there."}
+          </span>
+        </div>
+      )}
+
+      {err && (
+        <div className="mt-2 text-xs text-[#DC3B2E] flex gap-1.5">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" /> <span>{err}</span>
+        </div>
+      )}
+      {done && (
+        <div className="mt-2 text-xs text-[#1E9E6A] flex gap-1.5">
+          <CheckCircle2 size={13} className="mt-0.5 shrink-0" /> <span>{done}</span>
+        </div>
+      )}
+
+      {actionable && !blocked && (
+        <button
+          onClick={run}
+          disabled={busy}
+          className="mt-3 w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-2.5 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-60"
+        >
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+          {busy ? "Working…" : intent.confirm}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ======================= ADD ITEM ======================= */
-export function AddItemTab({ items, categories, onAdd }) {
+export function AddItemTab({ items, categories, onAdd, user, admin = false, canEdit = false, onChanged }) {
   const [cat, setCat] = useState(categories[0]?.key || "");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -2437,6 +2730,18 @@ export function AddItemTab({ items, categories, onAdd }) {
       >
         <Plus size={18} /> Add to inventory
       </button>
+
+      {/* Down at the bottom of the adding screen, which is where the need comes
+          up: you go to file a part, there is no section for it, and rather than
+          stopping to ask somebody you say so here. */}
+      <CommandBox
+        items={items}
+        categories={categories}
+        user={user}
+        admin={admin}
+        canEdit={canEdit}
+        onChanged={onChanged}
+      />
     </div>
   );
 }
@@ -2447,7 +2752,7 @@ export function AddItemTab({ items, categories, onAdd }) {
    a row you can correct before anything is saved. Nothing is written
    to the inventory until the Save button is pressed.
 */
-export function BulkAddTab({ items, categories, onAddMany }) {
+export function BulkAddTab({ items, categories, onAddMany, user, admin = false, canEdit = false, onChanged }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = still on the paste step
   const [openId, setOpenId] = useState(null); // which row is expanded for editing
@@ -2543,6 +2848,17 @@ export function BulkAddTab({ items, categories, onAddMany }) {
         >
           <Wand2 size={18} /> Read the list
         </button>
+
+        {/* On this screen too, because pasting a list is exactly when you find
+            out a whole family of parts has no section to go in. */}
+        <CommandBox
+          items={items}
+          categories={categories}
+          user={user}
+          admin={admin}
+          canEdit={canEdit}
+          onChanged={onChanged}
+        />
       </div>
     );
   }

@@ -233,6 +233,25 @@ numbers. Decide this deliberately — and enforce it in RLS.
 - **Em-dashes and box-drawing characters in SQL files** break the Supabase SQL
   editor. Keep migrations plain ASCII.
 - **One 200KB screens file.** Split by feature before it gets there.
+- **A regex stem with `\b` on the end never matches.** `\bquantit\b` was meant to
+  catch both *quantity* and *quantities*; a word boundary can't sit between two
+  letters, so it silently matched neither and the commonest typed instruction in
+  the app came back "I didn't follow that". Test the wording the user actually
+  typed, not a paraphrase of it.
+- **An unrecognised word must narrow, never widen.** The instruction reader
+  filtered the stock list by whatever it recognised, so a word it didn't know
+  contributed no filter — and *"set all lamborghini quantities to 2"* read as
+  *every part in the shop*. If a bulk write can't be sure what it was pointed at,
+  it has to point at nothing. A confirmation screen doesn't save you here: a list
+  of everything looks exactly like a deliberate everything.
+- **Averages of countable things print nonsense.** *"0.7 pieces each"* on the
+  dashboard — no part holds seven tenths of a bumper. Worse, the fraction hid what
+  it was really reporting (parts sitting at zero). Say the thing, not the mean of
+  the thing.
+- **Any write that can run over many rows needs a `{ batch: true }` option** from
+  the day it is written, or you get one notification per part and the feed becomes
+  unreadable. The audit *movement* still goes in per part — summarise what people
+  read, never what the ledger records.
 - **Free-tier Supabase pauses after ~7 days idle**, and a paused project means
   staff can't log in. Know that before it happens on a Monday morning.
 

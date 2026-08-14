@@ -730,3 +730,11 @@ export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
     status: "Active",
   };
 }
+
+/* ---------- shared with the command reader ---------- */
+/* src/lib/command.js has to recognise the same part words in an instruction
+   ("put all bumper quantities as one") that this file recognises in a pasted
+   list. One vocabulary between them, so a word the shop actually uses is never
+   understood on one screen and blank on the other. Exported here rather than
+   moved to data.js because this is where the words live and are maintained. */
+export { CAT_PHRASES, AMBIGUOUS, findPhrase, has, categoryPhrases, BRAND_KEYS, BRAND_ALIASES, MODEL_KEYS, MODEL_TO_BRAND };

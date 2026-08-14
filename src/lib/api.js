@@ -142,7 +142,7 @@ export async function insertItem(item, byName, { batch = false } = {}) {
 
 // Edit a part's details (not quantity — that stays with Add Stock / Sell).
 // Whitelists editable fields so a save can never clobber code/qty by accident.
-export async function updateItem(code, patch, byName) {
+export async function updateItem(code, patch, byName, { batch = false, reason = "Edited part details" } = {}) {
   const allowed = [
     "cat", "brand", "model", "series", "yearFrom", "yearTo", "condition",
     "side", "variant", "color", "name", "price", "min", "location",
@@ -162,8 +162,10 @@ export async function updateItem(code, patch, byName) {
     .select()
     .single();
   if (error) throw error;
-  await addNotification({ type: "adjust", code, name: patch.name, by_name: byName });
-  await addMovement({ code, type: "adjust", by_name: byName, reason: "Edited part details" });
+  // As with adjustQty: a bulk edit is summarised once by its caller, but every
+  // part still gets its own ledger line.
+  if (!batch) await addNotification({ type: "adjust", code, name: patch.name, by_name: byName });
+  await addMovement({ code, type: "adjust", by_name: byName, reason });
   return rowToItem(data);
 }
 
@@ -325,7 +327,7 @@ export function emailBatch(type, parts, byName) {
    "12 parts added - Toyota, Mazda and 2 other makes". Falls back to the
    part names when they share no make, so the line is never empty. */
 function batchSummaryName(type, parts) {
-  const verb = { new_item: "added", delete: "removed", stock: "restocked" }[type] || type;
+  const verb = { new_item: "added", delete: "removed", stock: "restocked", adjust: "changed" }[type] || type;
   const n = parts.length;
   const makes = [...new Set(
     parts.map((p) => String(p.name || "").split(/[-–—]/)[1]?.trim().split(/\s+/)[0]).filter(Boolean)
@@ -386,11 +388,16 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, method = 
   return newQty;
 }
 
-export async function adjustQty(code, newQty, reason, byName) {
+export async function adjustQty(code, newQty, reason, byName, { batch = false } = {}) {
   const { data: qty, error } = await supabase.rpc("set_qty", { p_code: code, p_qty: newQty });
   if (error) throw error;
   const name = await itemName(code);
-  await addNotification({ type: "adjust", code, name, qty: newQty, by_name: byName, remaining: qty });
+  /* A bulk change gets one summary from its caller instead. Forty parts
+     announced one at a time buries everything else that happened today — which
+     is the pile-up the shop complained about over bulk stock. The MOVEMENT is
+     always written, batch or not: the ledger is the record of what happened to
+     each part and must never be summarised away. */
+  if (!batch) await addNotification({ type: "adjust", code, name, qty: newQty, by_name: byName, remaining: qty });
   await addMovement({ code, type: "adjust", qty: newQty, by_name: byName, reason, remaining: qty });
   return qty;
 }
