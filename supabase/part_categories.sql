@@ -32,6 +32,31 @@ create index if not exists part_categories_sort_idx
 -- as "unknown category" to staff. Only an admin may add or change one.
 alter table public.part_categories enable row level security;
 
+-- The admin test has to exist BEFORE the policies that call it. Postgres
+-- validates a policy body at creation time, so defining it further down the
+-- file made the whole script fail on a fresh database with "function
+-- public.is_shop_admin() does not exist" -- which says nothing about
+-- categories and stops the table being usable at all.
+-- ---------- WHO IS AN ADMIN ----------
+-- Its own function rather than reusing is_admin() from admin_only_views.sql,
+-- because that file may not have been run on this database and a missing
+-- function would make every insert here fail with an error that says nothing
+-- about categories. This list MUST match ADMIN_EMAILS in src/lib/roles.js.
+create or replace function public.is_shop_admin()
+returns boolean language sql stable security definer
+set search_path = public as $$
+  select coalesce(
+    (select lower(email) in (
+       'admin@bypassshop.co',       -- role login "Admin"
+       'management@bypassshop.co',  -- role login "Management"
+       'addamsjmk@gmail.com'        -- owner
+     ) from auth.users where id = auth.uid()),
+    false);
+$$;
+
+grant execute on function public.is_shop_admin() to authenticated;
+
+
 drop policy if exists "part_categories_all" on public.part_categories;
 
 drop policy if exists "part_categories_read" on public.part_categories;
@@ -55,24 +80,7 @@ create policy "part_categories_update" on public.part_categories
 -- a picker, which is far cheaper than orphaning stock.
 drop policy if exists "part_categories_delete" on public.part_categories;
 
--- ---------- WHO IS AN ADMIN ----------
--- Its own function rather than reusing is_admin() from admin_only_views.sql,
--- because that file may not have been run on this database and a missing
--- function would make every insert here fail with an error that says nothing
--- about categories. This list MUST match ADMIN_EMAILS in src/lib/roles.js.
-create or replace function public.is_shop_admin()
-returns boolean language sql stable security definer
-set search_path = public as $$
-  select coalesce(
-    (select lower(email) in (
-       'admin@bypassshop.co',       -- role login "Admin"
-       'management@bypassshop.co',  -- role login "Management"
-       'addamsjmk@gmail.com'        -- owner
-     ) from auth.users where id = auth.uid()),
-    false);
-$$;
 
-grant execute on function public.is_shop_admin() to authenticated;
 
 -- ---------- REALTIME ----------
 -- A category added on the counter phone has to appear on the workshop phone,
