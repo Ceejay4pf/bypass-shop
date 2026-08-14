@@ -44,7 +44,9 @@ and syncs live, so two staff on two phones always see the same stock.
   result for a menu: sell it, quote it, edit it, add information, add stock, or
   view its history.
 - **Inventory** — grouped by category, multi-select for bulk add-stock or delete.
-- **Low Stock** — everything at or below its own low-stock level.
+- **Low Stock** — everything at or below its own low-stock level, searchable,
+  narrowed by **Finished / Running low** and by section, with a **Print list**
+  button. See [Filtering and printing](#filtering-and-printing).
 - **Inventory Ledger** — the full movement history of any part.
 - **Add New Item** — auto code (e.g. `FBM-MZD-AXL-18-0001`), photos, location,
   condition, side, colour, low-stock level. Quantity starts at **1**, never 0 —
@@ -93,8 +95,13 @@ and syncs live, so two staff on two phones always see the same stock.
 
 **People and oversight**
 - **Staff Feed** — shop-floor messages.
-- **Notifications** — the activity log that reports to the main shop.
-- **Reports** — daily, weekly, monthly, yearly; top sellers; inventory summary; low stock.
+- **Notifications** — the activity log that reports to the main shop, with a
+  search box and a row of names so a day's feed can be read by person or by part.
+- **Reports** — daily, weekly, monthly, yearly; top sellers; inventory summary.
+  Filter the sales by **who sold them** (tick several people at once), by **paid
+  or pending**, and by anything typed in the search box — every total, chart and
+  by-person figure follows the filter — then **Print report**. See
+  [Filtering and printing](#filtering-and-printing).
 - **Staff Approvals / My Permissions** — an admin decides who may delete, edit,
   add items or use Quick Transaction.
 - **Settings** — role passwords, staff directory, biometric app lock, shop
@@ -256,6 +263,43 @@ these left* and offers the two things that are actually true:
 
 Confirming is blocked until one of those is done, because a sale deducted from a
 count of none records money against stock that was never there.
+
+### Filtering and printing
+
+Three screens — **Reports**, **Notifications** and **Low Stock** — share the same
+two controls: a search box, and rows of tappable pills.
+
+A pill with a **tick box** means *tick as many as you like*. That is the whole
+point of the change: "what did James **and** Mary sell this week" and "bumpers
+**and** grilles that are finished" were questions the screens couldn't answer, so
+people added the figures up on paper from the feed and got them wrong. Pills
+without a tick box are one-at-a-time — a period, or paid-versus-pending.
+
+The search box matches everything written on the row at once — part name, code,
+customer, phone number, who did it — so nobody has to know which field a word
+lives in. It has a clear button, because a filter left on by accident is a wrong
+number read off a right screen.
+
+**On Reports**, every figure obeys the filters: the four totals, the top-selling
+chart and the by-person list. The stock figures beside them (how many parts, what
+they're worth, how many are low) do not — how much is on the shelf doesn't change
+because you asked what one person sold.
+
+**Two things print.**
+
+- **Reports → Print report** — a sales report of exactly what is on screen, with
+  the by-person totals, every sale itemised, and the period, the people and the
+  paid/pending choice stated in the header. That header line is deliberate: a page
+  of figures that doesn't say what it covers gets filed, found next month, and
+  read as the whole month's takings.
+- **Low Stock → Print list** — a reorder list to carry to the market. Unlike the
+  customer-facing Print Stock list, this one **does** show the quantity, because
+  how many are left is the entire question, and it ends with a blank **Bought**
+  column to write in what actually came back.
+
+The low-stock list used to be on Reports as well, and the copy there was the
+poorer one — no search, no sections, nothing to print. Reports now states the
+number and sends you to **Low Stock Alert**, which is the screen that can act on it.
 
 ### Financial statements
 

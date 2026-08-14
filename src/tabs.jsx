@@ -28,7 +28,7 @@ import {
 } from "./data.js";
 import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
-  timeAgo, fmtDateTime, BarChart, TrendChart, DonutChart,
+  timeAgo, fmtDateTime, BarChart, TrendChart, DonutChart, Pills, SearchBox,
 } from "./ui.jsx";
 
 // Read an image File and return a compressed JPEG data URL. Phone photos are
@@ -1038,24 +1038,195 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
 // A dedicated screen for parts at or below their reorder level, moved off the
 // dashboard so it reads like Inventory — its own module in the sidebar.
 export function LowStockTab({ items, categories, onOpenLedger }) {
-  const lowStock = useMemo(
+  const [query, setQuery] = useState("");
+  /* Which sections to show, and how urgent. A reorder list of everything is a
+     list nobody acts on: the person going to buy bumpers wants the bumpers, and
+     the owner deciding what to pay for first wants the parts that are actually
+     finished. Empty = everything, so the screen still opens on something. */
+  const [pickedCats, setPickedCats] = useState([]);
+  const [urgency, setUrgency] = useState("all");
+
+  const catLabel = (key) => categories.find((c) => c.key === key)?.label || key;
+
+  // Everything at or below its own reorder level, worst first.
+  const allLow = useMemo(
     () =>
       items
         .filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD))
         .sort((a, b) => Number(a.qty) - Number(b.qty)),
     [items]
   );
-  const catLabel = (key) => categories.find((c) => c.key === key)?.label || key;
+
+  const lowStock = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return allLow.filter((i) => {
+      if (pickedCats.length && !pickedCats.includes(i.cat)) return false;
+      if (urgency === "out" && Number(i.qty) !== 0) return false;
+      if (urgency === "left" && Number(i.qty) === 0) return false;
+      if (!q) return true;
+      return matchesQuery(i, categories.find((c) => c.key === i.cat), q);
+    });
+  }, [allLow, categories, pickedCats, urgency, query]);
+
+  // Only sections that actually have something low: pills for empty ones would
+  // be a row of dead buttons hiding the two that matter.
+  const catPills = useMemo(
+    () =>
+      categories
+        .map((c) => ({ key: c.key, label: c.label, count: allLow.filter((i) => i.cat === c.key).length }))
+        .filter((p) => p.count > 0),
+    [categories, allLow]
+  );
+  const outCount = allLow.filter((i) => Number(i.qty) === 0).length;
+  const filtering = Boolean(query.trim() || pickedCats.length || urgency !== "all");
+
+  /* The reorder list on paper. This is the one report that leaves the building —
+     it goes to the market with whoever is buying — so unlike the customer stock
+     list it DOES print the quantity: the whole question being answered is how
+     many are left and how many to bring back. */
+  const printList = () => {
+    const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+    const scope = pickedCats.length
+      ? pickedCats.map(catLabel).join(" + ")
+      : "All sections";
+    const urgencyLabel =
+      urgency === "out" ? "Finished only" : urgency === "left" ? "Running low (still some left)" : "At or below reorder level";
+    const rows = lowStock
+      .map(
+        (i, idx) => `<tr>
+          <td class="c">${idx + 1}</td>
+          <td class="mono">${escapeHtml(i.code)}</td>
+          <td>${escapeHtml(i.name || `${i.brand || ""} ${i.model || ""}`)}</td>
+          <td>${escapeHtml(catLabel(i.cat))}</td>
+          <td>${escapeHtml(i.location || "")}</td>
+          <td class="c ${Number(i.qty) === 0 ? "out" : ""}">${Number(i.qty)}</td>
+          <td class="c">${Number(i.min ?? LOW_STOCK_THRESHOLD)}</td>
+          <td class="c"></td>
+        </tr>`
+      )
+      .join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>Reorder List</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:28px; }
+  .wrap { max-width: 900px; margin:0 auto; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #DC3B2E; padding-bottom:12px; margin-bottom:10px; }
+  .brand { font-size:22px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
+  .sub { color:#5A6472; font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .doc { text-align:right; }
+  .doc .t { font-size:16px; font-weight:800; color:#DC3B2E; text-transform:uppercase; letter-spacing:1px; }
+  .doc .m { color:#5A6472; font-size:12px; margin-top:3px; }
+  table { width:100%; border-collapse:collapse; margin-top:10px; font-size:12px; }
+  th { background:#EEF2F6; text-align:left; padding:7px 8px; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; border-bottom:1px solid #DEE3E9; }
+  td { padding:6px 8px; border-bottom:1px solid #EEF2F6; }
+  th.c, td.c { text-align:center; }
+  td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
+  td.out { color:#DC3B2E; font-weight:800; }
+  .empty { color:#5A6472; padding:40px; text-align:center; }
+  .foot { margin-top:28px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px; }
+  tr { break-inside: avoid; }
+  @media print { body { padding:0; } .wrap { max-width:none; } th { -webkit-print-color-adjust:exact; print-color-adjust:exact; } td.out { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
+    <div class="doc"><div class="t">Reorder List</div><div class="m">${today}</div><div class="m">${lowStock.length} part(s) to buy</div></div>
+  </div>
+  <div style="font-size:12px;color:#5A6472">${escapeHtml(scope)} · ${escapeHtml(urgencyLabel)}${query.trim() ? ` · matching “${escapeHtml(query.trim())}”` : ""}</div>
+  ${lowStock.length
+      ? `<table><thead><tr>
+      <th class="c">#</th><th>Code</th><th>Item</th><th>Section</th><th>Location</th>
+      <th class="c">Left</th><th class="c">Reorder at</th><th class="c">Bought</th>
+    </tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty">Nothing is below its reorder level.</div>`}
+  <div class="foot">“Left” is what the system held on ${today} — check the shelf before buying. The last column is for writing in how many were actually brought back.</div>
+</div>
+<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to open the printable list."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
 
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Parts to reorder" title="Low Stock" />
-      <div className="text-[#5A6472] text-xs mb-4">
-        {lowStock.length} item{lowStock.length !== 1 ? "s" : ""} at or below their reorder level.
+      <SectionTitle
+        eyebrow="Parts to reorder"
+        title="Low Stock"
+        right={
+          <button
+            onClick={printList}
+            disabled={lowStock.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-[#DC3B2E] text-[#F3F5F8] text-xs font-bold uppercase tracking-wide disabled:opacity-50"
+            title="Print this list to take to the market"
+          >
+            <Printer size={14} /> Print list
+          </button>
+        }
+      />
+      <div className="text-[#5A6472] text-xs mb-3">
+        {filtering ? (
+          <>
+            <span className="font-semibold text-[#1B2430]">{lowStock.length}</span> of {allLow.length}{" "}
+            item{allLow.length !== 1 ? "s" : ""} shown.
+          </>
+        ) : (
+          <>
+            {allLow.length} item{allLow.length !== 1 ? "s" : ""} at or below their reorder level
+            {outCount ? <> — <span className="text-[#DC3B2E] font-semibold">{outCount} finished</span></> : ""}.
+          </>
+        )}{" "}
         Tap any row to view its history.
       </div>
 
-      {lowStock.length === 0 ? (
+      {allLow.length > 0 && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 mb-4 space-y-3">
+          <SearchBox
+            value={query}
+            onChange={setQuery}
+            placeholder="Search code, part, vehicle or shelf…"
+          />
+          <Pills
+            options={[
+              { key: "all", label: "Everything", count: allLow.length },
+              { key: "out", label: "Finished", count: outCount },
+              { key: "left", label: "Running low", count: allLow.length - outCount },
+            ]}
+            value={urgency}
+            onChange={setUrgency}
+            size="xs"
+          />
+          {catPills.length > 1 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">
+                Sections — tap as many as you like
+              </div>
+              <Pills options={catPills} value={pickedCats} onChange={setPickedCats} multi size="xs" />
+            </div>
+          )}
+          {filtering && (
+            <button
+              onClick={() => { setQuery(""); setPickedCats([]); setUrgency("all"); }}
+              className="text-[11px] font-semibold text-[#2563EB]"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
+      {allLow.length > 0 && lowStock.length === 0 && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-6 text-center">
+          <Search size={20} className="text-[#5A6472] mx-auto mb-2" />
+          <div className="text-sm text-[#5A6472]">
+            Nothing low matches that. {allLow.length} item{allLow.length !== 1 ? "s" : ""} are low in total.
+          </div>
+        </div>
+      )}
+
+      {allLow.length === 0 ? (
         <div className="bg-[#E6F6EF] border border-[#15926A55] rounded-lg p-6 text-center">
           <Check size={22} className="text-[#15926A] mx-auto mb-2" />
           <div className="text-sm font-semibold text-[#15926A]">All good</div>
@@ -3673,7 +3844,12 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
   // "everyone" = the running feed; "people" = one person at a time.
   const [view, setView] = useState("everyone");
   const [filter, setFilter] = useState("all");
-  const filtered = filter === "all" ? notifications : notifications.filter((n) => n.type === filter);
+  /* The feed is the shop's day in one long list, and by afternoon it is too
+     long to read. A search box and a row of names turn it into "what happened
+     to that Harrier bumper" and "what did James and Mary do today" without
+     anybody scrolling past two hundred rows to find out. Empty = everybody. */
+  const [query, setQuery] = useState("");
+  const [people, setPeople] = useState([]);
   const tabs = [
     ["all", "All"],
     ["sale", "Sales"],
@@ -3681,6 +3857,38 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
     ["new_item", "New items"],
     ["return", "Returns"],
   ];
+
+  /* Names taken from the whole feed, not the filtered one, so ticking a name
+     never removes the others from the row — a filter you can't undo without
+     remembering what was there is a trap. */
+  const peoplePills = useMemo(() => {
+    const map = {};
+    for (const n of notifications) {
+      const who = n.by || "Unknown";
+      map[who] = (map[who] || 0) + 1;
+    }
+    return Object.entries(map)
+      .sort((a, b) => b[1] - a[1])
+      .map(([person, count]) => ({ key: person, label: person, count }));
+  }, [notifications]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return notifications.filter((n) => {
+      if (filter !== "all" && n.type !== filter) return false;
+      if (people.length && !people.includes(n.by || "Unknown")) return false;
+      if (!q) return true;
+      // Everything written on the row, so one box finds a code, a part name, a
+      // customer or a phone number without knowing which field it lives in.
+      return [n.code, n.name, n.by, n.buyer, n.phone, n.takenBy, n.logistics]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [notifications, filter, people, query]);
+
+  const filtering = Boolean(query.trim() || people.length || filter !== "all");
 
   if (view === "people") {
     return (
@@ -3719,20 +3927,46 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
         </button>
       )}
 
-      <div className="flex gap-2 mb-4 overflow-x-auto">
-        {tabs.map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setFilter(k)}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border ${
-              filter === k ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <SearchBox
+          value={query}
+          onChange={setQuery}
+          placeholder="Search the feed — part, code, customer, phone…"
+        />
+        <div className="mt-3 space-y-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">What happened</div>
+            <Pills options={tabs.map(([k, label]) => ({ key: k, label }))} value={filter} onChange={setFilter} size="xs" />
+          </div>
+          {peoplePills.length > 1 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">
+                Who — tick as many as you like
+              </div>
+              <Pills options={peoplePills} value={people} onChange={setPeople} multi size="xs" />
+            </div>
+          )}
+        </div>
+        {filtering && (
+          <div className="mt-3 flex items-center justify-between gap-2 flex-wrap border-t border-[#DEE3E9] pt-3">
+            <span className="text-[11px] text-[#5A6472]">
+              Showing <span className="font-bold text-[#1B2430]">{filtered.length}</span> of{" "}
+              {notifications.length}
+            </span>
+            <button
+              onClick={() => { setQuery(""); setPeople([]); setFilter("all"); }}
+              className="text-[11px] font-bold uppercase tracking-wide text-[#DC3B2E]"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
       </div>
-      {filtered.length === 0 && <div className="text-[#5A6472] text-sm py-8 text-center">No activity recorded yet.</div>}
+      {filtered.length === 0 && (
+        <div className="text-[#5A6472] text-sm py-8 text-center">
+          {filtering ? "Nothing matches these filters." : "No activity recorded yet."}
+        </div>
+      )}
       <div className="space-y-2">
         {filtered.map((n) => (
           <NotifRow key={n.id} n={n} />
@@ -3743,12 +3977,19 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
 }
 
 /* ======================= REPORTS ======================= */
-export function ReportsTab({ items, notifications, categories, admin = false, onChanged }) {
+export function ReportsTab({ items, notifications, categories, admin = false, onChanged, onNav }) {
   const [range, setRange] = useState("daily");
   // Drill-down: the individual sales behind the totals.
   const [showSales, setShowSales] = useState(false);
   const [showGone, setShowGone] = useState(false);
   const [byPerson, setByPerson] = useState(null);
+  /* Filters over the sales in the chosen period. The totals above follow them,
+     which is the point: "what did James and Mary sell this week" and "what is
+     still unpaid" were questions the screen couldn't answer, so people added the
+     figures up on paper from the feed and got them wrong. Empty = everybody. */
+  const [query, setQuery] = useState("");
+  const [people, setPeople] = useState([]);
+  const [payFilter, setPayFilter] = useState("all");
 
   const now = new Date();
   const startOf = {
@@ -3759,7 +4000,41 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
   }[range]();
 
   // Undone sales don't count towards takings — the goods came back.
-  const sales = notifications.filter((n) => n.type === "sale" && n.ts >= startOf && !n.returnedAt);
+  const allSales = useMemo(
+    () => notifications.filter((n) => n.type === "sale" && n.ts >= startOf && !n.returnedAt),
+    [notifications, startOf]
+  );
+
+  /* Who sold anything in this period, for the pills. Built from the unfiltered
+     list so picking one person never makes the others disappear from the row -
+     a filter you can't undo without knowing what was there is a trap. */
+  const peoplePills = useMemo(() => {
+    const map = {};
+    for (const n of allSales) {
+      const who = n.by || "Unknown";
+      map[who] = (map[who] || 0) + 1;
+    }
+    return Object.entries(map)
+      .sort((a, b) => b[1] - a[1])
+      .map(([person, count]) => ({ key: person, label: person, count }));
+  }, [allSales]);
+
+  const sales = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return allSales.filter((n) => {
+      if (people.length && !people.includes(n.by || "Unknown")) return false;
+      if (payFilter === "paid" && !n.paid) return false;
+      if (payFilter === "pending" && n.paid) return false;
+      if (!q) return true;
+      /* Everything written on the sale, so one box answers "that Harrier
+         bumper", "James", "0722…" and a part code without the person having to
+         know which field the word lives in. */
+      return [n.code, n.name, n.by, n.buyer, n.phone]
+        .filter(Boolean).join(" ").toLowerCase().includes(q);
+    });
+  }, [allSales, query, people, payFilter]);
+
+  const filtering = Boolean(query.trim() || people.length || payFilter !== "all");
   const unitsSold = sales.reduce((s, n) => s + Number(n.qty || 0), 0);
   const revenue = sales.reduce((s, n) => s + Number(n.total || 0), 0);
   const paidRevenue = sales.filter((n) => n.paid).reduce((s, n) => s + Number(n.total || 0), 0);
@@ -3774,7 +4049,11 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
     return Object.values(map).sort((a, b) => b.value - a.value).slice(0, 8);
   }, [sales]);
 
+  /* Stock counts, deliberately NOT touched by the sales filters above: "how
+     many bumpers are on the shelf" doesn't change because you asked what James
+     sold. */
   const lowStock = items.filter((i) => i.qty <= (i.min ?? LOW_STOCK_THRESHOLD));
+  const outOfStock = lowStock.filter((i) => Number(i.qty) === 0).length;
   const inventoryValue = items.reduce((s, i) => s + Number(i.qty) * Number(i.price), 0);
 
   // Who sold what, over the chosen range.
@@ -3816,6 +4095,105 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
     ["monthly", "Monthly"],
     ["yearly", "Yearly"],
   ];
+  const rangeLabel = { daily: "Today", weekly: "Last 7 days", monthly: "Last 30 days", yearly: "Last 12 months" }[range];
+
+  /* The sales report on paper, exactly as filtered on screen. The filters are
+     printed in the header on purpose: a page of figures with no statement of
+     what it covers gets filed, found next month, and read as the whole month's
+     takings. */
+  const printSales = () => {
+    const today = new Date().toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+    const who = people.length ? people.join(", ") : "Everybody";
+    const pay = payFilter === "paid" ? "Paid only" : payFilter === "pending" ? "Pending only" : "Paid and pending";
+    const rows = sales
+      .slice()
+      .sort((a, b) => b.ts - a.ts)
+      .map(
+        (n, idx) => `<tr>
+          <td class="c">${idx + 1}</td>
+          <td>${escapeHtml(fmtDateTime(n.ts))}</td>
+          <td class="mono">${escapeHtml(n.code || "")}</td>
+          <td>${escapeHtml(n.name || "")}</td>
+          <td class="c">${Number(n.qty || 0)}</td>
+          <td>${escapeHtml(n.buyer || "—")}</td>
+          <td>${escapeHtml(n.phone || "")}</td>
+          <td>${escapeHtml(n.by || "")}</td>
+          <td class="r">${Number(n.total || 0).toLocaleString()}</td>
+          <td class="c ${n.paid ? "ok" : "due"}">${n.paid ? "Paid" : "Pending"}</td>
+        </tr>`
+      )
+      .join("");
+    const perPerson = sellers
+      .map(
+        (s) => `<tr>
+          <td>${escapeHtml(s.person)}</td>
+          <td class="c">${s.count}</td>
+          <td class="c">${s.units}</td>
+          <td class="r">${s.revenue.toLocaleString()}</td>
+        </tr>`
+      )
+      .join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>Sales Report</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:28px; }
+  .wrap { max-width: 980px; margin:0 auto; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563EB; padding-bottom:12px; margin-bottom:10px; }
+  .brand { font-size:22px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
+  .sub { color:#5A6472; font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .doc { text-align:right; }
+  .doc .t { font-size:16px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:1px; }
+  .doc .m { color:#5A6472; font-size:12px; margin-top:3px; }
+  .scope { font-size:12px; color:#5A6472; margin-bottom:4px; }
+  .scope b { color:#1B2430; }
+  .tot { display:flex; gap:10px; margin:14px 0 4px; flex-wrap:wrap; }
+  .tot div { border:1px solid #DEE3E9; border-radius:5px; padding:8px 12px; min-width:130px; }
+  .tot .k { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; font-weight:700; }
+  .tot .v { font-size:15px; font-weight:800; margin-top:2px; }
+  h3 { font-size:12px; text-transform:uppercase; letter-spacing:1px; margin:20px 0 0; color:#5A6472; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:11.5px; }
+  th { background:#EEF2F6; text-align:left; padding:6px 7px; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; border-bottom:1px solid #DEE3E9; }
+  td { padding:5px 7px; border-bottom:1px solid #EEF2F6; }
+  th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
+  td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
+  td.ok { color:#15926A; font-weight:700; } td.due { color:#DC3B2E; font-weight:700; }
+  tfoot td { font-weight:800; border-top:2px solid #1B2430; }
+  .empty { color:#5A6472; padding:40px; text-align:center; }
+  .foot { margin-top:24px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px; }
+  tr { break-inside: avoid; }
+  @media print { body { padding:0; } .wrap { max-width:none; } th { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
+    <div class="doc"><div class="t">Sales Report</div><div class="m">${today}</div><div class="m">${sales.length} sale(s)</div></div>
+  </div>
+  <div class="scope">Period: <b>${escapeHtml(rangeLabel)}</b> · Sold by: <b>${escapeHtml(who)}</b> · <b>${escapeHtml(pay)}</b>${query.trim() ? ` · matching <b>“${escapeHtml(query.trim())}”</b>` : ""}</div>
+  <div class="tot">
+    <div><div class="k">Units sold</div><div class="v">${unitsSold}</div></div>
+    <div><div class="k">Revenue</div><div class="v">KES ${revenue.toLocaleString()}</div></div>
+    <div><div class="k">Paid</div><div class="v" style="color:#15926A">KES ${paidRevenue.toLocaleString()}</div></div>
+    <div><div class="k">Pending</div><div class="v" style="color:#DC3B2E">KES ${pending.toLocaleString()}</div></div>
+  </div>
+  ${sellers.length > 1 ? `<h3>By person</h3><table><thead><tr><th>Person</th><th class="c">Sales</th><th class="c">Pcs</th><th class="r">Revenue (KES)</th></tr></thead><tbody>${perPerson}</tbody></table>` : ""}
+  <h3>Every sale</h3>
+  ${sales.length
+      ? `<table><thead><tr>
+      <th class="c">#</th><th>When</th><th>Code</th><th>Part</th><th class="c">Qty</th>
+      <th>Customer</th><th>Phone</th><th>Sold by</th><th class="r">Total (KES)</th><th class="c">Status</th>
+    </tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="8">Total</td><td class="r">${revenue.toLocaleString()}</td><td></td></tr></tfoot></table>`
+      : `<div class="empty">No sales match this filter.</div>`}
+  <div class="foot">Generated from Bypass Shop on ${today}. Pending totals are money not yet received. Undone sales are excluded — the goods came back.</div>
+</div>
+<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to open the printable report."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
 
   // One person's full record, opened from the seller list.
   if (byPerson) {
@@ -3826,19 +4204,71 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
 
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Business summary" title="Reports" />
-      <div className="flex gap-2 mb-4 overflow-x-auto">
-        {ranges.map(([k, label]) => (
+      <SectionTitle
+        eyebrow="Business summary"
+        title="Reports"
+        right={
           <button
-            key={k}
-            onClick={() => setRange(k)}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border ${
-              range === k ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
-            }`}
+            onClick={printSales}
+            disabled={sales.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-[#2563EB] text-[#F3F5F8] text-xs font-bold uppercase tracking-wide disabled:opacity-50"
+            title="Print this report exactly as filtered"
           >
-            {label}
+            <Printer size={14} /> Print report
           </button>
-        ))}
+        }
+      />
+
+      <div className="mb-4">
+        <Pills options={ranges.map(([k, label]) => ({ key: k, label }))} value={range} onChange={setRange} />
+      </div>
+
+      {/* Filters. Everything below — the four totals, the top-selling chart, the
+          by-person list and the printed page — follows them, so the numbers
+          always belong to what the pills say and never to a wider period. */}
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+        <SearchBox
+          value={query}
+          onChange={setQuery}
+          placeholder="Search sales — part, code, customer, phone, who sold it…"
+        />
+        <div className="mt-3 space-y-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">Money</div>
+            <Pills
+              options={[
+                { key: "all", label: "All" },
+                { key: "paid", label: "Paid" },
+                { key: "pending", label: "Pending" },
+              ]}
+              value={payFilter}
+              onChange={setPayFilter}
+              size="xs"
+            />
+          </div>
+          {peoplePills.length > 1 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">
+                Sold by — tick as many as you like
+              </div>
+              <Pills options={peoplePills} value={people} onChange={setPeople} multi size="xs" />
+            </div>
+          )}
+        </div>
+        {filtering && (
+          <div className="mt-3 flex items-center justify-between gap-2 flex-wrap border-t border-[#DEE3E9] pt-3">
+            <span className="text-[11px] text-[#5A6472]">
+              Showing <span className="font-bold text-[#1B2430]">{sales.length}</span> of {allSales.length} sale
+              {allSales.length !== 1 ? "s" : ""} — every total below counts only these.
+            </span>
+            <button
+              onClick={() => { setQuery(""); setPeople([]); setPayFilter("all"); }}
+              className="text-[11px] font-bold uppercase tracking-wide text-[#DC3B2E]"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -3872,7 +4302,11 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
         {showSales && (
           <div className="mt-3">
             {sales.length === 0 ? (
-              <div className="text-[#5A6472] text-sm italic">No sales in this period.</div>
+              <div className="text-[#5A6472] text-sm italic">
+                {filtering
+                  ? "No sales match these filters. Clear them above to see the whole period."
+                  : "No sales in this period."}
+              </div>
             ) : (
               <>
                 {/* Who sold what. Admins can tap through to a person. */}
@@ -4028,20 +4462,43 @@ export function ReportsTab({ items, notifications, categories, admin = false, on
         </div>
       </div>
 
+      {/* The reorder list itself lives on Low Stock Alert, not here. It was in
+          both places, and the copy on this screen was the poorer one — no
+          search, no sections, nothing to print — so whoever found it first went
+          shopping off a list they couldn't narrow down. This says the number and
+          points at the screen that can actually do something about it. */}
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
-        <div className="text-sm font-bold uppercase tracking-wide mb-3 flex items-center gap-2">
-          <AlertTriangle size={15} className="text-[#DC3B2E]" /> Low Stock Report
+        <div className="text-sm font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
+          <AlertTriangle size={15} className="text-[#DC3B2E]" /> Low Stock
         </div>
-        {lowStock.length === 0 && <div className="text-[#5A6472] text-sm italic">All items above their reorder level.</div>}
-        <div className="space-y-1.5">
-          {lowStock.map((i) => (
-            <div key={i.code} className="flex items-center justify-between text-sm">
-              <span className="font-mono text-xs text-[#1B2430]">{i.code}</span>
-              <span className="text-[#5A6472] truncate px-2 flex-1">{i.name}</span>
-              <StockBadge item={i} />
-            </div>
-          ))}
-        </div>
+        {lowStock.length === 0 ? (
+          <div className="text-[#5A6472] text-sm italic">All items above their reorder level.</div>
+        ) : (
+          <>
+            <p className="text-sm text-[#1B2430]">
+              <span className="font-bold text-[#DC3B2E]">{lowStock.length}</span> part
+              {lowStock.length !== 1 ? "s" : ""} at or below the reorder level
+              {outOfStock ? (
+                <>
+                  , <span className="font-bold text-[#DC3B2E]">{outOfStock}</span> of them finished
+                </>
+              ) : null}
+              .
+            </p>
+            <p className="text-[11px] text-[#5A6472] mt-1">
+              The full reorder list — searchable, filtered by section, and printable to carry to the
+              market — is on <span className="font-semibold text-[#1B2430]">Low Stock Alert</span>.
+            </p>
+            {onNav && (
+              <button
+                onClick={() => onNav("lowstock")}
+                className="mt-3 flex items-center gap-1.5 px-3 py-2 rounded-md bg-[#DC3B2E] text-[#F3F5F8] text-xs font-bold uppercase tracking-wide"
+              >
+                <AlertTriangle size={14} /> Open Low Stock Alert
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

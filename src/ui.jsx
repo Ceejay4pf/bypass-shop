@@ -2,12 +2,85 @@
    BYPASS SHOP — shared UI primitives & helpers
 --------------------------------------------------------- */
 import React, { useState } from "react";
-import { MapPin, Trash2, ImagePlus, X } from "lucide-react";
+import { MapPin, Trash2, ImagePlus, X, Search, CheckSquare, Square } from "lucide-react";
 import { condColor, LOW_STOCK_THRESHOLD } from "./data.js";
 import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 export const inputCls =
   "w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-md px-3 py-2.5 text-[#1B2430] outline-none focus:border-[#2563EB] transition-colors";
+
+/* ---- FILTER PILLS ----
+   The same row of tappable pills used on Reports, Low Stock and Print Stock.
+   They were written out three times with three slightly different looks, so a
+   pill meant "on" in one place and "selected of several" in another. One piece
+   now, so a pill looks and behaves the same wherever it appears.
+
+   `multi` shows a tick box, because a row of pills gives no clue on its own
+   that more than one can be on at a time - people tapped a second pill
+   expecting the first to switch off. */
+export function Pills({ options, value, onChange, multi = false, size = "sm" }) {
+  const on = (key) => (multi ? (value || []).includes(key) : value === key);
+  const pad = size === "xs" ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs";
+  const toggle = (key) => {
+    if (!multi) { onChange(key); return; }
+    const list = value || [];
+    onChange(list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
+  };
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => {
+        const active = on(o.key);
+        return (
+          <button
+            key={o.key}
+            onClick={() => toggle(o.key)}
+            className={`${pad} rounded-md font-semibold whitespace-nowrap border flex items-center gap-1.5 transition-colors ${
+              active
+                ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]"
+                : "border-[#DEE3E9] text-[#5A6472] hover:border-[#2563EB]"
+            }`}
+            title={o.title || o.label}
+          >
+            {multi && (active ? <CheckSquare size={12} /> : <Square size={12} />)}
+            {o.label}
+            {o.count !== undefined && (
+              <span className={active ? "opacity-80" : "text-[#5A6472]"}>({o.count})</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---- SEARCH BOX ----
+   A search field with the magnifier in it and a clear button once something is
+   typed. The clear button matters more than it looks: on a phone the only other
+   way to empty it is holding backspace, and a box people can't easily clear is
+   a filter they leave on by accident and then read the wrong numbers off. */
+export function SearchBox({ value, onChange, placeholder = "Search…", autoFocus = false }) {
+  return (
+    <div className="relative">
+      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472] pointer-events-none" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        className={inputCls + " pl-9" + (value ? " pr-9" : "")}
+      />
+      {value && (
+        <button
+          onClick={() => onChange("")}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[#5A6472] hover:text-[#DC3B2E]"
+          title="Clear"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function Field({ label, children, hint }) {
   return (

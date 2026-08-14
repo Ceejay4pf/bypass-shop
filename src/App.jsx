@@ -578,6 +578,7 @@ function BypassShop({ session }) {
               categories={CATEGORIES}
               admin={admin}
               onChanged={refreshAfterUndo}
+              onNav={go}
             />
           )}
           {tab === "finance" && <FinanceTab user={user} admin={admin} />}
