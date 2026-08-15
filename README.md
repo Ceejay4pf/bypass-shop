@@ -19,8 +19,18 @@ phone in the shop:
   when nobody knows it: the part reads **year not known**, its code carries
   `XX` in the year slot, and searching *no year* lists everything still to be
   filled in. Nothing is ever stamped with a guessed year.
+- **Which door, exactly?** A car has four of them, and the shop names them by two
+  things at once: which end of the car, and which hand. "Front Left" and "Rear
+  Left" are different parts that do not interchange and are not the same money,
+  so doors ask which end **as well as** which hand, and won't save without it.
+  Hinges, glass and interior trim work the same way. A front bumper doesn't
+  repeat the word — it is already its own section — and a tail light is asked
+  only which hand, because every tail light is at the back anyway.
 - **Where is it?** Warehouse location down to rack, shelf and bin. Search matches
-  code, part name, vehicle, year, colour, side or location.
+  code, part name, vehicle, year, colour, side or location. Every word you type
+  has to appear, but they don't have to be next to each other — so **front door**
+  finds the front doors even though the section is called Doors and the side is
+  Front Left, which are two different fields.
 - **What moved, and who moved it?** Every add, sale and adjustment is written to
   a ledger with the staff member's name and the time. Nothing changes silently.
 - **What do we owe and who owes us?** Garages that buy on credit have running
@@ -268,6 +278,7 @@ new section for mud flaps, shelf H
 put all quantities as one
 set all bumper quantities to 2
 all side mirror prices are 4500
+set all front door prices to 20000
 ```
 
 It reads the sentence and **shows you what would happen before anything happens** —

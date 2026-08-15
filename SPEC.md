@@ -77,7 +77,7 @@ The inventory table, with a row per part:
 | `brand`, `model`, `series` | what it fits |
 | `year_from`, `year_to` | fitment range |
 | `condition` | Brand New / Genuine Used / Aftermarket / Refurbished |
-| `side` | Left / Right / Front / Rear / Pair / Center / Not Applicable |
+| `side` | Left / Right / **Front Left / Front Right / Rear Left / Rear Right** / Front / Rear / Pair / Center / Not Applicable. Some parts are named by two things at once: a car has four doors, and "Front Left" and "Rear Left" do not interchange. So sections that hold both ends of the car (`POSITIONED_CATS` in `data.js` — doors, hinges, glass, interior trim) ask which end **as well as** which hand, and refuse to save without it. Sections that are already one end (`FBM` *is* the front bumper) don't repeat the word, and sections that come in twos but only one end (tail lights, fog lights) ask the hand only — recording "Rear Left" on a tail light would make it a different part from the shop's existing "Left" one and duplicate the row. |
 | `variant` | e.g. Xenon, LED, With Sensor, Sunroof |
 | `color`, `name` | |
 | `price` numeric, `qty` int | |
@@ -93,6 +93,19 @@ The inventory table, with a row per part:
 abbreviation, 2-digit year, optional side letter, optional variant letter, then
 a 4-digit serial that is unique shop-wide and never reused. Staff read these
 aloud on the phone, so keep them short and unambiguous.
+
+The side letter is `L R F B P C N` — **`B` is rear**, because `R` was already
+taken by right — and two letters when the part is named by both ends and hands:
+`FL FR BL BR`.
+
+**A code is never rewritten.** It is printed on the shelf label and read out on
+the phone, so it is a name, not a description. When doors gained front/rear, the
+90 already on the shelf kept `DOR-HON-CRV-XX-L-0293` even though the field beside
+it now reads "Front Left" — the `L` is still true, just less exact. This is also
+why a category key can never change and a category can never be split: the
+3-letter prefix is stamped into every code that category ever issued, so
+splitting doors into `FDR`/`RDR` would have orphaned all 90. The fix went into
+the field instead. See `supabase/door_front_rear.sql`.
 
 **Categories** are a fixed list in code — key, label, default shelf, colour.
 Bypass Shop has 13. The colour is used consistently in every chart and badge.
@@ -204,6 +217,12 @@ numbers. Decide this deliberately — and enforce it in RLS.
 
 - A **search** that matches code, part name, brand, model, series, year,
   condition, colour, side and location — staff search however they think.
+  **Every word has to appear, but not next to each other.** The whole query used
+  to be matched as one run of characters, so "front door" found nothing: the
+  section is called Doors and the side is Front Left, and those are two
+  different fields. "honda door" and "toyota silver" failed the same way.
+  Words are what people type; a phrase that spans two fields is not something
+  they can be expected to know not to type.
 - **Press and hold** a search result for a menu: sell it, quote it, edit it,
   add information, add stock, view its history. Each opens with the part
   already selected, so nobody searches for the same part twice.

@@ -28,7 +28,7 @@
    understand, rather than guessing. A wrong guess that looks confident is worse
    than an honest "I didn't follow that" — the person retypes and moves on.
 --------------------------------------------------------- */
-import { suggestCategoryKey, suggestShelf, CATEGORY_COLORS, reorderLevel } from "../data.js";
+import { suggestCategoryKey, suggestShelf, CATEGORY_COLORS, reorderLevel, POSITIONED_CATS } from "../data.js";
 import { tidy, CAT_PHRASES, AMBIGUOUS, findPhrase, has, categoryPhrases, BRAND_KEYS, BRAND_ALIASES, MODEL_KEYS, MODEL_TO_BRAND } from "./parseParts.js";
 
 /* Words that mean "everything", so "put all quantities as one" and "put every
@@ -159,6 +159,27 @@ export function selectParts(text, items = [], categories = []) {
     }
   }
 
+  /* Front or rear, when the section has both. "set all front door prices to
+     20000" names half the doors, and without this it named all of them — the
+     phrase "front door" matches the Doors section, the word "front" was then
+     spent, and every rear door in the shop went with it. That is the same
+     silent-widening fault as the unrecognised-word one below, and a confirmation
+     screen listing 90 doors can't save you from it either, because a list of
+     every door looks exactly like a deliberate every door. */
+  let position = "";
+  if ([...cats].some((k) => POSITIONED_CATS.includes(k))) {
+    /* "front" and "rear" only. "back" is a rear word on a pasted part line, but
+       in an instruction it is usually an adverb — "put the door prices back to
+       9000" is not about rear doors — and reading it as one would quietly halve
+       the list the person meant. */
+    for (const [side, word] of [["Front", "front"], ["Rear", "rear"]]) {
+      if (findPhrase(low, word) === -1) continue;
+      position = side;
+      terms.push({ kind: "position", label: `${side} only`, word });
+      break;
+    }
+  }
+
   const said = { cats: cats.size > 0, model: Boolean(model), brand: Boolean(brand) };
 
   /* Words left over after everything the reader understood is taken out. If any
@@ -186,6 +207,10 @@ export function selectParts(text, items = [], categories = []) {
       if (said.cats && !cats.has(i.cat)) return false;
       if (model && String(i.model || "").toLowerCase() !== model.toLowerCase()) return false;
       if (brand && String(i.brand || "").toLowerCase() !== brand.toLowerCase()) return false;
+      /* A door whose side still says only "Left" is not counted as front OR
+         rear. It hasn't said, so an instruction about front doors is not about
+         it — the honest reading is to leave it alone rather than assume. */
+      if (position && !String(i.side || "").startsWith(position)) return false;
       return true;
     })
     .map((i) => i.code);

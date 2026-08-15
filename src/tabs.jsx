@@ -13,7 +13,7 @@ import {
   Wand2, Sun, Moon, Smartphone, CheckCircle2,
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
-import { parsePartsList, rowToNewItem } from "./lib/parseParts.js";
+import { parsePartsList, rowToNewItem, sideMissing } from "./lib/parseParts.js";
 import { readCommand, EXAMPLES } from "./lib/command.js";
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
@@ -25,7 +25,7 @@ import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
 } from "./lib/appLock.js";
 import {
-  CONDITIONS, SIDES, BRANDS, PAYMENT, generateCode, formatLocation,
+  CONDITIONS, SIDES, sidesFor, BRANDS, PAYMENT, generateCode, formatLocation,
   LOW_STOCK_THRESHOLD, isLowStock, isOutOfStock, reorderLevel,
   categoryGroups, CATEGORY_COLORS,
   suggestCategoryKey, suggestShelf,
@@ -85,14 +85,23 @@ const matchesQuery = (i, cat, q) => {
   const yearText = i.yearFrom
     ? [i.yearFrom, i.yearTo].filter(Boolean).join(" ")
     : "no year unknown year";
-  return [
+  const haystack = [
     i.code, i.name, i.brand, i.model, i.series, i.condition, i.color,
     i.side, i.variant, i.supplier, i.location, cat?.label, ledgerText, yearText,
   ]
     .filter(Boolean)
     .join(" ")
-    .toLowerCase()
-    .includes(q);
+    .toLowerCase();
+  /* Every word has to appear, but they don't have to appear together. The whole
+     query used to be matched as one run of characters, so "front door" found
+     nothing: the section is called Doors and the side is Front Left, and those
+     two facts live in different fields. Same for "honda door" and "toyota
+     silver". Words are what people type; a phrase spanning two fields is not
+     something they can be expected to know not to type. */
+  return q
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => haystack.includes(word));
 };
 
 /* ======================= DASHBOARD ======================= */
@@ -2500,7 +2509,10 @@ export function AddItemTab({ items, categories, onAdd, user, admin = false, canE
   const [err, setErr] = useState("");
 
   const brandModels = BRANDS.find((b) => b.name.toLowerCase() === brand.toLowerCase())?.models || [];
-  const previewCode = generateCode({ cat, brand, model, yearFrom }, items);
+  /* The side belongs in the preview because it belongs in the saved code. Left
+     out, the label staff were shown ("DOR-HON-CRV-XX-0293") was not the label
+     that got printed ("DOR-HON-CRV-XX-FL-0293"). */
+  const previewCode = generateCode({ cat, brand, model, yearFrom, side }, items);
   const previewLoc = formatLocation({ warehouse, rack, shelf, bin });
 
   const onFiles = (fileList) => {
@@ -2515,6 +2527,16 @@ export function AddItemTab({ items, categories, onAdd, user, admin = false, canE
     // else (price, quantity, year, colour…) is optional and can be filled later.
     if (!brand.trim() && !model.trim()) {
       setErr("Enter at least a brand or a model so the part can be identified.");
+      return;
+    }
+    /* The one detail that is not optional, and only for the sections that need
+       it. A door saved as just "Left" does not say which of the two left doors
+       it is - the shop has 90 filed that way already and no way to tell them
+       apart on the shelf. Everything else here can be filled in later; this
+       can't, because nobody will remember. */
+    const needs = sideMissing(cat, side);
+    if (needs.length) {
+      setErr(`Say ${needs.join(" and ")} for this part - it is the only thing that tells it from the other one.`);
       return;
     }
     setErr("");
@@ -2645,7 +2667,7 @@ export function AddItemTab({ items, categories, onAdd, user, admin = false, canE
         <div className="flex-1">
           <Field label="Side">
             <select value={side} onChange={(e) => setSide(e.target.value)} className={inputCls}>
-              {SIDES.map((s) => (
+              {sidesFor(cat, side).map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -2779,9 +2801,8 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
         if (!next.brand) miss.push("brand");
         if (!next.model) miss.push("model");
         // No year is fine - see parsePartLine. It saves as unknown.
-        if (["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR"].includes(next.cat) && !next.side) {
-          miss.push("side");
-        }
+        // One rule for the side, shared with the reader - see sideMissing.
+        miss.push(...sideMissing(next.cat, next.side));
         return { ...next, missing: miss };
       })
     );
@@ -3072,7 +3093,7 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
               <Field label="Side">
                 <select value={row.side} onChange={(e) => onPatch({ side: e.target.value })} className={inputCls}>
                   <option value="">— none —</option>
-                  {SIDES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  {sidesFor(row.cat, row.side).map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </Field>
             </div>
@@ -3443,7 +3464,7 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
         <div className="flex-1">
           <Field label="Side">
             <select value={side} onChange={(e) => setSide(e.target.value)} className={inputCls}>
-              {SIDES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {sidesFor(cat, side).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
         </div>

@@ -17,7 +17,7 @@
    the person needs to fill in. It never guesses a brand it
    has not been told about.
 --------------------------------------------------------- */
-import { BRANDS, DEFAULT_CATEGORIES } from "../data.js";
+import { BRANDS, DEFAULT_CATEGORIES, SIDED_CATS, POSITIONED_CATS } from "../data.js";
 
 /* ---------- category words ---------- */
 /* Every way we have heard a category asked for, in the shop and on
@@ -431,22 +431,6 @@ export function parsePartLine(rawLine, categories = []) {
     missing: [],
   };
 
-  /* --- side, read before the category so "Left-hand side side mirror"
-         does not lose its "side" to the mirror phrase --- */
-  let sideSpan = null;
-  for (const { side, w } of SIDE_PHRASES) {
-    const at = findPhrase(low, w);
-    if (at === -1) continue;
-    /* "front bumper" / "rear bumper" / "front door": the word is naming the
-       part, not the side. Take it as a side only if no category phrase
-       starting at the same place claims it. */
-    const claimedByCat = allCatPhrases.some((c) => c.w.startsWith(w + " ") && findPhrase(low, c.w) === at);
-    if (claimedByCat && (side === "Front" || side === "Rear")) continue;
-    out.side = side;
-    sideSpan = { at, len: w.length };
-    break;
-  }
-
   /* --- category --- */
   let catSpan = null;
   for (const { key, w } of allCatPhrases) {
@@ -456,13 +440,77 @@ export function parsePartLine(rawLine, categories = []) {
     catSpan = { at, len: w.length };
     break;
   }
+
+  /* --- which side, and which end ---
+     Two separate questions, and a line can answer both: "Front Left-Hand Side
+     Door" says the end AND the hand. This used to stop at the first side word it
+     found, so the second answer was thrown away — every one of the shop's doors
+     went in reading only "Left" or "Right", with the front/rear half of its own
+     name surviving nowhere but the note. Read both, keep both.
+
+     Left/right, front/rear and pair/center are searched separately rather than
+     in one pass, because the one pass had to stop somewhere and whichever word
+     came second was lost. Within each group the phrases are still longest-first,
+     so "left hand side" beats "left". */
+  const found = (wanted) => {
+    for (const { side, w } of SIDE_PHRASES) {
+      if (!wanted.includes(side)) continue;
+      const at = findPhrase(low, w);
+      if (at === -1) continue;
+      return { side, w, at, len: w.length };
+    }
+    return null;
+  };
+  const hand = found(["Left", "Right"]);
+  const other = found(["Pair", "Center"]);
+  let position = found(["Front", "Rear"]);
+  if (position) {
+    /* "front bumper", "rear light", "back light": the word is naming the part,
+       and the section it names already says which end of the car — FBM IS the
+       front bumper. Repeating it in the side adds nothing there.
+
+       A door is the opposite case, and the reason this is a check rather than a
+       flat refusal: "front door" and "rear door" are both DOR, so the word is
+       the only thing separating them. */
+    const claimedByCat = allCatPhrases.some(
+      (c) => c.w.startsWith(position.w + " ") && findPhrase(low, c.w) === position.at
+    );
+    if (claimedByCat && !POSITIONED_CATS.includes(out.cat)) position = null;
+  }
+  /* Both halves become one side value, which is what SIDES offers and what the
+     code stamps as FL / BR. One half on its own is recorded as it stands — the
+     line said what it said, and guessing the other half would be inventing a
+     part number. `missing` asks for it further down instead.
+
+     Only for the sections that have two ends. A tail light is always at the back
+     and a fog light is always at the front, so "Rear Left Tail Light" and "Left
+     Tail Light" are the same part — and if this recorded them as different
+     sides, findMatch would stop seeing them as the same part and the pasted list
+     would open a second row for a light the shop already stocks instead of
+     adding a piece to the first. The shelf ends up with the same light in two
+     places under two codes, which is worse than a slightly shorter side.
+
+     "Pair" beats a bare front/rear, because it answers the question that is
+     actually being asked — which hand — and a pair of doors is sold as the
+     pair. */
+  const combined = position && hand && POSITIONED_CATS.includes(out.cat);
+  out.side = combined ? `${position.side} ${hand.side}`
+    : hand ? hand.side
+    : other ? other.side
+    : position ? position.side
+    : "";
+  const sideSpans = [hand, position, other].filter(Boolean).map((s) => ({ at: s.at, len: s.len }));
   /* A plain "bumper" or "wing" with no front/rear, left/right: use the
      side if we have one, otherwise flag it for the person to choose. */
   if (!out.cat) {
     for (const [word, info] of Object.entries(AMBIGUOUS)) {
       if (!has(low, word)) continue;
       catSpan = { at: findPhrase(low, word), len: word.length };
-      const bySide = { Front: "FBM", Rear: "RBM", Left: "WNL", Right: "WNR" }[out.side];
+      /* Read off the two halves rather than the combined side, so "front left
+         bumper" still lands on FBM instead of falling through to a question
+         nobody needs asked. */
+      const bySide = { Front: "FBM", Rear: "RBM" }[position?.side] ||
+        { Left: "WNL", Right: "WNR" }[hand?.side];
       if (bySide && info.options.includes(bySide)) out.cat = bySide;
       else out.catAsk = info.ask;
       break;
@@ -528,7 +576,7 @@ export function parsePartLine(rawLine, categories = []) {
   /* --- brand --- */
   /* Blank out the parts of the line we have already understood, so a
      category or side word can never be read as a model name. */
-  const blanks = [catSpan, sideSpan, colourSpan, condSpan, variantSpan,
+  const blanks = [catSpan, ...sideSpans, colourSpan, condSpan, variantSpan,
                   years && { at: years.at, len: years.len },
                   price && { at: price.at, len: price.len },
                   qty && { at: qty.at, len: qty.len },
@@ -650,14 +698,33 @@ export function parsePartLine(rawLine, categories = []) {
      typing a guess - and a guessed year is worse than an honest blank,
      because it looks just as certain as a checked one. The row is saved
      with the year unknown and can be filled in later from Edit Parts. */
-  /* Side matters for the parts that come in twos. Bumpers, bonnets and
-     boots don't, so we don't nag about them. Fog lights, indicators and boot
-     lights come in pairs too, and a left one won't fit the right. Bulbs,
-     ballasts, radiators and grilles are single parts, so they aren't here. */
-  const SIDED = ["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR", "BTL", "FGL", "IND"];
-  if (SIDED.includes(out.cat) && !out.side) out.missing.push("side");
+  out.missing.push(...sideMissing(out.cat, out.side));
 
   return out;
+}
+
+/* What is still unanswered about a part's side, as a list of words to show the
+   person. Lives here, and is used by the review screen too, because the two used
+   to keep separate lists of which sections need a side and the lists had already
+   drifted — the reader wanted one for fog lights and the screen didn't, so
+   editing any field on a fog light row quietly marked it ready.
+
+   Side matters for the parts that come in twos: bumpers, bonnets and boots
+   don't, so we don't nag about them. Bulbs, ballasts, radiators and grilles are
+   single parts, so they aren't here either.
+
+   Doors carry the extra question. A door that says only "Left" does not say
+   which of the two left doors it is, and until now the shop had 90 of them
+   filed exactly that way. */
+export function sideMissing(cat, side) {
+  if (!SIDED_CATS.includes(cat)) return [];
+  const s = String(side || "").trim();
+  if (!s) return ["side"];
+  if (!POSITIONED_CATS.includes(cat)) return [];
+  /* "Pair" is a complete answer — a pair of doors is sold as the pair, and
+     asking which end of a pair is the wrong question. */
+  if (s === "Pair" || /^(Front|Rear) (Left|Right)$/.test(s)) return [];
+  return /^(Front|Rear)$/.test(s) ? ["left or right"] : ["front or rear"];
 }
 
 /* ---------- a whole pasted list ---------- */

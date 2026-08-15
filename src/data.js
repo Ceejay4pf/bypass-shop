@@ -202,7 +202,42 @@ export function mergeCategories(extra = [], base = DEFAULT_CATEGORIES) {
 }
 
 export const CONDITIONS = ["Brand New", "Genuine Used", "Aftermarket", "Refurbished"];
-export const SIDES = ["Left", "Right", "Front", "Rear", "Pair", "Center", "Not Applicable"];
+/* A door is named by two things at once and the shop says both: which end of
+   the car it came off, and which hand it is. "Front Left" and "Rear Left" are
+   different parts that do not interchange, so they are different sides, not one
+   side with a note. The plain values stay for everything that only needs one
+   answer, and for the parts already filed under them. */
+export const SIDES = [
+  "Left", "Right",
+  "Front Left", "Front Right", "Rear Left", "Rear Right",
+  "Front", "Rear", "Pair", "Center", "Not Applicable",
+];
+
+/* Sections where the side is worth asking about at all: these are the parts
+   that come in twos, and a left one will not fit the right. One list, shared by
+   the pasted-list reader and the review screen — they each kept their own and
+   the two had already drifted apart, so a fog light the reader called
+   incomplete was counted as ready the moment somebody edited the row. */
+export const SIDED_CATS = ["DOR", "HDL", "TLL", "SMI", "SMN", "WNL", "WNR", "BTL", "FGL", "IND", "HNG", "GLS"];
+
+/* Sections where front and rear is a SECOND question on top of left and right.
+   Doors are the reason: DOR covers both ends of the car, so "front" is the only
+   thing that tells a front door from a rear one — and dropping it left 90 doors
+   on the shelf that all read the same. A front bumper is not in here: it is
+   already its own section (FBM), so the word adds nothing. */
+export const POSITIONED_CATS = ["DOR", "HNG", "GLS", "INT"];
+
+/* The sides worth offering for a section, so the dropdown asks the question the
+   shop would actually answer. `current` is passed so a part already saved with
+   some other value still shows its own side instead of silently reading as
+   something else. */
+export function sidesFor(cat, current = "") {
+  const both = ["Front Left", "Front Right", "Rear Left", "Rear Right", "Left", "Right", "Pair", "Not Applicable"];
+  const hand = ["Left", "Right", "Pair", "Not Applicable"];
+  const list = POSITIONED_CATS.includes(cat) ? both : SIDED_CATS.includes(cat) ? hand : SIDES;
+  return !current || list.includes(current) ? list : [...list, current];
+}
+
 export const PAYMENT = ["Paid", "Pending"];
 /* Free-text, but these power the suggestion list on Quick Transaction. */
 export const VARIANTS = ["Xenon", "Non Xenon", "LED", "Halogen", "With Sensor", "No Sensor", "Sunroof", "No Sunroof"];
@@ -238,7 +273,14 @@ export function brandCode(brandName) {
   return b ? b.code : abbr(brandName, 3);
 }
 
-/* One-letter side code for the inventory code (L, R, F, B, P, C). */
+/* Side code for the inventory code (L, R, F, B, P, C), or two letters when the
+   part is named by both ends and hands: FL, FR, BL, BR. B is rear throughout,
+   because R was already taken by right.
+
+   Doors filed before this existed keep the single letter in their code — a code
+   is printed on the shelf label and is never rewritten, so DOR-HON-CRV-XX-L-0293
+   stays as it is even after its side reads "Front Left". The letter is still
+   true, just less exact; the fields are what the shop reads off the screen. */
 export function sideCode(side) {
   return (
     {
@@ -248,6 +290,10 @@ export function sideCode(side) {
       Rear: "B",
       Pair: "P",
       Center: "C",
+      "Front Left": "FL",
+      "Front Right": "FR",
+      "Rear Left": "BL",
+      "Rear Right": "BR",
       "Not Applicable": "N",
     }[side] || "N"
   );

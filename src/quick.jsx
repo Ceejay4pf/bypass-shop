@@ -11,7 +11,7 @@ import {
   ArrowRight, History, Search, X, MapPin, Loader2,
 } from "lucide-react";
 import {
-  CONDITIONS, SIDES, BRANDS, VARIANTS, PAYMENT, generateCode, findMatch,
+  CONDITIONS, sidesFor, BRANDS, VARIANTS, PAYMENT, generateCode, findMatch,
   formatLocation, LOW_STOCK_THRESHOLD,
 } from "./data.js";
 import { Field, inputCls, SectionTitle, ItemCard, StockBadge, fmtDateTime } from "./ui.jsx";
@@ -203,7 +203,7 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
           <div className="flex-1">
             <Field label="Side">
               <select value={side} onChange={(e) => setSide(e.target.value)} className={inputCls}>
-                {SIDES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {sidesFor(cat, side).map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
           </div>
