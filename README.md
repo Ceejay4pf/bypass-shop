@@ -26,6 +26,13 @@ phone in the shop:
   Hinges, glass and interior trim work the same way. A front bumper doesn't
   repeat the word — it is already its own section — and a tail light is asked
   only which hand, because every tail light is at the back anyway.
+  On screen the end of the car is a **coloured badge**, green for front and amber
+  for rear, so two doors of the same car are told apart at a glance instead of by
+  reading a row of grey text. **On the printed list the doors come out as two
+  lists** — *Doors — Front* and *Doors — Rear*, each with its own heading and
+  count — and the Side column then just says Left or Right. The end of the car is
+  the first thing anybody needs off the page, and on a hundred rows nobody finds
+  it buried mid-column.
 - **Where is it?** Warehouse location down to rack, shelf and bin. Search matches
   code, part name, vehicle, year, colour, side or location. Every word you type
   has to appear, but they don't have to be next to each other — so **front door**

@@ -25,7 +25,8 @@ import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
 } from "./lib/appLock.js";
 import {
-  CONDITIONS, SIDES, sidesFor, BRANDS, PAYMENT, generateCode, formatLocation,
+  CONDITIONS, SIDES, sidesFor, splitSide, POSITIONED_CATS, POSITION_ORDER,
+  BRANDS, PAYMENT, generateCode, formatLocation,
   LOW_STOCK_THRESHOLD, isLowStock, isOutOfStock, reorderLevel,
   categoryGroups, CATEGORY_COLORS,
   suggestCategoryKey, suggestShelf,
@@ -1526,34 +1527,64 @@ export function PrintStockTab({ items, categories }) {
        - what each part sells for is the shop's business, and a quantity printed
        on paper is out of date the moment something sells. Both are still on
        screen, where they are live. */
+    /* One table of rows, with the number restarting per block so a block torn
+       off on its own still counts from 1. */
+    const tableFor = (list, cat) =>
+      `<table>
+          <thead><tr>
+            <th class="c">#</th><th>Code</th><th>Item</th><th>Side</th><th>Color</th>
+            <th>Location</th><th>Date added</th>
+          </tr></thead>
+          <tbody>${list
+            .map((i, idx) => {
+              const { hand } = splitSide(cat, i.side);
+              return `<tr>
+              <td class="c">${idx + 1}</td>
+              <td class="mono">${escapeHtml(i.code)}</td>
+              <td>${escapeHtml(i.name || `${i.brand || ""} ${i.model || ""}`)}</td>
+              <td>${escapeHtml(hand || i.side || "")}</td>
+              <td>${escapeHtml(i.color || "")}</td>
+              <td>${escapeHtml(i.location || "")}</td>
+              <td>${escapeHtml(fmtAdded(i))}</td>
+            </tr>`;
+            })
+            .join("")}</tbody>
+        </table>`;
+
     const sections = chosenCats
       .map((c) => {
         const list = filtered
           .filter((i) => i.cat === c.key)
           .sort((a, b) => String(a.code).localeCompare(String(b.code)));
         if (list.length === 0) return "";
-        const rows = list
-          .map(
-            (i, idx) => `<tr>
-              <td class="c">${idx + 1}</td>
-              <td class="mono">${escapeHtml(i.code)}</td>
-              <td>${escapeHtml(i.name || `${i.brand || ""} ${i.model || ""}`)}</td>
-              <td>${escapeHtml(i.side || "")}</td>
-              <td>${escapeHtml(i.color || "")}</td>
-              <td>${escapeHtml(i.location || "")}</td>
-              <td>${escapeHtml(fmtAdded(i))}</td>
-            </tr>`
-          )
-          .join("");
+        const shelf = `<span class="sechn">${list.length} item(s) · Shelf ${escapeHtml(c.shelf || "—")}</span>`;
+
+        /* Doors get printed as two lists, not one. A car has four doors and the
+           first thing anybody needs off the page is which end of the car —
+           "Front" sitting inside a Side column, a hundred rows down, is not
+           something a person finds while a customer waits. So the end of the car
+           becomes the heading and the hand stays in the column: the page reads
+           DOORS - FRONT, then Left, Left, Right. Which is the order the question
+           is actually asked in.
+
+           Anything with no end recorded gets its own block at the bottom, named
+           for what it is rather than quietly filed under front. */
+        if (POSITIONED_CATS.includes(c.key)) {
+          const blocks = POSITION_ORDER.map((pos) => {
+            const part = list.filter((i) => splitSide(c.key, i.side).position === pos);
+            if (!part.length) return "";
+            const head = pos ? `${c.label} — ${pos}` : `${c.label} — end of car not recorded`;
+            return `<div class="sec">
+                <div class="sech">${escapeHtml(head)} <span class="sechn">${part.length} item(s) · Shelf ${escapeHtml(c.shelf || "—")}</span></div>
+                ${tableFor(part, c.key)}
+              </div>`;
+          }).join("");
+          if (blocks) return blocks;
+        }
+
         return `<div class="sec">
-            <div class="sech">${escapeHtml(c.label)} <span class="sechn">${list.length} item(s) · Shelf ${escapeHtml(c.shelf || "—")}</span></div>
-            <table>
-              <thead><tr>
-                <th class="c">#</th><th>Code</th><th>Item</th><th>Side</th><th>Color</th>
-                <th>Location</th><th>Date added</th>
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
+            <div class="sech">${escapeHtml(c.label)} ${shelf}</div>
+            ${tableFor(list, c.key)}
           </div>`;
       })
       .join("");

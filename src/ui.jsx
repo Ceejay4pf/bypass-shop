@@ -3,7 +3,7 @@
 --------------------------------------------------------- */
 import React, { useState } from "react";
 import { MapPin, Trash2, ImagePlus, X, Search, CheckSquare, Square } from "lucide-react";
-import { condColor, reorderLevel, isOutOfStock } from "./data.js";
+import { condColor, reorderLevel, isOutOfStock, splitSide } from "./data.js";
 import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 export const inputCls =
@@ -168,6 +168,12 @@ export function ItemCard({ item, categories, onDelete }) {
   // on dark it's only brightened enough to stay readable.
   const mode = useThemeMode();
   const cond = readableOnDark(condColor(item.condition), mode);
+  const { position, hand } = splitSide(item.cat, item.side);
+  /* Front and rear get their own two colours rather than the section's, because
+     the whole job of this badge is telling two doors in the same section apart —
+     and one shared colour cannot do that. Both are brightened for dark mode the
+     same way the condition badge is. */
+  const sideBadge = readableOnDark(position === "Rear" ? "#B7791F" : "#1E7F4F", mode);
   return (
     <div className="group flex items-stretch bg-[#FFFFFF] border border-[#DEE3E9] rounded-md overflow-hidden hover:border-[#C2CAD3] transition-colors">
       <div className="w-2 shrink-0" style={{ backgroundColor: cat.color || "#6B7480" }} />
@@ -237,7 +243,21 @@ export function ItemCard({ item, categories, onDelete }) {
           >
             {item.condition}
           </span>
-          {item.side && item.side !== "Not Applicable" ? <span>· {item.side}</span> : null}
+          {/* Which end of the car, said loudly. A door's end is the first thing
+              anybody needs — a front door and a rear door are different parts at
+              different money — and as one more grey word in a row of grey words
+              it read as no more important than the colour. Sections with only
+              one end (a tail light is always at the back) have no badge to show,
+              and their side prints plainly as before. */}
+          {position ? (
+            <span
+              className="px-1.5 py-0.5 rounded font-bold"
+              style={{ backgroundColor: sideBadge + "22", color: sideBadge }}
+            >
+              {position}
+            </span>
+          ) : null}
+          {hand && hand !== "Not Applicable" ? <span>· {hand}</span> : null}
           {item.variant ? (
             <span className="px-1.5 py-0.5 rounded font-semibold bg-[#2E86DE22] text-[#2E86DE]">{item.variant}</span>
           ) : null}

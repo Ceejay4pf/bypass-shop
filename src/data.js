@@ -238,6 +238,25 @@ export function sidesFor(cat, current = "") {
   return !current || list.includes(current) ? list : [...list, current];
 }
 
+/* The two halves of a side, back apart again: "Front Left" -> Front, and Left.
+   Only for the sections that have two ends — a tail light reading "Left" has no
+   end to pull off, and a bumper's section already is the end.
+
+   Used wherever the end of the car has to be read FIRST and the hand second: the
+   printed stock list puts all the front doors under their own heading before the
+   rear ones, and the card on screen shows the end as a badge rather than as one
+   more word in a run of grey text. On a page of 105 doors, "Front" buried in the
+   middle of a Side column is not something anybody finds. */
+export function splitSide(cat, side) {
+  const s = String(side || "").trim();
+  const m = POSITIONED_CATS.includes(cat) ? /^(Front|Rear)(?: (Left|Right))?$/.exec(s) : null;
+  return m ? { position: m[1], hand: m[2] || "" } : { position: "", hand: s };
+}
+
+/* Front doors before rear ones, and unsaid ones last so they stand out as the
+   rows still needing an answer rather than hiding among the rear. */
+export const POSITION_ORDER = ["Front", "Rear", ""];
+
 export const PAYMENT = ["Paid", "Pending"];
 /* Free-text, but these power the suggestion list on Quick Transaction. */
 export const VARIANTS = ["Xenon", "Non Xenon", "LED", "Halogen", "With Sensor", "No Sensor", "Sunroof", "No Sunroof"];
