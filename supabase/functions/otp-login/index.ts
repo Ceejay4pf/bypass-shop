@@ -34,6 +34,15 @@ import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM = Deno.env.get("ALERT_FROM") ?? "Bypass Shop <onboarding@resend.dev>";
+/* The two senders cannot share a from-address, and getting this wrong breaks
+   something that currently works.
+
+   Brevo will only send from an address it has verified (the shop's own Gmail).
+   Resend will only send from a domain it has verified, which the shop does not
+   have, so it uses onboarding@resend.dev. Point ALERT_FROM at the Gmail and
+   Resend starts refusing the admin-notification emails it sends today. So Brevo
+   gets its own setting, and falls back to ALERT_FROM only if it has none. */
+const BREVO_FROM = Deno.env.get("BREVO_FROM") ?? FROM;
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -90,7 +99,11 @@ function codeEmail(code: string, name: string) {
 // nothing the person standing at the counter typed is wrong, and no amount of
 // retrying will help, so the app must say so rather than "try again".
 async function sendMail(to: string, subject: string, html: string) {
-  const from = splitFrom(FROM);
+  const from = splitFrom(BREVO_FROM);
+  /* Kept so that if BOTH senders refuse, the message names the one the shop is
+     actually trying to use. Telling an admin to "add a BREVO_API_KEY" when they
+     have already added one sends them looking in the wrong place. */
+  let brevoFailed = "";
 
   if (BREVO_API_KEY) {
     const r = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -108,15 +121,11 @@ async function sendMail(to: string, subject: string, html: string) {
     const msg = String(b?.message || b?.code || `Brevo said ${r.status}`);
     // A sender Brevo has not verified is a setup problem, not a typo.
     const senderBad = /sender|not valid|unrecognised|unrecognized/i.test(msg);
+    brevoFailed = senderBad
+      ? `Brevo has not verified the sender address ${from.email}. Add it under Senders, Domains & Dedicated IPs and click the link Brevo emails you.`
+      : `Brevo would not send: ${msg}`;
     if (!RESEND_API_KEY) {
-      return {
-        ok: false,
-        via: "brevo",
-        setup: senderBad,
-        error: senderBad
-          ? `Brevo has not verified the sender address ${from.email}. Add it under Senders & IP and click the link Brevo emails you.`
-          : msg,
-      };
+      return { ok: false, via: "brevo", setup: senderBad, error: brevoFailed };
     }
     // fall through and try Resend rather than failing outright
   }
@@ -140,7 +149,12 @@ async function sendMail(to: string, subject: string, html: string) {
     via: "resend",
     setup: ownerOnly,
     error: ownerOnly
-      ? "This shop can only email the Resend account owner so far. Add a BREVO_API_KEY (free, verifies one sender address, no domain needed) so codes can reach everybody."
+      ? (brevoFailed
+          /* Brevo is the sender the shop chose; Resend is only the fallback. So
+             the useful sentence is the one about Brevo, not the one about a
+             domain the shop was never going to buy. */
+          ? brevoFailed
+          : "This shop can only email the Resend account owner so far. Add a BREVO_API_KEY (free, verifies one sender address, no domain needed) so codes can reach everybody.")
       : msg || "The code could not be emailed.",
   };
 }
