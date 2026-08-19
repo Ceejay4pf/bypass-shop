@@ -1,7 +1,12 @@
 import React, { useState } from "react";
-import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound } from "lucide-react";
+import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound, Smartphone } from "lucide-react";
 import { Field, inputCls } from "./ui.jsx";
-import { signIn, signUp, signInRole, sendEmailCode, checkEmailCode } from "./lib/auth.js";
+import {
+  signIn, signUp, signInRole, sendEmailCode,
+  toLoginEmail, loginNeedsCode, passwordIsRight, sendLoginCode,
+  verifyLoginCode, touchDevice, checkRolePassword,
+} from "./lib/auth.js";
+import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
@@ -61,6 +66,17 @@ export default function LoginGate() {
   // can't be allowed to stop dead because of a shop-side gap.
   const [mailBroken, setMailBroken] = useState("");
 
+  /* A CODE ON A PHONE THIS ACCOUNT HAS NOT BEEN USED ON.
+
+     The password has already been checked at this point, on a throwaway
+     connection that leaves no session behind — so nothing is open to anybody
+     standing here, and a code was only emailed because the password was right.
+
+     Held: the address it went to, and the role account if this was a role
+     login, so the real sign-in can be finished once the code proves out. */
+  const [challenge, setChallenge] = useState(null); // {email, role} | null
+  const [devCode, setDevCode] = useState("");
+
   const chosenRole = ROLE_ACCOUNTS.find((r) => r.key === roleKey) || null;
 
   /* "Failed to fetch" means the browser never reached Supabase at all — the
@@ -73,6 +89,108 @@ export default function LoginGate() {
     "Can't reach the internet. Check your data or Wi-Fi is on and try again — " +
     "your password is fine, the phone just couldn't connect.";
 
+  /* When the code cannot be emailed but the policy says one is needed.
+
+     This is the whole cost of the shop's choice that nobody gets in without a
+     code, and it is said in full rather than as "something went wrong": the
+     person is standing at a counter and needs to know that this phone is not
+     the way in today, and what the way in actually is. */
+  const CANNOT_MAIL =
+    "This phone needs an emailed code, and the shop cannot send one right now. " +
+    "There is no way past it by design. Sign in on a phone you have used before, " +
+    "or ask the admin to switch the new-phone code off under Settings.";
+
+  /* Does this login need a code first? If so, prove the password, email the
+     code and put the code screen up; the caller stops there.
+     Returns true when it has taken over, false to carry on signing in.
+
+     The password is proved before anything is emailed, so a stranger who knows
+     an address cannot make codes land in that inbox. And the real session is
+     not created until the code is right — there is no moment, not even a
+     flicker, where the app is open to somebody who has not finished. */
+  const needsDeviceCode = async (email, role = null, password = "") => {
+    const device = getDeviceId();
+    if (!(await loginNeedsCode(email, device))) {
+      /* Known phone. Note it was used, so the admin's list of trusted phones
+         says when each was really last seen. Nothing waits on this. */
+      touchDevice(email, device);
+      return false;
+    }
+
+    const right = role
+      ? await checkRolePassword(role, password)
+      : (await passwordIsRight(email, password)).ok;
+    if (!right) {
+      setError(
+        role
+          ? `Wrong password for ${role.label}. Ask the admin to reset it.`
+          : "That email/name and password don't match."
+      );
+      return true;
+    }
+
+    const res = await sendLoginCode(email, role ? personName.trim() : name.trim());
+    if (res.setup) { setError(CANNOT_MAIL); return true; }
+
+    setChallenge({ email, role });
+    setDevCode("");
+    setNotice(`We sent a 6-digit code to ${email}. It works for 10 minutes.`);
+    return true;
+  };
+
+  /* The code is right -> the phone is now remembered, and the sign-in that was
+     held back can finish. Remembering the phone and checking the code are one
+     database call, so a browser can never add itself to the trusted list
+     without having proved a code. */
+  const confirmDeviceCode = async () => {
+    setError("");
+    if (devCode.trim().length !== 6) { setError("The code is 6 digits."); return; }
+    setBusy(true);
+    try {
+      const ok = await verifyLoginCode(
+        challenge.email, devCode, getDeviceId(), thisDeviceLabel()
+      );
+      if (!ok) {
+        setNotice("");
+        setError("That code is wrong or has expired. Check the email, or send a new one.");
+        return;
+      }
+      if (challenge.role) {
+        await signInRole(challenge.role, rolePass, personName.trim());
+        setRoleSession(challenge.role.key, personName.trim());
+      } else {
+        await signIn(challenge.email, password);
+      }
+      /* useAuth() in App picks the session up from here. */
+    } catch (e) {
+      // The database raises a readable message once the code is locked out.
+      showError(e, "The code could not be checked.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendDeviceCode = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await sendLoginCode(challenge.email, personName.trim() || name.trim());
+      if (res.setup) setError(CANNOT_MAIL);
+      else setNotice(`A new code is on its way to ${challenge.email}.`);
+    } catch (e) {
+      showError(e, "The code could not be sent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const leaveChallenge = () => {
+    setChallenge(null);
+    setDevCode("");
+    setError("");
+    setNotice("");
+  };
+
   const submitRole = async () => {
     setError("");
     setNotice("");
@@ -81,6 +199,10 @@ export default function LoginGate() {
     if (!rolePass) { setError("Enter the role password."); return; }
     setBusy(true);
     try {
+      /* A role account is shared and its address was invented, so it can never
+         receive a code and this returns false — but it is asked anyway rather
+         than skipped, so there is no way in that quietly avoids the check. */
+      if (await needsDeviceCode(chosenRole.email, chosenRole, rolePass)) return;
       await signInRole(chosenRole, rolePass, personName.trim());
       setRoleSession(chosenRole.key, personName.trim());
       // useAuth() in App picks up the session automatically.
@@ -136,7 +258,7 @@ export default function LoginGate() {
       }
       setStep("code");
       setCode("");
-      setNotice(`We sent a 6-digit code to ${to}. It works for 15 minutes.`);
+      setNotice(`We sent a 6-digit code to ${to}. It works for 10 minutes.`);
     } catch (e) {
       showError(e, "The code could not be sent.");
     } finally {
@@ -179,7 +301,13 @@ export default function LoginGate() {
     if (code.trim().length !== 6) { setError("The code is 6 digits."); return; }
     setBusy(true);
     try {
-      const ok = await checkEmailCode(contact.trim().toLowerCase(), code);
+      /* The same call that proves the address also remembers this phone. The
+         code was emailed to them and typed back here, which is precisely the
+         proof the new-phone check asks for — so it would be perverse to demand
+         a second code the next time they sign in on the phone they signed up on. */
+      const ok = await verifyLoginCode(
+        contact.trim().toLowerCase(), code, getDeviceId(), thisDeviceLabel()
+      );
       if (!ok) {
         setError("That code is wrong or has expired. Check the email, or send a new one.");
         return;
@@ -202,6 +330,7 @@ export default function LoginGate() {
     if (!password) { setError("Enter your password."); return; }
     setBusy(true);
     try {
+      if (await needsDeviceCode(toLoginEmail(name.trim()), null, password)) return;
       await signIn(name.trim(), password);
       // useAuth() in App picks up the session automatically.
     } catch (e) {
@@ -257,6 +386,88 @@ export default function LoginGate() {
         )}
 
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-5 shadow-xl">
+          {/* ---------- A NEW PHONE ----------
+              Takes over the whole card. The password was right, but this
+              account has not been used on this phone before, so nothing is
+              open yet and there is nothing else to do on this screen. */}
+          {challenge ? (
+            <>
+              <button
+                onClick={leaveChallenge}
+                className="text-[#5A6472] text-xs mb-3 flex items-center gap-1 hover:text-[#2563EB]"
+              >
+                <ArrowLeft size={13} /> Back
+              </button>
+
+              <div className="text-center mb-4">
+                <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#EAF1FF] flex items-center justify-center">
+                  <Smartphone size={22} className="text-[#2563EB]" />
+                </div>
+                <div className="font-semibold text-[#1B2430]">A phone we haven&apos;t seen</div>
+                <p className="text-[#5A6472] text-xs mt-1 leading-relaxed">
+                  Your password was right. This account has not been used on this
+                  phone before, so we emailed a 6-digit code to<br />
+                  <span className="font-semibold text-[#1B2430] break-all">{challenge.email}</span>
+                </p>
+              </div>
+
+              <Field label="Enter the code">
+                <div className="relative">
+                  <KeyRound size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
+                  <input
+                    value={devCode}
+                    onChange={(e) => setDevCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    onKeyDown={(e) => e.key === "Enter" && confirmDeviceCode()}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className={inputCls + " pl-9 text-center text-lg font-mono tracking-[0.4em]"}
+                    autoFocus
+                  />
+                </div>
+              </Field>
+
+              {error && (
+                <div className="text-[#DC3B2E] text-sm mb-3 flex items-start gap-1.5">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+                </div>
+              )}
+              {notice && !error && (
+                <div className="text-[#15926A] text-sm mb-3 flex items-start gap-1.5">
+                  <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> {notice}
+                </div>
+              )}
+
+              <button
+                onClick={confirmDeviceCode}
+                disabled={busy || devCode.length !== 6}
+                className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                Trust this phone &amp; log in
+              </button>
+
+              <button
+                onClick={resendDeviceCode}
+                disabled={busy}
+                className="w-full text-[#5A6472] text-xs mt-3 hover:text-[#2563EB] disabled:opacity-50"
+              >
+                Didn&apos;t get it? Send a new code
+              </button>
+
+              {/* Said here, before five wrong tries, not after. There is no
+                  override and no bypass password — that was chosen on purpose,
+                  because an override is the first thing somebody who has stolen
+                  a password goes looking for. */}
+              <p className="text-[11px] text-[#5A6472] mt-3 leading-relaxed flex items-start gap-1.5">
+                <AlertTriangle size={13} className="text-[#B45309] mt-0.5 shrink-0" />
+                Five wrong tries and this code stops working. There is no way
+                past this step — if you can&apos;t read the email, sign in on a
+                phone you&apos;ve used before, or ask the admin.
+              </p>
+            </>
+          ) : (
+          <>
           {/* Two ways in: a shared role login, or your own account. */}
           <div className="flex gap-2 mb-4 bg-[#EEF2F6] rounded-md p-1">
             {[
@@ -556,6 +767,8 @@ export default function LoginGate() {
           >
             {mode === "signin" ? "New staff member? Create an account" : "Already have an account? Sign in"}
           </button>
+          </>
+          )}
           </>
           )}
           </>

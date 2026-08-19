@@ -329,6 +329,38 @@ numbers. Decide this deliberately — and enforce it in RLS.
   read, never what the ledger records.
 - **Free-tier Supabase pauses after ~7 days idle**, and a paused project means
   staff can't log in. Know that before it happens on a Monday morning.
+- **A security policy you can't turn on safely is not a policy, it's a trap.**
+  The new-phone code was designed with no override, on purpose. Then the accounts
+  were counted: 19 of 23 were created from a name, so their address was invented
+  and has no inbox — a code could never reach them. Switching it on for everybody
+  would have locked almost the whole shop out at the counter. The answer was not
+  to weaken it with a bypass password (the first thing an attacker looks for) but
+  to **narrow who it applies to**: only an account whose address has *proved* it
+  can receive a code is ever challenged, and the switch itself refuses to turn on
+  until a code has actually arrived on the admin's own phone. Count the people a
+  lockout rule would lock out **before** shipping the rule, and put the number on
+  the screen next to the switch.
+- **Check a password before sending anything to an inbox.** If the code is
+  emailed first and the password checked after, anybody who knows an address can
+  make codes rain into it. Prove the password on a throwaway connection that
+  leaves no session behind — that also means no session exists until the code is
+  right, so there is no flicker of an open app for somebody who hasn't finished.
+- **Proving a code and trusting the device must be one database call.** Two calls
+  leave a window where the browser can put itself on the trusted list without
+  ever having proved a code — which is the entire thing the feature exists to
+  prevent.
+- **Fail open on the *check*, fail closed on the *proof*.** `login_needs_code`
+  answers "no" on any error, because a fault there must never be able to shut the
+  shop out of its own stock. `verify_login_code` answers "no" on any doubt. The
+  two directions are opposite and both are deliberate.
+- **The wording of the email is the alarm.** "Somebody is signing in on a phone
+  this account hasn't been used on" tells a person their password has been taken.
+  "Somebody is creating an account" tells them nothing. Same code, same sender —
+  only the sentence does the work.
+- **`supabase db query` reports success silently, so prove the test can fail.**
+  A migration test that asserts fifteen things and prints nothing looks identical
+  to one that ran no assertions at all. Break one on purpose first and watch the
+  error appear; only then believe the passes.
 
 ---
 

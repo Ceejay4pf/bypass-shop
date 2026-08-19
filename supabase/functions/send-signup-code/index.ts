@@ -34,8 +34,14 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    const { email, name } = await req.json();
+    const { email, name, purpose } = await req.json();
     const to = String(email || "").trim().toLowerCase();
+    // The same code, sent for two different reasons. Only the wording differs,
+    // but the wording is the alarm: a person reading "signing in on a phone
+    // this account has not used before" when they are sitting at home has just
+    // been told their password is in somebody else's hands. "Creating an
+    // account" would tell them nothing.
+    const isLogin = String(purpose || "signup") === "login";
 
     if (!to.includes("@") || !to.includes(".")) {
       return json({ ok: false, error: "That does not look like an email address." }, 400);
@@ -73,21 +79,30 @@ serve(async (req) => {
       body: JSON.stringify({
         from: FROM,
         to: [to],
-        subject: `${code} is your Bypass Shop code`,
+        subject: isLogin
+          ? `${code} — signing in on a new phone`
+          : `${code} is your Bypass Shop code`,
         html: `<div style="font-family:system-ui,sans-serif;max-width:420px">
           <h2 style="color:#2563EB;margin:0 0 4px">Bypass Shop</h2>
           <p style="font-size:15px;margin:0 0 18px">
-            ${name ? `Hello ${name}, s` : "S"}omebody is creating a staff account
-            with this email address. Type this code into the app to finish:
+            ${name ? `Hello ${name}, s` : "S"}omebody is ${
+              isLogin
+                ? "signing in to your account on a phone it has not been used on before"
+                : "creating a staff account with this email address"
+            }. Type this code into the app to ${isLogin ? "continue" : "finish"}:
           </p>
           <p style="font-size:34px;font-weight:800;letter-spacing:7px;
                     font-family:ui-monospace,monospace;color:#0B1524;margin:0">
             ${String(code)}
           </p>
           <p style="color:#5A6472;font-size:13px;margin:14px 0 0">
-            The code stops working in 15 minutes.
-            If this wasn't you, ignore this email - no account is created
-            until the code is entered.
+            The code stops working in 10 minutes.
+            ${
+              isLogin
+                ? `<strong style="color:#B42318">If this was not you, somebody has your password.</strong>
+                   Do not type this code anywhere. Change your password and tell the shop admin.`
+                : "If this wasn't you, ignore this email - no account is created until the code is entered."
+            }
           </p>
           <hr style="border:none;border-top:1px solid #DEE3E9;margin:18px 0 8px"/>
           <p style="color:#5A6472;font-size:12px;margin:0">Jaspare Auto - Main Shop</p>

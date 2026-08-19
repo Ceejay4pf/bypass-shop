@@ -23,7 +23,11 @@ import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
 import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
-import { changeRolePassword } from "./lib/auth.js";
+import {
+  changeRolePassword, deviceOtpStatus, setDeviceOtp, myDevices, forgetDevice,
+  sendLoginCode, verifyLoginCode,
+} from "./lib/auth.js";
+import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
@@ -5917,6 +5921,337 @@ function StaffDirectoryCardInner({ admin }) {
   );
 }
 
+/* ---------------------------------------------------------
+   New-phone code — the switch, and the phones already trusted.
+
+   A password on its own means anybody holding it can open the shop's stock and
+   takings from any phone anywhere. Switched on, this asks for a 6-digit emailed
+   code the first time an account is used on a phone it has not been used on
+   before. Ten minutes, five wrong tries, and — chosen deliberately — no
+   override, because an override is the first thing somebody who has taken a
+   password goes looking for.
+
+   That last part is why this screen is mostly a warning. On this shop, most
+   accounts were created from a name, so their address was invented and has no
+   inbox behind it: no code can ever arrive. Switching the policy on for
+   everybody would lock those people out at the counter, permanently. So:
+
+     - only an account whose address has PROVED it can receive a code is ever
+       challenged. The rest carry on with a password, because the alternative is
+       not "safer", it is "nobody gets in, ever";
+     - the switch cannot be turned on until a code has actually been received on
+       this phone and typed back. The database refuses otherwise, so a hopeful
+       tap cannot lock the admin out of their own shop;
+     - the numbers are on screen before the switch, not after.
+--------------------------------------------------------- */
+function DeviceOtpCard({ email, user, admin }) {
+  const [status, setStatus] = useState(null);
+  const [devices, setDevices] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);   // {ok, text}
+  const [testing, setTesting] = useState(false);
+  const [code, setCode] = useState("");
+  const now = Date.now();
+
+  const device = getDeviceId();
+  /* A role login shares an address with everyone else using that role, and the
+     address is invented. It can be proved and trusted like any other, but it is
+     worth saying that the phone gets trusted for the role, not for the person. */
+  const thisTrusted = devices.some((d) => d.device_id === device);
+
+  const load = async () => {
+    try {
+      const [s, d] = await Promise.all([
+        deviceOtpStatus().catch(() => null),
+        myDevices().catch(() => []),
+      ]);
+      if (s) setStatus(s);
+      setDevices(d || []);
+    } catch {
+      /* leave the card showing what it already had rather than blanking it */
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  /* Send a code to my own address and type it back. This is the only way the
+     first address and the first phone get onto the lists, so it is the gate the
+     switch sits behind. */
+  const sendTest = async () => {
+    setMsg(null);
+    if (!String(email || "").includes("@")) {
+      setMsg({ ok: false, text: "This account has no email address to send to." });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await sendLoginCode(email, user || "");
+      if (res.setup) {
+        setMsg({
+          ok: false,
+          text:
+            (res.error || "Codes can't be emailed yet.") +
+            " Until a code can actually arrive, leave this switched off — turning it on would lock the shop out.",
+        });
+        return;
+      }
+      setTesting(true);
+      setCode("");
+      setMsg({ ok: true, text: `Code sent to ${email}. It works for 10 minutes.` });
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "The code could not be sent." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmTest = async () => {
+    setMsg(null);
+    if (code.trim().length !== 6) { setMsg({ ok: false, text: "The code is 6 digits." }); return; }
+    setBusy(true);
+    try {
+      const ok = await verifyLoginCode(email, code, device, thisDeviceLabel());
+      if (!ok) {
+        setMsg({ ok: false, text: "That code is wrong or has expired. Send a new one." });
+        return;
+      }
+      setTesting(false);
+      setCode("");
+      setMsg({
+        ok: true,
+        text: "Code received and this phone is now trusted. You can switch the policy on.",
+      });
+      await load();
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "The code could not be checked." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const flip = async (on) => {
+    setMsg(null);
+    setBusy(true);
+    try {
+      await setDeviceOtp(on, email, device, user || "");
+      setMsg({
+        ok: true,
+        text: on
+          ? "On. An account whose address has been proved now needs a code on a phone it hasn't been used on."
+          : "Off. A password alone opens the shop from any phone again.",
+      });
+      await load();
+    } catch (e) {
+      // The database raises the real reason, in words, and it matters — it is
+      // the difference between "not set up yet" and "this would lock you out".
+      setMsg({ ok: false, text: e.message || "The switch could not be changed." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const drop = async (id) => {
+    setBusy(true);
+    try {
+      await forgetDevice(id);
+      await load();
+      setMsg({
+        ok: true,
+        text: id === device
+          ? "This phone was removed. You'll need a code the next time you sign in on it."
+          : "That phone was removed. It needs a code next time.",
+      });
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "That phone could not be removed." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const on = !!status?.enabled;
+  const protectedCount = Number(status?.protected) || 0;
+  const noInbox = Number(status?.no_inbox) || 0;
+  const accounts = Number(status?.accounts) || 0;
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="text-sm font-bold uppercase tracking-wide mb-1 flex items-center gap-2">
+        <Smartphone size={15} className="text-[#2563EB]" /> Code On A New Phone
+        <span
+          className={`ml-auto text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${
+            on ? "bg-[#15926A22] text-[#15926A]" : "bg-[#EEF2F6] text-[#5A6472]"
+          }`}
+        >
+          {on ? "On" : "Off"}
+        </span>
+      </div>
+      <p className="text-xs text-[#5A6472] mb-3 leading-relaxed">
+        A password on its own opens this shop from any phone in the world. Switched
+        on, the first use of an account on a phone it hasn&apos;t been used on needs a
+        6-digit code emailed to that account. Ten minutes, five wrong tries, and
+        no way past it.
+      </p>
+
+      {/* ---- the phones on my own account ---- */}
+      <div className="mb-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">
+          Phones this account is trusted on
+        </div>
+        {devices.length === 0 ? (
+          <div className="text-xs text-[#5A6472] bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5 leading-relaxed">
+            None yet. Nothing is wrong — no phone has ever needed a code, because
+            the policy has never been on.
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {devices.map((d) => (
+              <div
+                key={d.device_id}
+                className="flex items-center gap-2.5 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5"
+              >
+                <Smartphone size={14} className="text-[#5A6472] shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate">
+                    {d.label || "Unknown phone"}
+                    {d.device_id === device && (
+                      <span className="ml-1.5 text-[10px] font-bold uppercase text-[#2563EB]">This one</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-[#5A6472]">
+                    Last used {agoText(d.last_seen, now) || "—"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => drop(d.device_id)}
+                  disabled={busy}
+                  className="text-[10px] font-bold uppercase text-[#DC3B2E] hover:underline shrink-0 disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!admin ? (
+        <p className="text-[11px] text-[#5A6472] leading-relaxed flex items-start gap-1.5">
+          <Lock size={13} className="mt-0.5 shrink-0" />
+          Only an admin can switch this on or off for the shop. You can still
+          remove a phone above if one of them isn&apos;t yours any more.
+        </p>
+      ) : (
+        <>
+          {/* ---- the blast radius, before the switch and not after ---- */}
+          <div className="border-t border-[#DEE3E9] pt-3">
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {[
+                { n: accounts, label: "Accounts", tone: "text-[#1B2430]" },
+                { n: protectedCount, label: "Can get a code", tone: "text-[#15926A]" },
+                { n: noInbox, label: "No inbox ever", tone: "text-[#B45309]" },
+              ].map((b) => (
+                <div key={b.label} className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2 text-center">
+                  <div className={`text-lg font-extrabold leading-none ${b.tone}`}>{b.n}</div>
+                  <div className="text-[10px] text-[#5A6472] mt-1 leading-tight">{b.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* The thing an admin must read before touching the switch. It sits
+                on this screen rather than in a manual nobody opens, because the
+                consequence of getting it wrong is staff locked out mid-shift. */}
+            {noInbox > 0 && (
+              <div className="bg-[#FEF6E7] border border-[#E0A93B] rounded-md p-2.5 text-[11px] text-[#6B5417] leading-relaxed mb-3">
+                <span className="font-bold">{noInbox} of {accounts} accounts can never receive a code.</span>{" "}
+                They were created from a name, so the address on them
+                (<span className="font-mono">…@bypassshop.co</span>) has no inbox
+                behind it. Those accounts are left alone by this policy and keep
+                working on a password — locking them out would not make the shop
+                safer, it would just shut the counter. To bring one under the
+                policy, that person signs in and proves a real email address.
+              </div>
+            )}
+
+            {/* ---- prove a code actually arrives ---- */}
+            {!testing ? (
+              <button
+                onClick={sendTest}
+                disabled={busy}
+                className="w-full border border-[#2563EB] text-[#2563EB] text-xs font-bold uppercase tracking-wide rounded-md py-2.5 mb-2 hover:bg-[#2563EB] hover:text-white transition-colors disabled:opacity-50"
+              >
+                {busy ? "Sending…" : thisTrusted ? "Send myself another test code" : "Send myself a test code"}
+              </button>
+            ) : (
+              <div className="bg-[#F8FAFC] border border-[#DEE3E9] rounded-md p-3 mb-2">
+                <Field label={`The 6 digits sent to ${email}`}>
+                  <input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className={inputCls + " text-center text-lg font-mono tracking-[0.4em]"}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => { setTesting(false); setCode(""); setMsg(null); }}
+                    className="border border-[#DEE3E9] rounded-md py-2.5 text-xs font-bold uppercase tracking-wide text-[#5A6472]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmTest}
+                    disabled={busy || code.length !== 6}
+                    className="bg-[#2563EB] text-white rounded-md py-2.5 text-xs font-bold uppercase tracking-wide disabled:opacity-50"
+                  >
+                    {busy ? "Checking…" : "Confirm"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {msg && (
+              <div className={`text-xs mb-2 flex items-start gap-1.5 leading-relaxed ${msg.ok ? "text-[#15926A]" : "text-[#DC3B2E]"}`}>
+                {msg.ok ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                {msg.text}
+              </div>
+            )}
+
+            {/* ---- the switch ---- */}
+            <button
+              onClick={() => flip(!on)}
+              disabled={busy || (!on && !thisTrusted)}
+              className={`w-full text-white text-sm font-bold uppercase tracking-wide rounded-md py-2.5 disabled:opacity-50 ${
+                on ? "bg-[#DC3B2E]" : "bg-[#15926A]"
+              }`}
+            >
+              {on ? "Switch it off" : "Switch it on for the shop"}
+            </button>
+
+            {!on && !thisTrusted && (
+              <p className="text-[11px] text-[#5A6472] mt-2 leading-relaxed flex items-start gap-1.5">
+                <AlertTriangle size={13} className="text-[#B45309] mt-0.5 shrink-0" />
+                Send yourself a test code first. Until a code has actually arrived
+                on this phone, switching this on would lock you out of your own
+                shop the moment you signed out — and there is nobody to let you
+                back in.
+              </p>
+            )}
+            {on && (
+              <p className="text-[11px] text-[#5A6472] mt-2 leading-relaxed">
+                Applies to the {protectedCount} account{protectedCount === 1 ? "" : "s"} that
+                can receive a code. As more staff prove a real address, more of the
+                shop is covered on its own — nothing has to be switched again.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* Role Passwords — the admin's control panel for the 4 shared logins.
    Each role starts on "<role>123"; the admin can set anything else here.
    The change runs on a throwaway Supabase client, so the admin stays
@@ -6273,6 +6608,8 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
       <AppearanceCard />
 
       <BiometricCard email={email} />
+
+      <DeviceOtpCard email={email} user={user} admin={admin} />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Login Alerts</div>

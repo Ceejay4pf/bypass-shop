@@ -62,9 +62,16 @@ export async function signUp(name, password, contact = "") {
 /* Ask for a code to be emailed. Returns {} on success, or {setup:true} when
    the shop's own email sending isn't configured yet — a different problem
    from a mistyped address, and the screen says so differently. */
-export async function sendEmailCode(email, name = "") {
+export async function sendEmailCode(email, name = "", purpose = "signup") {
   const { data, error } = await supabase.functions.invoke("send-signup-code", {
-    body: { email: String(email).trim().toLowerCase(), name: String(name).trim() },
+    body: {
+      email: String(email).trim().toLowerCase(),
+      name: String(name).trim(),
+      /* "signup" or "login" — it only changes what the email says, but that
+         wording is the whole alarm: somebody reading "signing in on a new
+         phone" when they are not learns their password has been taken. */
+      purpose: String(purpose || "signup"),
+    },
   });
   /* A non-2xx from the function arrives as a FunctionsHttpError whose
      `context` is the raw Response, so the real message ("too many codes",
@@ -108,6 +115,132 @@ export async function checkEmailCode(email, code) {
   });
   if (error) throw error;
   return data === true;
+}
+
+/* ---- A CODE THE FIRST TIME AN ACCOUNT IS USED ON A NEW PHONE ----
+
+   The password still gets you in on a phone the account has used before. On one
+   it has never seen, a 6-digit code is emailed and must be typed back. Ten
+   minutes, five wrong tries, no override — see supabase/device_otp.sql for why
+   there is deliberately no way round it, and why it stays switched off until the
+   shop has proved a code can actually arrive. */
+
+/* Does this login need a code? Asked before the password is sent anywhere, so
+   the screen knows which way it is going.
+
+   Any failure answers "no". A fault in the check must not be able to shut the
+   shop out of its own stock — losing the extra step for one login is a far
+   smaller harm than a counter that cannot be opened. */
+export async function loginNeedsCode(email, deviceId) {
+  try {
+    const { data, error } = await supabase.rpc("login_needs_code", {
+      p_email: String(email || "").trim().toLowerCase(),
+      p_device: String(deviceId || "").trim(),
+    });
+    if (error) return false;
+    return data === true;
+  } catch {
+    return false;
+  }
+}
+
+/* Prove the password without signing in.
+
+   Run on a throwaway client that never persists a session, for two reasons.
+   Nothing is emailed until the password is right, so a stranger typing a known
+   address cannot make codes land in somebody's inbox. And the real session is
+   never created until the code is typed, so there is no moment where the app is
+   open to somebody who has not finished — not even the flicker of one. */
+export async function passwordIsRight(email, password) {
+  const tmp = createIsolatedClient();
+  if (!tmp) throw new Error("Supabase is not configured.");
+  const { error } = await tmp.auth.signInWithPassword({
+    email: String(email || "").trim().toLowerCase(),
+    password,
+  });
+  if (!error) await tmp.auth.signOut();
+  return { ok: !error, error };
+}
+
+/* Email a code for a login on a new phone. Same sender as sign-up, but the
+   email has to say the right thing: "somebody is signing in on a new phone" is
+   the sentence that tells a person their password has been taken. "Somebody is
+   creating an account" would not. */
+export async function sendLoginCode(email, name = "") {
+  return sendEmailCode(email, name, "login");
+}
+
+/* Check the code and, in the same call, remember the phone. One database call
+   on purpose: trusting the phone separately would leave a gap where the browser
+   could add itself to the trusted list without ever proving a code, which is
+   the one thing this whole feature exists to prevent. */
+export async function verifyLoginCode(email, code, deviceId, label = "") {
+  const { data, error } = await supabase.rpc("verify_login_code", {
+    p_email: String(email || "").trim().toLowerCase(),
+    p_code: String(code || "").trim(),
+    p_device: String(deviceId || "").trim(),
+    p_label: String(label || "").trim(),
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+/* Note that a trusted phone was used just now, so the list an admin reads says
+   when each one was really last seen. Nothing depends on it, so a failure is
+   swallowed — it must never be the reason a login fails. */
+export async function touchDevice(email, deviceId) {
+  try {
+    await supabase.rpc("touch_device", {
+      p_email: String(email || "").trim().toLowerCase(),
+      p_device: String(deviceId || "").trim(),
+    });
+  } catch {
+    /* cosmetic only */
+  }
+}
+
+/* ---- the admin's side of it ---- */
+
+/* Whether the policy is on, and how many accounts it could actually protect.
+   The counts matter more than the switch: most accounts on this shop were made
+   from a name and have an invented address with no inbox behind it, so a code
+   can never reach them. Turning the policy on for those would lock them out for
+   good, which is why the screen shows the numbers before the switch. */
+export async function deviceOtpStatus() {
+  const { data, error } = await supabase.rpc("device_otp_status");
+  if (error) throw error;
+  return data || {};
+}
+
+/* Turn it on or off. The database refuses to turn it ON unless this address has
+   proved it can receive a code and this phone is already trusted — otherwise
+   the admin's own next login is a locked door and the only person who could
+   unlock it is standing outside it. */
+export async function setDeviceOtp(enabled, email, deviceId, byName = "") {
+  const { data, error } = await supabase.rpc("set_device_otp", {
+    p_enabled: !!enabled,
+    p_email: String(email || "").trim().toLowerCase(),
+    p_device: String(deviceId || "").trim(),
+    p_by: String(byName || "").trim(),
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+/* The phones my own account has been used on. Scoped to the caller inside the
+   database, not by anything passed from here. */
+export async function myDevices() {
+  const { data, error } = await supabase.rpc("my_devices");
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function forgetDevice(deviceId) {
+  const { error } = await supabase.rpc("forget_device", {
+    p_device: String(deviceId || "").trim(),
+  });
+  if (error) throw error;
+  return true;
 }
 
 /* ---- ROLE LOGIN (the 4 shared accounts) ----

@@ -249,6 +249,8 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `supabase/schema.sql` — run this once to build the database
 - `supabase/receipts.sql`, `credit_accounts.sql`, `transfers.sql` — the later tables
 - `supabase/email_verification.sql` — emailed sign-up codes (see below)
+- `supabase/device_otp.sql` — a code on a phone the account has not been used on
+- `src/lib/device.js` — this phone's own random id, and a label for it
 - `supabase/finance.sql` — the financial statements (see below)
 - `supabase/part_categories.sql` — the sections the shop adds itself (see below)
 - `supabase/low_stock_reset.sql` — clears the reorder levels nobody chose; see
@@ -596,7 +598,7 @@ Creating an account works the way it does in any other app:
 The account does not exist until the code is right, so an abandoned sign-up
 leaves nothing behind and a mistyped address is simply corrected and re-sent.
 The code is generated and checked inside the database — only its hash is
-stored, it expires after 15 minutes, and it locks after 5 wrong guesses.
+stored, it expires after 10 minutes, and it locks after 5 wrong guesses.
 
 Signing **in** still accepts either an email or a name: accounts made this way
 are found by their email, while older accounts and the ones an admin creates
@@ -614,6 +616,56 @@ the account owner's own address, so codes never reach anybody else. Until then
 the app skips the code screen, creates the account anyway, and says on-screen
 that the address wasn't confirmed — because blocking every sign-up until the
 shop finishes its email setup would be worse.
+
+### A code on a phone the account hasn't been used on
+
+A password on its own opens this shop's stock, prices and takings from any phone
+in the world. Switched on, the first use of an account on a phone it has not been
+used on needs a 6-digit code emailed to that account: **10 minutes, 5 wrong
+tries, and no override.**
+
+There is deliberately no bypass password and no admin unlock, because an override
+is the first thing somebody who has taken a password goes looking for. If the
+code cannot be read, that phone is not the way in — sign in on a phone you have
+used before.
+
+How it works, in order:
+
+1. The screen asks the database whether this account on this phone needs a code.
+2. If it does, the password is checked on a throwaway connection that leaves no
+   session behind. **Nothing is emailed until the password is right**, so a
+   stranger who knows an address cannot make codes land in that inbox — and no
+   session exists until the code is right, so there is no flicker of an open app.
+3. The code is emailed, typed back, and the same single database call both checks
+   it and remembers the phone. Two calls would leave a gap where a browser could
+   add itself to the trusted list without ever proving a code.
+4. The held-back sign-in finishes.
+
+The phone's id is a random string the app makes once and keeps in that phone's
+own storage — not a fingerprint, and it identifies nobody. Clearing the browser's
+data makes the phone new again, which costs one code.
+
+**Why it ships switched off.** Of the 23 accounts on this shop, 19 were created
+from a name, so the address on them (`…@bypassshop.co`) was invented and has no
+inbox — no code can ever reach them. Switching this on for everybody would lock
+those people out at the counter, permanently. So two things hold it back:
+
+- **Only an account whose address has proved it can receive a code is ever
+  challenged.** The rest carry on with a password, because the alternative is not
+  "safer", it is "nobody gets in, ever". As more staff prove a real address, more
+  of the shop is covered on its own — nothing has to be switched again.
+- **The switch cannot be turned on until a code has actually arrived on the
+  admin's own phone and been typed back.** The database refuses otherwise, so a
+  hopeful tap cannot lock the admin out of their own shop.
+
+To switch it on: run `supabase/device_otp.sql`, then **Settings → Code On A New
+Phone**. That screen shows how many accounts can receive a code and how many
+never can *before* the switch, sends the test code, and lists the phones each
+account is trusted on so one can be removed.
+
+Anyone can remove a phone from their own account there. Only an admin can change
+the shop-wide switch, and neither the trusted list nor the switch can be touched
+by an unauthenticated browser.
 
 ## Still to come
 
