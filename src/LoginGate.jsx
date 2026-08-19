@@ -633,9 +633,15 @@ export default function LoginGate() {
                 Didn&apos;t get it? Send a new code
               </button>
 
+              {/* The "expired" people actually hit is almost never the clock. It
+                  is typing the digits from an older email after asking for
+                  another, because only one code per address is alive at a time.
+                  Saying which email to read is worth more than saying how long
+                  the code lasts. */}
               <p className="text-[11px] text-[#5A6472] mt-3 leading-relaxed">
-                The code works once and dies after 10 minutes. Five wrong tries
-                and it stops working — ask for a new one.
+                Use the digits from the <span className="font-semibold text-[#1B2430]">newest</span> email
+                — asking for another code cancels the one before it. Each code
+                works once, lasts 10 minutes, and dies after five wrong tries.
               </p>
             </>
           ) : (

@@ -187,8 +187,13 @@ export async function finishOtpLogin(email, code) {
   const hash = r.data?.token_hash;
   if (!hash) throw new Error("That code was accepted but signing in failed. Try again.");
 
+  /* token_hash and type ONLY. Passing `email` as well makes Auth refuse the whole
+     call with "only the token_hash and type should be provided" — the address is
+     already baked into the hash, so naming it again is treated as a contradiction
+     rather than a helpful extra. Worth stating plainly here because the address IS
+     needed two lines above, for the function call, and the asymmetry looks like a
+     mistake. */
   const { data, error } = await supabase.auth.verifyOtp({
-    email: addr,
     token_hash: hash,
     type: "magiclink",
   });

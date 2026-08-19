@@ -175,6 +175,25 @@ serve(async (req) => {
 
     // ---------------- send a code ----------------
     if (action === "send") {
+      /* An address the shop invented for itself has no inbox anywhere in the
+         world. Brevo will happily ACCEPT the send and the message then vanishes,
+         which is the worst possible outcome: the app says "code sent", the person
+         waits, and nothing is ever wrong enough to show them.
+
+         The login screen already hides the button for these, but a hidden button
+         is not a closed route - anything can call this function. So it is refused
+         here too, in words that say what to do instead. */
+      if (/@bypassshop\.co$/i.test(to)) {
+        return json(
+          {
+            ok: false,
+            error:
+              "That address was invented from a name when the account was made, so no email can reach it. Sign in with the password instead, or ask the admin to put your real email on the account.",
+          },
+          400,
+        );
+      }
+
       // Check the account exists BEFORE minting, so a stranger tapping the
       // button cannot make the shop send mail to an address of their choosing.
       const ex = await rpc("account_exists", { p_email: to });
