@@ -250,6 +250,8 @@ auth) + Vercel (hosting). Works from anywhere, even with your laptop off.
 - `supabase/receipts.sql`, `credit_accounts.sql`, `transfers.sql` — the later tables
 - `supabase/email_verification.sql` — emailed sign-up codes (see below)
 - `supabase/device_otp.sql` — a code on a phone the account has not been used on
+- `supabase/otp_login.sql` — signing in with a code *instead of* a password
+- `supabase/functions/otp-login/` — checks that code and mints the session
 - `src/lib/device.js` — this phone's own random id, and a label for it
 - `supabase/finance.sql` — the financial statements (see below)
 - `supabase/part_categories.sql` — the sections the shop adds itself (see below)
@@ -666,6 +668,82 @@ account is trusted on so one can be removed.
 Anyone can remove a phone from their own account there. Only an admin can change
 the shop-wide switch, and neither the trusted list nor the switch can be touched
 by an unauthenticated browser.
+
+### Logging in with a code instead of a password
+
+Type your email at **My own account**, and once the address is a real one a second
+button appears under **Log In**:
+
+```
+[            LOG IN            ]   <- your password, exactly as before
+────────────── or ──────────────
+[      EMAIL ME A CODE         ]   <- a 6-digit code, no password at all
+```
+
+This is a *different thing* from the section above. That one is a second lock on
+top of the password. This one is a **second door beside it**: the code stands in
+for the password rather than adding to it. Everybody gets the choice, admin
+included.
+
+Why it is worth having: the password is the part that actually goes missing. It
+gets forgotten over a weekend, written on a note by the till, or told to somebody
+who later leaves. A code lives for ten minutes, in one inbox, and works once.
+
+How the session is made, and why the order matters:
+
+1. The browser asks the `otp-login` function to send a code. The function checks
+   the account exists **before** minting one, so the button cannot be used to make
+   the shop email an address of a stranger's choosing.
+2. The code is minted by `issue_email_code()` inside the database, which `anon`
+   cannot call. The code is the function's return value, so a browser able to call
+   it could simply read the code. Only the function's service key can.
+3. The typed code goes back to the **function**, not to the browser's own database
+   connection — because the browser is the thing that wants in, so it must not be
+   what decides the code was good. `consume_login_code()` checks it and destroys
+   it in one statement, so one code buys exactly one session.
+4. Only then does the function ask Auth for a one-time token, which the app swaps
+   for a real session. A wrong code leaves the app exactly as shut as it was.
+5. The phone is then remembered, so the new-phone check above doesn't ask for a
+   second code next time — a code proved *more* than the password would have.
+
+**This one cannot lock anybody out**, unlike the new-phone code: it only adds a
+way in, and the password keeps working either way. So the switch has one guard
+rather than two — a code must have actually arrived on the admin's own address —
+and that guard is about not making a promise the shop can't keep. A button that
+cannot send is worse than no button, because the person tapping it thinks they are
+waiting.
+
+**Accounts made from a name are not offered it.** Their address
+(`…@bypassshop.co`) was invented and has no inbox, so the button would be a dead
+end wearing a button's clothes. The screen says so in a line instead.
+
+To switch it on: run `supabase/otp_login.sql`, deploy the function
+(`supabase functions deploy otp-login --no-verify-jwt`), then **Settings → Log In
+With A Code** → send yourself a test code → type it back → switch on.
+
+#### The sender is the whole problem
+
+Everything above works. What does not, yet, is the email itself:
+
+- **Resend** refuses to mail anybody except the account owner until a whole
+  **domain** is verified in DNS. This shop has no domain, so today a code can only
+  reach `charles.mbuguajmk@gmail.com` — the Resend account owner.
+- **Supabase's own sender** reaches any inbox, but on the free tier with the
+  default provider the email template **cannot be edited**, so it can only ever
+  send a magic *link*, never a typed code. (`mailer_otp_length` 6 and
+  `mailer_otp_exp` 600 are set on the project, but the template will not take
+  `{{ .Token }}`.) It is also capped at 2 emails/hour.
+
+The way out that needs no domain: **Brevo** verifies a single *sender address* —
+you click a link in your own inbox — and then sends to anyone, 300/day free. The
+function already prefers it:
+
+```bash
+supabase secrets set BREVO_API_KEY=xkeysib-... --project-ref loliaseckqpqjoqiwyiq
+```
+
+Set `ALERT_FROM` to that same verified address. Resend stays as the fallback, so
+nothing has to be removed.
 
 ## Still to come
 

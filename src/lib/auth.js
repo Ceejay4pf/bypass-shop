@@ -59,50 +59,57 @@ export async function signUp(name, password, contact = "") {
    inside the database (see supabase/email_verification.sql); the browser
    never learns it, so it can't be faked from the console. */
 
+/* Call an edge function and get a readable answer out of it.
+
+   A non-2xx from a function arrives as a FunctionsHttpError whose `context` is
+   the raw Response, so the real message ("too many codes", "verify a domain")
+   has to be read out of the body. Without this the screen would show "Edge
+   Function returned a non-2xx status code", which tells a shop worker nothing.
+
+   Returns { data, setup, error } and never throws: `setup` means the SHOP is
+   unfinished, which is nobody's typing mistake, and `error` is a sentence fit to
+   put on screen. */
+async function callFunction(fnName, body) {
+  const { data, error } = await supabase.functions.invoke(fnName, { body });
+  if (!error) {
+    if (data && data.ok === false) {
+      return { setup: !!data.setup, error: data.error || "That didn't work." };
+    }
+    return { data: data || {} };
+  }
+  /* The phone never reached Supabase at all. Say it in the same words the login
+     screen already uses for a lost connection — its own detector looks for
+     "failed to fetch", which this error's message lacks. */
+  if (error.name === "FunctionsFetchError") {
+    return { error: "Failed to fetch — the phone couldn't reach the internet." };
+  }
+  let payload = null;
+  try {
+    payload = await error.context?.clone().json();
+  } catch {
+    /* not JSON — e.g. the function isn't deployed and this is an HTML 404 */
+  }
+  if (payload?.setup) return { setup: true, error: payload.error };
+  if (error.context?.status === 404) {
+    return { setup: true, error: `The ${fnName} function isn't deployed yet.` };
+  }
+  return { error: payload?.error || error.message || "That didn't work." };
+}
+
 /* Ask for a code to be emailed. Returns {} on success, or {setup:true} when
    the shop's own email sending isn't configured yet — a different problem
    from a mistyped address, and the screen says so differently. */
 export async function sendEmailCode(email, name = "", purpose = "signup") {
-  const { data, error } = await supabase.functions.invoke("send-signup-code", {
-    body: {
-      email: String(email).trim().toLowerCase(),
-      name: String(name).trim(),
-      /* "signup" or "login" — it only changes what the email says, but that
-         wording is the whole alarm: somebody reading "signing in on a new
-         phone" when they are not learns their password has been taken. */
-      purpose: String(purpose || "signup"),
-    },
+  const r = await callFunction("send-signup-code", {
+    email: String(email).trim().toLowerCase(),
+    name: String(name).trim(),
+    /* "signup" or "login" — it only changes what the email says, but that
+       wording is the whole alarm: somebody reading "signing in on a new
+       phone" when they are not learns their password has been taken. */
+    purpose: String(purpose || "signup"),
   });
-  /* A non-2xx from the function arrives as a FunctionsHttpError whose
-     `context` is the raw Response, so the real message ("too many codes",
-     "verify a domain") has to be read out of the body. Without this the
-     screen would show "Edge Function returned a non-2xx status code", which
-     tells a shop worker nothing. */
-  if (error) {
-    /* The phone never reached Supabase at all. Say it in the same words the
-       login screen already uses for a lost connection — its own detector
-       looks for "failed to fetch", which this error's message lacks. */
-    if (error.name === "FunctionsFetchError") {
-      throw new Error("Failed to fetch — the phone couldn't reach the internet.");
-    }
-    let payload = null;
-    let status = error.context?.status;
-    try {
-      payload = await error.context?.clone().json();
-    } catch {
-      /* not JSON — e.g. the function isn't deployed and this is an HTML 404 */
-    }
-    if (payload?.setup) return { setup: true, error: payload.error };
-    /* Not deployed yet. Treated exactly like "sending isn't configured": the
-       shop hasn't finished setting this up, which is nobody's typing mistake,
-       and sign-ups must not be blocked by it. */
-    if (status === 404) return { setup: true, error: "The code sender isn't deployed yet." };
-    throw new Error(payload?.error || error.message || "The code could not be sent.");
-  }
-  if (data && data.ok === false) {
-    if (data.setup) return { setup: true, error: data.error };
-    throw new Error(data.error || "The code could not be sent.");
-  }
+  if (r.setup) return { setup: true, error: r.error };
+  if (r.error) throw new Error(r.error);
   return {};
 }
 
@@ -112,6 +119,108 @@ export async function checkEmailCode(email, code) {
   const { data, error } = await supabase.rpc("verify_email_code", {
     p_email: String(email).trim().toLowerCase(),
     p_code: String(code).trim(),
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+/* ---- SIGNING IN WITH A CODE INSTEAD OF A PASSWORD ----
+
+   Two ways in, chosen by the person after they type their email:
+
+       [ Use my password ]        [ Email me a code ]
+
+   The code is not a second step on top of the password — it replaces it. That is
+   the point: a password is the thing people actually lose. It gets forgotten,
+   written on a note by the till, or told to somebody who later leaves. An
+   emailed code is held only by whoever can open that inbox, and it is finished
+   in ten minutes.
+
+   See supabase/functions/otp-login/index.ts for why the session has to be minted
+   on the server: a checked code is not a session, and the browser must not be
+   the thing that decides a code was good, because the browser is what wants in. */
+
+/* Can this shop offer the code button at all? Read before the button is drawn,
+   because an offer that can't be honoured is worse than no offer — somebody
+   stands at the counter tapping it, waiting on an inbox that gets nothing.
+
+   Answers "no" on any failure. Losing the button for one login means typing a
+   password; showing a broken one means a person who can't get in. */
+export async function otpLoginAvailable() {
+  try {
+    const { data, error } = await supabase.rpc("otp_login_available");
+    if (error) return false;
+    return data === true;
+  } catch {
+    return false;
+  }
+}
+
+/* Send the code. Returns {} on success, {setup:true, error} when the shop can't
+   email yet, and throws with a readable sentence for anything the person can
+   actually fix (wrong address, too many codes asked for). */
+export async function startOtpLogin(email, name = "") {
+  const r = await callFunction("otp-login", {
+    action: "send",
+    email: String(email || "").trim().toLowerCase(),
+    name: String(name || "").trim(),
+  });
+  if (r.setup) return { setup: true, error: r.error };
+  if (r.error) throw new Error(r.error);
+  return { via: r.data?.via || "" };
+}
+
+/* Type the code back, and end up signed in.
+
+   Three steps that must stay in this order: the server checks the code and
+   destroys it, hands back a one-time token, and only then does the app swap that
+   token for a session. Nothing before the last line leaves a session behind, so
+   a wrong code leaves the app exactly as shut as it was. */
+export async function finishOtpLogin(email, code) {
+  const addr = String(email || "").trim().toLowerCase();
+  const r = await callFunction("otp-login", {
+    action: "verify",
+    email: addr,
+    code: String(code || "").trim(),
+  });
+  if (r.error) throw new Error(r.error);
+  const hash = r.data?.token_hash;
+  if (!hash) throw new Error("That code was accepted but signing in failed. Try again.");
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: addr,
+    token_hash: hash,
+    type: "magiclink",
+  });
+  if (error) throw error;
+  return data.user;
+}
+
+/* Remember this phone, now that a code has proved who is holding it.
+
+   Called after the session exists, not before — the database reads the address
+   out of the token rather than taking it as an argument, so this can only ever
+   trust the caller's own phone. Failure is swallowed: it only means the next
+   login on this phone may ask for a code again, which is an inconvenience, not a
+   locked door. */
+export async function trustMyDevice(deviceId, label = "") {
+  try {
+    await supabase.rpc("trust_my_device", {
+      p_device: String(deviceId || "").trim(),
+      p_label: String(label || "").trim(),
+    });
+  } catch {
+    /* the code still got them in */
+  }
+}
+
+/* Admin turns the code button on or off for the whole shop. The database refuses
+   to turn it ON until this address has actually had a code arrive. */
+export async function setOtpLogin(enabled, email, byName = "") {
+  const { data, error } = await supabase.rpc("set_otp_login", {
+    p_enabled: !!enabled,
+    p_email: String(email || "").trim().toLowerCase(),
+    p_by: String(byName || "").trim(),
   });
   if (error) throw error;
   return data === true;

@@ -10,7 +10,7 @@ import {
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
-  Wand2, Sun, Moon, Smartphone, CheckCircle2,
+  Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail,
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
@@ -26,6 +26,7 @@ import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
 import {
   changeRolePassword, deviceOtpStatus, setDeviceOtp, myDevices, forgetDevice,
   sendLoginCode, verifyLoginCode,
+  otpLoginAvailable, startOtpLogin, setOtpLogin, checkEmailCode,
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
@@ -5944,6 +5945,210 @@ function StaffDirectoryCardInner({ admin }) {
        tap cannot lock the admin out of their own shop;
      - the numbers are on screen before the switch, not after.
 --------------------------------------------------------- */
+/* ---- SIGN IN WITH A CODE INSTEAD OF A PASSWORD ----
+
+   Not a second lock on top of the password — a second door beside it. At the
+   login screen, once an email is typed, "Email me a code" appears next to Log In,
+   and a 6-digit code signs the person in with no password at all.
+
+   Why it is worth having: the password is the part that actually goes missing.
+   It gets forgotten over a weekend, written on a note by the till, or told to
+   somebody who later leaves. A code lives for ten minutes in one inbox.
+
+   Why it ships off: the button is a promise that an email will arrive. Until the
+   shop has watched one arrive, that promise is a person standing at the counter
+   tapping a button and getting nothing — so the switch is behind a real code
+   landing on the admin's own address. */
+function OtpLoginCard({ email, user, admin }) {
+  const [on, setOn] = useState(null);      // null = still reading
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);    // {ok, text}
+  const [testing, setTesting] = useState(false);
+  const [code, setCode] = useState("");
+  const [proved, setProved] = useState(false);
+
+  const load = async () => setOn(await otpLoginAvailable());
+  useEffect(() => { load(); }, []);
+
+  const sendTest = async () => {
+    setMsg(null);
+    if (!String(email || "").includes("@") || /@bypassshop\.co$/i.test(String(email))) {
+      setMsg({
+        ok: false,
+        text: "This account's address was invented from a name, so nothing can be sent to it. Sign in with a real email address to test this.",
+      });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await startOtpLogin(email, user || "");
+      if (res.setup) {
+        /* The sender is not configured. Say what to do about it, because this is
+           the one wall between the shop and having the feature at all. */
+        setMsg({ ok: false, text: res.error || "Codes can't be emailed yet." });
+        return;
+      }
+      setTesting(true);
+      setCode("");
+      setMsg({ ok: true, text: `Code sent to ${email}. It works for 10 minutes.` });
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "The code could not be sent." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* Checked, not swapped for a session. The admin is already signed in — the only
+     question being asked is whether the email arrived, and typing the code back
+     is the answer. It also records the address as reachable, which is what the
+     switch below is waiting for. */
+  const confirmTest = async () => {
+    setMsg(null);
+    if (code.trim().length !== 6) { setMsg({ ok: false, text: "The code is 6 digits." }); return; }
+    setBusy(true);
+    try {
+      const ok = await checkEmailCode(email, code);
+      if (!ok) {
+        setMsg({ ok: false, text: "That code is wrong or has expired. Send a new one." });
+        return;
+      }
+      setTesting(false);
+      setCode("");
+      setProved(true);
+      setMsg({ ok: true, text: "The email arrived and the code was right. You can switch this on." });
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "The code could not be checked." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const flip = async (next) => {
+    setMsg(null);
+    setBusy(true);
+    try {
+      await setOtpLogin(next, email, user || "");
+      setMsg({
+        ok: true,
+        text: next
+          ? "On. Anyone with a real email address can now sign in with a code instead of their password."
+          : "Off. The login screen asks for a password only.",
+      });
+      await load();
+    } catch (e) {
+      // The database raises the real reason in words, and it is the useful part.
+      setMsg({ ok: false, text: e.message || "The switch could not be changed." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="text-sm font-bold uppercase tracking-wide mb-1 flex items-center gap-2">
+        <Mail size={15} className="text-[#2563EB]" /> Log In With A Code
+        <span
+          className={`ml-auto text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${
+            on ? "bg-[#15926A22] text-[#15926A]" : "bg-[#EEF2F6] text-[#5A6472]"
+          }`}
+        >
+          {on === null ? "…" : on ? "On" : "Off"}
+        </span>
+      </div>
+      <p className="text-xs text-[#5A6472] mb-3 leading-relaxed">
+        Switched on, the login screen offers a choice once an email is typed:
+        use your password, or be emailed a 6-digit code that signs you in on its
+        own. Everybody gets the choice, admin included. The code works once and
+        dies after ten minutes.
+      </p>
+
+      {!admin ? (
+        <p className="text-[11px] text-[#5A6472] leading-relaxed flex items-start gap-1.5">
+          <Lock size={13} className="mt-0.5 shrink-0" />
+          Only an admin can switch this on or off for the shop.
+        </p>
+      ) : (
+        <div className="border-t border-[#DEE3E9] pt-3">
+          {/* ---- prove an email actually arrives ---- */}
+          {!testing ? (
+            <button
+              onClick={sendTest}
+              disabled={busy}
+              className="w-full border border-[#2563EB] text-[#2563EB] text-xs font-bold uppercase tracking-wide rounded-md py-2.5 mb-2 hover:bg-[#2563EB] hover:text-white transition-colors disabled:opacity-50"
+            >
+              {busy ? "Sending…" : proved || on ? "Send myself another test code" : "Send myself a test code"}
+            </button>
+          ) : (
+            <div className="bg-[#F8FAFC] border border-[#DEE3E9] rounded-md p-3 mb-2">
+              <Field label={`The 6 digits sent to ${email}`}>
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className={inputCls + " text-center text-lg font-mono tracking-[0.4em]"}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => { setTesting(false); setCode(""); setMsg(null); }}
+                  className="border border-[#DEE3E9] rounded-md py-2.5 text-xs font-bold uppercase tracking-wide text-[#5A6472]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmTest}
+                  disabled={busy || code.length !== 6}
+                  className="bg-[#2563EB] text-white rounded-md py-2.5 text-xs font-bold uppercase tracking-wide disabled:opacity-50"
+                >
+                  {busy ? "Checking…" : "Confirm"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {msg && (
+            <div className={`text-xs mb-2 flex items-start gap-1.5 leading-relaxed ${msg.ok ? "text-[#15926A]" : "text-[#DC3B2E]"}`}>
+              {msg.ok ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+              {msg.text}
+            </div>
+          )}
+
+          <button
+            onClick={() => flip(!on)}
+            disabled={busy || on === null}
+            className={`w-full text-white text-sm font-bold uppercase tracking-wide rounded-md py-2.5 disabled:opacity-50 ${
+              on ? "bg-[#DC3B2E]" : "bg-[#15926A]"
+            }`}
+          >
+            {on ? "Switch it off" : "Switch it on for the shop"}
+          </button>
+
+          {!on && (
+            <p className="text-[11px] text-[#5A6472] mt-2 leading-relaxed flex items-start gap-1.5">
+              <AlertTriangle size={13} className="text-[#B45309] mt-0.5 shrink-0" />
+              Send yourself a test code first and type it back. Turning this on
+              before an email has actually arrived puts a button on the login
+              screen that does nothing — which is worse than not offering it,
+              because the person tapping it thinks they are waiting.
+            </p>
+          )}
+
+          {/* Unlike the new-phone code, this one is safe to switch on freely: it
+              ADDS a way in. Nobody loses the password they already use, so
+              nothing here can shut the counter. Worth saying, because the card
+              above warns hard about exactly that. */}
+          <p className="text-[11px] text-[#5A6472] mt-2 leading-relaxed">
+            This never locks anybody out — the password keeps working either way.
+            It only offers a second way in for whoever has a real email address.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DeviceOtpCard({ email, user, admin }) {
   const [status, setStatus] = useState(null);
   const [devices, setDevices] = useState([]);
@@ -6608,6 +6813,8 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
       <AppearanceCard />
 
       <BiometricCard email={email} />
+
+      <OtpLoginCard email={email} user={user} admin={admin} />
 
       <DeviceOtpCard email={email} user={user} admin={admin} />
 

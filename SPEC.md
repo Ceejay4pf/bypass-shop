@@ -361,6 +361,37 @@ numbers. Decide this deliberately — and enforce it in RLS.
   A migration test that asserts fifteen things and prints nothing looks identical
   to one that ran no assertions at all. Break one on purpose first and watch the
   error appear; only then believe the passes.
+- **A second lock and a second door are opposite features that look the same.**
+  A code *on top of* the password can lock the shop out and needs guards on the
+  switch, a blast-radius count on screen, and no override. A code *instead of* the
+  password can only ever add a way in, so it needs almost no guarding — the
+  password still works either way. Both are "OTP login" in one sentence and one of
+  them can shut the counter. Work out which one is being asked for before
+  designing the switch.
+- **Whoever wants in must not be who decides they may.** The browser can ask for a
+  code and can ask to spend one, but the checking happens on the server with the
+  service key, and the code is destroyed in the same statement that approves it.
+  If the app checked the code and then asked for a session, "the code was right"
+  would be a claim made by the thing that wants the session — which is no claim.
+- **A parameter you trust is a parameter somebody chooses.** `set_otp_login` and
+  `set_device_otp` both took the address to check as an argument, so any signed-in
+  member of staff could name a verified address and flip a shop-wide security
+  switch — and switching *off* is deliberately never blocked, which made it the
+  easy direction. The caller's address has to come out of the token, and the admin
+  list has to exist in the database, not only in `roles.js`. A hidden button is not
+  a locked door.
+- **An offer that cannot be honoured is worse than no offer.** A login button that
+  emails a code the shop cannot send leaves somebody standing at the counter
+  tapping it, believing they are waiting. That is why the button reads the switch
+  before it is drawn, why accounts with an invented `…@bypassshop.co` address are
+  told in a sentence instead of shown a dead button, and why the switch is behind
+  a code that actually arrived.
+- **Two senders, because the wall is never the code.** Every part of the code
+  route was working while nothing could be delivered: Resend needs a whole domain
+  verified in DNS, and Supabase's free tier will not let the template carry
+  `{{ .Token }}`. Brevo verifies one sender *address* by emailing it a link. The
+  mailer is a swappable branch for exactly this reason — the thing that blocks a
+  feature is often a third party's billing page, not the design.
 
 ---
 

@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound, Smartphone } from "lucide-react";
 import { Field, inputCls } from "./ui.jsx";
 import {
   signIn, signUp, signInRole, sendEmailCode,
   toLoginEmail, loginNeedsCode, passwordIsRight, sendLoginCode,
   verifyLoginCode, touchDevice, checkRolePassword,
+  otpLoginAvailable, startOtpLogin, finishOtpLogin, trustMyDevice,
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
@@ -77,7 +78,36 @@ export default function LoginGate() {
   const [challenge, setChallenge] = useState(null); // {email, role} | null
   const [devCode, setDevCode] = useState("");
 
+  /* TWO WAYS IN, AND THE PERSON PICKS.
+
+     Type your email, then either type the password or tap "Email me a code".
+     The code is not a second step on top of the password, it stands in for it —
+     because the password is the thing that actually goes missing. It gets
+     forgotten over a weekend, written on a note by the till, or told to somebody
+     who then leaves. An emailed code belongs to whoever can open that inbox and
+     to nobody else, and it is dead in ten minutes.
+
+     `otpOn` is read from the shop's settings before the button is drawn. A
+     button that cannot send is worse than no button: it leaves somebody standing
+     at the counter tapping it, waiting on an inbox that will never get anything. */
+  const [otpOn, setOtpOn] = useState(false);
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    otpLoginAvailable().then((v) => { if (alive) setOtpOn(v); });
+    return () => { alive = false; };
+  }, []);
+
   const chosenRole = ROLE_ACCOUNTS.find((r) => r.key === roleKey) || null;
+
+  /* An invented address can never receive anything. Accounts made from a name
+     get one (josphat.kamau@bypassshop.co), and so do the four shared role
+     logins, so the code button is only offered to somebody who typed a real
+     address — otherwise the offer is a dead end wearing a button's clothes. */
+  const typedRealEmail = name.trim().includes("@") && !/@bypassshop\.co$/i.test(name.trim());
 
   /* "Failed to fetch" means the browser never reached Supabase at all — the
      password was never even checked. Say so in plain words, because the raw
@@ -187,6 +217,73 @@ export default function LoginGate() {
   const leaveChallenge = () => {
     setChallenge(null);
     setDevCode("");
+    setError("");
+    setNotice("");
+  };
+
+  /* ---- SIGNING IN WITH A CODE INSTEAD OF THE PASSWORD ---- */
+
+  /* Ask for the code. No password is typed on this route at all, so there is
+     nothing to prove first — the address itself is the claim, and the code going
+     to that address is what tests it. The server refuses to send to an address
+     with no account, so the button can't be used to make the shop mail
+     strangers. */
+  const requestOtp = async () => {
+    setError("");
+    setNotice("");
+    const addr = name.trim().toLowerCase();
+    if (!addr.includes("@")) {
+      setError("Type your email address first — that's where the code goes.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await startOtpLogin(addr, "");
+      if (res.setup) {
+        /* The shop can't email. Said in full, because the person is standing at
+           a counter and needs to know that this route is shut today and the
+           password is the way in — not that "something went wrong". */
+        setError(
+          (res.error ? res.error + " " : "") +
+          "Use your password instead, and tell the admin."
+        );
+        return;
+      }
+      setOtpEmail(addr);
+      setOtpCode("");
+      setOtpStep(true);
+      setNotice(`We sent a 6-digit code to ${addr}. It works for 10 minutes.`);
+    } catch (e) {
+      showError(e, "The code could not be sent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* Type it back, and be signed in. The code is checked on the server, which
+     destroys it and hands back a one-time token the app swaps for a session — so
+     one code opens the app exactly once, and a wrong one leaves it as shut as it
+     was. Then the phone is remembered, because a code proved more than the
+     password would have and it would be perverse to ask again next time. */
+  const confirmOtp = async () => {
+    setError("");
+    if (otpCode.trim().length !== 6) { setError("The code is 6 digits."); return; }
+    setBusy(true);
+    try {
+      await finishOtpLogin(otpEmail, otpCode);
+      await trustMyDevice(getDeviceId(), thisDeviceLabel());
+      /* useAuth() in App picks the session up from here. */
+    } catch (e) {
+      setNotice("");
+      showError(e, "That code could not be checked.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const leaveOtp = () => {
+    setOtpStep(false);
+    setOtpCode("");
     setError("");
     setNotice("");
   };
@@ -464,6 +561,81 @@ export default function LoginGate() {
                 Five wrong tries and this code stops working. There is no way
                 past this step — if you can&apos;t read the email, sign in on a
                 phone you&apos;ve used before, or ask the admin.
+              </p>
+            </>
+          ) : otpStep ? (
+            /* ---------- SIGNED IN BY CODE, NO PASSWORD ----------
+               Takes over the whole card. There is nothing else to do on this
+               screen, and no password field, because the code IS the way in
+               here — leaving one visible would only make people wonder whether
+               they are meant to fill it. */
+            <>
+              <button
+                onClick={leaveOtp}
+                className="text-[#5A6472] text-xs mb-3 flex items-center gap-1 hover:text-[#2563EB]"
+              >
+                <ArrowLeft size={13} /> Use my password instead
+              </button>
+
+              <div className="text-center mb-4">
+                <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-[#EAF1FF] flex items-center justify-center">
+                  <Mail size={22} className="text-[#2563EB]" />
+                </div>
+                <div className="font-semibold text-[#1B2430]">Check your email</div>
+                <p className="text-[#5A6472] text-xs mt-1 leading-relaxed">
+                  We sent a 6-digit code to<br />
+                  <span className="font-semibold text-[#1B2430] break-all">{otpEmail}</span>
+                  <br />No password needed — the code signs you in.
+                </p>
+              </div>
+
+              <Field label="Enter the code">
+                <div className="relative">
+                  <KeyRound size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
+                  <input
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    onKeyDown={(e) => e.key === "Enter" && confirmOtp()}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className={inputCls + " pl-9 text-center text-lg font-mono tracking-[0.4em]"}
+                    autoFocus
+                  />
+                </div>
+              </Field>
+
+              {error && (
+                <div className="text-[#DC3B2E] text-sm mb-3 flex items-start gap-1.5">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+                </div>
+              )}
+              {notice && !error && (
+                <div className="text-[#15926A] text-sm mb-3 flex items-start gap-1.5">
+                  <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> {notice}
+                </div>
+              )}
+
+              <button
+                onClick={confirmOtp}
+                disabled={busy || otpCode.length !== 6}
+                className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                Log in
+              </button>
+
+              <button
+                onClick={requestOtp}
+                disabled={busy}
+                className="w-full text-[#5A6472] text-xs mt-3 hover:text-[#2563EB] disabled:opacity-50"
+              >
+                Didn&apos;t get it? Send a new code
+              </button>
+
+              <p className="text-[11px] text-[#5A6472] mt-3 leading-relaxed">
+                The code works once and dies after 10 minutes. Five wrong tries
+                and it stops working — ask for a new one.
               </p>
             </>
           ) : (
@@ -757,6 +929,43 @@ export default function LoginGate() {
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
             {mode === "signin" ? "Log In" : "Continue"}
           </button>
+
+          {/* ---------- THE OTHER WAY IN ----------
+              Sitting under the password button rather than in front of it, so
+              the people who know their password lose nothing: they type it and
+              tap Log In exactly as before. This is for the ones who don't. */}
+          {mode === "signin" && otpOn && typedRealEmail && (
+            <>
+              <div className="flex items-center gap-3 my-3">
+                <div className="flex-1 h-px bg-[#DEE3E9]" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A6472]">or</span>
+                <div className="flex-1 h-px bg-[#DEE3E9]" />
+              </div>
+
+              <button
+                onClick={requestOtp}
+                disabled={busy || !isConfigured}
+                className="w-full border border-[#2563EB] text-[#2563EB] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                Email me a code
+              </button>
+              <p className="text-[11px] text-[#5A6472] mt-2 text-center leading-relaxed">
+                Forgotten your password? Get a 6-digit code instead — it signs
+                you in on its own.
+              </p>
+            </>
+          )}
+
+          {/* Offered, but not to this address. An account made from a name has an
+              invented address behind it, so saying why beats a missing button
+              that looks like the feature is broken. */}
+          {mode === "signin" && otpOn && !typedRealEmail && name.trim().length > 1 && (
+            <p className="text-[11px] text-[#5A6472] mt-3 text-center leading-relaxed">
+              Type your real email address above if you&apos;d rather be sent a
+              code than use your password.
+            </p>
+          )}
 
           <button
             onClick={() => {
