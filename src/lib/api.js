@@ -685,6 +685,12 @@ export function rowToReceipt(r) {
     docType: r.doc_type || "Receipt",
     stamp: r.stamp || "",
     customerType: r.customer_type || "",
+    /* Where the figures came from, when they weren't typed. `fromQuote` is a
+       quote number for the page; `fromSales` is the sale ids, so the same
+       delivery cannot be receipted twice. Older receipts have neither — see
+       supabase/receipt_sources.sql. */
+    fromQuote: r.from_quote || "",
+    fromSales: Array.isArray(r.from_sales) ? r.from_sales : [],
     by: r.created_by || "",
   };
 }
@@ -726,6 +732,8 @@ export async function saveReceipt(rc, byName) {
     doc_type: rc.docType || "Receipt",
     stamp: rc.stamp || null,
     customer_type: rc.customerType || null,
+    from_quote: rc.fromQuote || null,
+    from_sales: rc.fromSales || [],
     created_by: byName || null,
   };
   const { data, error } = await supabase.from("receipts").insert(row).select().single();

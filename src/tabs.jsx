@@ -15,6 +15,7 @@ import {
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
 import { readCommand, EXAMPLES } from "./lib/command.js";
+import { quoteToDraft, salesToDraft, groupSalesForReceipt, receiptedSaleIds } from "./lib/receiptDraft.js";
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
@@ -6362,7 +6363,7 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
 /* Staff type each line (part + qty + unit price they set manually); the
    system does the arithmetic — line totals, subtotal, discount and grand
    total — and can share the finished quote on WhatsApp or print it. */
-export function QuotationTab({ items, user, initialCode = "" }) {
+export function QuotationTab({ items, user, initialCode = "", onMakeReceipt }) {
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
   const [discount, setDiscount] = useState("");
@@ -6526,7 +6527,7 @@ export function QuotationTab({ items, user, initialCode = "" }) {
       />
 
       {showPast ? (
-        <PastQuotes past={past} />
+        <PastQuotes past={past} onMakeReceipt={onMakeReceipt} />
       ) : (
       <>
       {savedNumber && (
@@ -6659,17 +6660,36 @@ export function QuotationTab({ items, user, initialCode = "" }) {
 /* Create a proper receipt for a completed sale: shop header (branch + main
    shop contacts, email, location), line items, totals, amount paid and
    change. Save to get a number, then print/PDF or send on WhatsApp. */
-export function ReceiptTab({ items, user }) {
-  const [customer, setCustomer] = useState("");
-  const [phone, setPhone] = useState("");
-  const [discount, setDiscount] = useState("");
+export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
+  /* A quotation the customer has come back to pay, or a batch of sales already
+     recorded. Everything the document needs is in the draft, so this screen opens
+     filled in rather than blank — see src/lib/receiptDraft.js. */
+  const [customer, setCustomer] = useState(draft?.customer || "");
+  const [phone, setPhone] = useState(draft?.phone || "");
+  const [discount, setDiscount] = useState(draft?.discount || "");
   const [method, setMethod] = useState("Cash");
   const [paid, setPaid] = useState("");
-  const [lines, setLines] = useState([{ desc: "", qty: "1", price: "" }]);
+  const [lines, setLines] = useState(
+    draft?.lines?.length ? draft.lines : [{ desc: "", qty: "1", price: "" }]
+  );
+  /* Where the figures came from, kept so the saved receipt records it: the quote
+     number goes on the row and the quote is stamped Converted, and the sale ids
+     stop the same delivery being receipted twice. Held in state rather than read
+     off the prop, because lines can be added by hand afterwards and the source is
+     still where it started. */
+  const [source, setSource] = useState(() =>
+    draft ? { fromQuote: draft.fromQuote || null, fromSales: draft.fromSales || [] } : { fromQuote: null, fromSales: [] }
+  );
   const [savedNumber, setSavedNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
   const [showPast, setShowPast] = useState(false);
+  /* The picker for sales already recorded. Sales are the shop's own record of
+     what went out of the door — the part, how many, who bought it and what it
+     came to — and the receipt was being typed by hand beside it. */
+  const [showSales, setShowSales] = useState(false);
+  const [recentSales, setRecentSales] = useState(null); // null = not loaded yet
+  const [alreadyDone, setAlreadyDone] = useState(() => new Set());
   // VAT is optional (off by default). Two modes when on:
   //  - "inclusive": prices already include VAT -> back-calculate it out (total unchanged)
   //  - "exclusive": prices are pre-tax -> add VAT on top (total grows)
@@ -6686,6 +6706,51 @@ export function ReceiptTab({ items, user }) {
     if (!showPast) return;
     api.fetchReceipts().then(setPast).catch(() => setPast([]));
   }, [showPast]);
+
+  /* Recent sales, and which of them are already on a receipt. Both are fetched
+     together because offering a sale that was receipted this morning, and looking
+     entirely correct doing it, is how a customer ends up with two receipts for
+     one delivery. */
+  useEffect(() => {
+    if (!showSales || recentSales) return;
+    let alive = true;
+    Promise.all([
+      api.fetchSales(300).then((rows) => rows.map(api.rowToSale)),
+      api.fetchReceipts(300).catch(() => []),
+    ])
+      .then(([sales, receipts]) => {
+        if (!alive) return;
+        setRecentSales(sales);
+        setAlreadyDone(receiptedSaleIds(receipts));
+      })
+      .catch(() => { if (alive) setRecentSales([]); });
+    return () => { alive = false; };
+  }, [showSales, recentSales]);
+
+  /* Sales gathered into the receipts they would become — one per customer per
+     day. `Date.now()` is read here, at the moment the list is built, rather than
+     inside the pure grouping function. */
+  const saleBatches = useMemo(
+    () => (recentSales ? groupSalesForReceipt(recentSales, { days: 14, now: Date.now() }) : []),
+    [recentSales]
+  );
+
+  /* Pull a batch of sales in. It ADDS to whatever is on the screen rather than
+     replacing it, so two customers' parts are never silently merged onto one
+     receipt — but a blank first line is dropped, or every batch would arrive with
+     an empty row above it. */
+  const pullBatch = (batch) => {
+    const d = salesToDraft(batch.sales);
+    if (!d) return;
+    setLines((ls) => {
+      const kept = ls.filter((l) => l.desc.trim() || Number(l.price) > 0);
+      return [...kept, ...d.lines];
+    });
+    if (!customer && d.customer) setCustomer(d.customer);
+    if (!phone && d.phone) setPhone(d.phone);
+    setSource((sc) => ({ ...sc, fromSales: [...new Set([...(sc.fromSales || []), ...d.fromSales])] }));
+    setShowSales(false);
+  };
 
   const setLine = (idx, patch) =>
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -6727,6 +6792,11 @@ export function ReceiptTab({ items, user }) {
     setCustomer(""); setPhone(""); setDiscount(""); setPaid(""); setMethod("Cash");
     setLines([{ desc: "", qty: "1", price: "" }]);
     setDocType("Receipt"); setCustomerType("Walk-in");
+    /* The source goes with the figures. A blank form that still remembers it came
+       from QT-2026-0014 would stamp that quote Converted against a receipt for
+       something else entirely. */
+    setSource({ fromQuote: null, fromSales: [] });
+    onDraftUsed?.();
   };
 
   const saveReceipt = async () => {
@@ -6740,12 +6810,35 @@ export function ReceiptTab({ items, user }) {
           vat: vatOn ? Math.round(vat) : 0, vatRate: vatOn ? vatRate : 0,
           kraPin: vatOn ? SHOP_INFO.branch.kraPin : "",
           docType, stamp, customerType,
+          /* Where this came from, on the row. See supabase/receipt_sources.sql. */
+          fromQuote: source.fromQuote?.number || "",
+          fromSales: source.fromSales || [],
         },
         user
       );
       setSavedNumber(rc.number);
+      /* The quote is stamped Converted only now — after the receipt has actually
+         saved. Doing it when the button was tapped would leave a quote marked
+         Converted against a receipt that failed, and nobody would ever quote from
+         it again. A failure here is not worth failing the receipt over: the money
+         is recorded, and the quote's status is a label. */
+      if (source.fromQuote?.id) {
+        api.setQuoteStatus(source.fromQuote.id, "Converted").catch(() => {});
+      }
+      /* The draft has been used. Cleared so leaving and coming back to this screen
+         doesn't fill it in again with a quote that has already been receipted. */
+      onDraftUsed?.();
       openPdf(rc.number);
+      /* The source is spent. It has to go, or a second tap on Save writes another
+         receipt against the same quote and the same sales — the banner would still
+         be claiming they came from QT-2026-0014 while that quote is already
+         Converted against the receipt above. openPdf has already read the lines
+         off state by this point, so this cannot empty the printed page. */
+      setSource({ fromQuote: null, fromSales: [] });
       if (showPast) api.fetchReceipts().then(setPast).catch(() => {});
+      /* The sales list is stale the moment this saves — what was pulled in is now
+         receipted, and offering it again is the fault this guards against. */
+      setRecentSales(null);
     } catch (e) {
       alert("Could not save receipt: " + (e.message || e) + "\n(Did you run supabase/receipts.sql?)");
     } finally {
@@ -6920,6 +7013,103 @@ export function ReceiptTab({ items, user }) {
           <Check size={15} /> Saved as <span className="font-bold font-mono">{savedNumber}</span>. Starting a fresh receipt below.
         </div>
       )}
+
+      {/* Where these figures came from, said plainly. Somebody handed a
+          half-filled screen with no explanation assumes it is left over from
+          whoever used the phone last, and clears it. */}
+      {source.fromQuote?.number && (
+        <div className="bg-[#EEF2F6] border border-[#2563EB] rounded-md p-3 mb-4 text-xs text-[#1B2430] leading-relaxed">
+          <span className="font-bold text-[#2563EB]">From quotation {source.fromQuote.number}</span>
+          {" — "}the parts, prices and discount agreed with the customer are already
+          filled in below. Change anything that has moved on. The quote is marked
+          <span className="font-semibold"> Converted</span> once this receipt saves.
+        </div>
+      )}
+      {source.fromSales?.length > 0 && (
+        <div className="bg-[#EEF2F6] border border-[#15926A] rounded-md p-3 mb-4 text-xs text-[#1B2430] leading-relaxed">
+          <span className="font-bold text-[#15926A]">
+            Built from {source.fromSales.length} recorded sale{source.fromSales.length !== 1 ? "s" : ""}
+          </span>
+          {" — "}the parts and what they went for are already on the receipt. They
+          won't be offered again once this saves.
+        </div>
+      )}
+
+      {/* Pull in what the shop has already recorded, instead of naming the same
+          parts a second time. Sitting above the fields because it is the first
+          thing to do, not an afterthought once the list is half typed. */}
+      <div className="mb-4">
+        <button
+          type="button"
+          onClick={() => setShowSales((v) => !v)}
+          className="w-full text-xs font-bold uppercase tracking-wide text-[#15926A] border border-[#15926A] rounded-md py-2.5 flex items-center justify-center gap-2 hover:bg-[#15926A] hover:text-white transition-colors"
+        >
+          <ShoppingCart size={14} />
+          {showSales ? "Hide sales already recorded" : "Bring in a sale already recorded"}
+        </button>
+
+        {showSales && (
+          <div className="mt-2 border border-[#DEE3E9] rounded-md p-3 bg-[#FFFFFF]">
+            {recentSales === null ? (
+              <div className="text-xs text-[#5A6472] flex items-center gap-2 py-2">
+                <Loader2 size={13} className="animate-spin" /> Reading the sales…
+              </div>
+            ) : saleBatches.length === 0 ? (
+              <div className="text-xs text-[#5A6472] py-2">
+                No sales in the last two weeks to build a receipt from.
+              </div>
+            ) : (
+              <>
+                <div className="text-[11px] text-[#5A6472] mb-2 leading-relaxed">
+                  Sales from the last two weeks, gathered by customer and day — one
+                  tap puts the parts and the money on the receipt. A sale that came
+                  back is not listed: the goods are on the shelf and the money went
+                  with them.
+                </div>
+                <div className="space-y-2">
+                  {saleBatches.map((b) => {
+                    /* Every part in this batch already on a saved receipt. Said,
+                       not blocked — a customer can genuinely need a second copy,
+                       and refusing sends staff back to typing it by hand. */
+                    const done = b.sales.every((x) => alreadyDone.has(x.id));
+                    return (
+                      <div key={b.key} className="border border-[#DEE3E9] rounded-md p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-[#1B2430] truncate">
+                            {b.buyer || "Walk-in"}
+                          </span>
+                          <span className="text-[#2563EB] font-bold text-sm tabular-nums shrink-0">
+                            KES {Math.round(b.total).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[#5A6472] mt-0.5">
+                          {b.sales.length} part{b.sales.length !== 1 ? "s" : ""}
+                          {b.phone ? ` · ${b.phone}` : ""} · {fmtDateTime(b.ts)}
+                        </div>
+                        <div className="text-[11px] text-[#5A6472] mt-1 leading-relaxed">
+                          {b.sales.map((x) => `${x.qty} × ${x.name || x.code}`).join(", ")}
+                        </div>
+                        {done && (
+                          <div className="text-[11px] text-[#B7791F] font-semibold mt-1">
+                            Already on a receipt
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => pullBatch(b)}
+                          className="mt-2 w-full text-[11px] font-bold uppercase tracking-wide text-[#2563EB] border border-[#2563EB] rounded py-1.5 hover:bg-[#2563EB] hover:text-white transition-colors"
+                        >
+                          {done ? "Put on this receipt anyway" : "Put these on the receipt"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Document type — what to print. */}
       <Field label="Document type">
@@ -7746,7 +7936,7 @@ export function TransfersTab({ items, user }) {
 }
 
 /* Read-only list of previously saved quotes with their status. */
-function PastQuotes({ past }) {
+function PastQuotes({ past, onMakeReceipt }) {
   const statusCls = {
     Sent: "bg-[#2E86DE22] text-[#2E86DE]",
     Accepted: "bg-[#15926A22] text-[#15926A]",
@@ -7775,6 +7965,26 @@ function PastQuotes({ past }) {
             <span>{q.lines.length} item(s){q.phone ? ` · ${q.phone}` : ""}</span>
             <span>{fmtDateTime(q.ts)}</span>
           </div>
+
+          {/* The customer came back and paid. Their parts and prices were agreed
+              on this quote, and typing the same list again off the printed page
+              is the one moment in the day where a slip changes what somebody is
+              charged. The discount comes across too — it was agreed with them,
+              and dropping it charges them more than the paper they are holding.
+
+              An already-converted quote keeps the button. A customer can come
+              back for the same parts twice, and refusing would send staff back to
+              typing it by hand. */}
+          {onMakeReceipt && q.lines.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onMakeReceipt({ ...quoteToDraft(q), key: `quote-${q.id}` })}
+              className="mt-2 w-full text-xs font-bold uppercase tracking-wide text-[#2563EB] border border-[#2563EB] rounded-md py-2 flex items-center justify-center gap-2 hover:bg-[#2563EB] hover:text-white transition-colors"
+            >
+              <Receipt size={14} />
+              {q.status === "Converted" ? "Make another receipt from this" : "Turn this into a receipt"}
+            </button>
+          )}
         </div>
       ))}
     </div>

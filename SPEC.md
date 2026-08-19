@@ -173,6 +173,26 @@ is the single most common thing to get wrong.
 ### Stage 4 — Documents
 
 - **Quotation** — priced lines, printable, shareable on WhatsApp.
+- **A document is built from what the shop already recorded, never typed twice.**
+  A quote the customer comes back to pay becomes a receipt with one button. Sales
+  already recorded — the part, how many, who bought it, what it came to — are
+  offered as batches, one per customer per day, so the receipt starts with the
+  parts on it and only the prices left to check. Both directions live in a pure
+  module (`src/lib/receiptDraft.js`) that takes records and returns a draft, so
+  the grouping and the money can be tested by reading them.
+  - Stamp the quote **Converted** only *after* the receipt row has saved. Marked
+    on the button tap instead, a failed save leaves a quote nobody can ever quote
+    from again.
+  - Store the sale ids on the receipt (`from_sales`, GIN-indexed) or the picker
+    offers yesterday's delivery again this morning and looks entirely correct
+    doing it. Receipts written before the column existed have nothing, so the
+    picker says nothing about them — an absent record is not evidence.
+  - A returned sale is never offered. The goods are back on the shelf and the
+    money went with them.
+  - Pulling a batch in **adds** to the screen and never replaces it, so two
+    customers' parts are not silently merged; the blank first row is dropped.
+  - A price of zero arrives as an empty box, not `0`. Zero reads as free, and
+    somebody typing the real figure would have to delete the 0 first.
 - **Receipt** — switchable between **Receipt / Invoice / Delivery Note** (a
   delivery note hides all money columns). Automatic **PAID / DISCOUNTED / ON
   CREDIT** stamp, angled, coloured, decided by the numbers rather than typed.
@@ -257,6 +277,11 @@ numbers. Decide this deliberately — and enforce it in RLS.
   part. Pure and testable; the screen only renders the intent.
 - **Nested `<button>` elements** — a photo thumbnail button inside a card
   button. Invalid HTML, and taps land on the wrong one.
+- **A `key` used to seed a form must not change when the seed is cleared.** The
+  receipt screen was keyed on the incoming draft so that arriving from a quote
+  replaced whatever was half-typed. Clearing the draft after a save flipped the
+  key back — remounting the screen and wiping the "Saved as RC-…" confirmation at
+  the exact moment it was needed. Key on a count of arrivals instead.
 - **Receipt and quotation JSX were near-identical**, so edits kept hitting the
   wrong one. Extract the shared document layout early.
 - **Em-dashes and box-drawing characters in SQL files** break the Supabase SQL

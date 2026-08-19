@@ -126,10 +126,17 @@ and syncs live, so two staff on two phones always see the same stock.
   put the real shelf count in right there, or record it as another branch's
   goods. See [When the count says zero](#when-the-count-says-zero).
 - **Quick Transaction** — one fast screen for add / sell / adjust.
-- **Quotation** — priced quotes, printable or sent on WhatsApp.
+- **Quotation** — priced quotes, printable or sent on WhatsApp. Every past quote
+  carries a **Turn this into a receipt** button: the parts, prices, customer and
+  the agreed discount cross over, and the quote is marked **Converted** once the
+  receipt has actually saved.
 - **Receipt** — receipt, invoice or delivery note; automatic **PAID /
   DISCOUNTED / ON CREDIT** stamp; walk-in, referred or commission customer;
-  optional 16% VAT either inside the price or added on top.
+  optional 16% VAT either inside the price or added on top. **Bring in a sale
+  already recorded** lists the last two weeks of sales gathered by customer and
+  day — one tap puts the parts and the money on the receipt, so nobody names the
+  same parts twice. A sale that came back is not offered, and a batch that is
+  already on a receipt says so.
 - **Credit Accounts** — a running balance per garage, with every charge and
   payment (cash, cheque, paybill) itemised on a statement.
 - **Branch Transfers** — a record of stock taken to or received from another branch.

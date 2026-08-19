@@ -227,6 +227,26 @@ function BypassShop({ session }) {
      for it — so returning to Sell later starts clean. */
   const pickFor = (action) => (picked?.action === action ? picked.code : "");
 
+  /* A quotation or a batch of sales, carried into the Receipt screen so the same
+     list of parts is not typed a second time off a printed page. Held here rather
+     than inside ReceiptTab because the thing that starts it — a saved quote, a
+     recorded sale — is on a different screen.
+
+     The whole draft is kept, not an id, so the receipt screen needs no second
+     fetch and works the same whether the source was a quote or a set of sales. */
+  const [receiptDraft, setReceiptDraft] = useState(null);
+  /* The receipt screen is remounted when a draft arrives, which is how its fields
+     get seeded. Counted rather than keyed on the draft itself, for two reasons:
+     the same quote sent over twice must still open a fresh receipt, and clearing
+     the draft once it has been used must NOT remount — doing that wiped the
+     "Saved as RC-…" line off the screen the instant a receipt saved. */
+  const [receiptSeq, setReceiptSeq] = useState(0);
+  const openReceiptFrom = (draft) => {
+    setReceiptDraft(draft);
+    setReceiptSeq((n) => n + 1);
+    go("receipt");
+  };
+
   /* A part was long-pressed in Search and an action chosen. Carry the part
      over to the right screen so staff don't have to search for it twice. */
   const handlePick = (action, item) => {
@@ -641,9 +661,27 @@ function BypassShop({ session }) {
             />
           )}
           {tab === "quote" && (
-            <QuotationTab key={pickFor("quote") || "quote"} items={items} user={user} initialCode={pickFor("quote")} />
+            <QuotationTab
+              key={pickFor("quote") || "quote"}
+              items={items}
+              user={user}
+              initialCode={pickFor("quote")}
+              onMakeReceipt={openReceiptFrom}
+            />
           )}
-          {tab === "receipt" && <ReceiptTab items={items} user={user} />}
+          {tab === "receipt" && (
+            /* Keyed on the arrival count, so coming from a quote replaces whatever
+               was half-typed on this screen instead of merging into it — a receipt
+               that is half one customer and half another is worse than a blank
+               one. The key does not change when the draft is cleared. */
+            <ReceiptTab
+              key={`receipt-${receiptSeq}`}
+              items={items}
+              user={user}
+              draft={receiptDraft}
+              onDraftUsed={() => setReceiptDraft(null)}
+            />
+          )}
           {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
           {tab === "transfers" && <TransfersTab items={items} user={user} />}
           {tab === "feed" && <StaffFeedTab userId={session.user.id} user={user} admin={admin} />}
