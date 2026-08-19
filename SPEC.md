@@ -245,6 +245,16 @@ numbers. Decide this deliberately — and enforce it in RLS.
   bypassed it, so every other account sat on a pending screen with no way
   through. Whatever gate you build, make sure at least one route in always
   works.
+- **A bulk paste that only ever inserts.** `handleAddMany` minted a fresh code for
+  every line, with no match check, so pasting a delivery note that overlapped
+  existing stock silently produced a second row for the same part. One part, two
+  codes, two quantities — and nobody finds out until a stock count. `planRows`
+  (`src/lib/parseParts.js`) now puts every line beside the stock via `findMatch`
+  before anything is written, and returns an intent: `add` or `stock`, plus `fills`
+  (the part had it blank — applied) and `clashes` (the line disagrees — shown
+  from → to, applied only if ticked). Each line is also matched against the lines
+  above it, so a list naming the same part twice adds both lots of pieces to one
+  part. Pure and testable; the screen only renders the intent.
 - **Nested `<button>` elements** — a photo thumbnail button inside a card
   button. Invalid HTML, and taps land on the wrong one.
 - **Receipt and quotation JSX were near-identical**, so edits kept hitting the

@@ -17,7 +17,7 @@
    the person needs to fill in. It never guesses a brand it
    has not been told about.
 --------------------------------------------------------- */
-import { BRANDS, DEFAULT_CATEGORIES, SIDED_CATS, POSITIONED_CATS } from "../data.js";
+import { BRANDS, DEFAULT_CATEGORIES, SIDED_CATS, POSITIONED_CATS, findMatch } from "../data.js";
 
 /* ---------- category words ---------- */
 /* Every way we have heard a category asked for, in the shop and on
@@ -805,3 +805,77 @@ export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
    understood on one screen and blank on the other. Exported here rather than
    moved to data.js because this is where the words live and are maintained. */
 export { CAT_PHRASES, AMBIGUOUS, findPhrase, has, categoryPhrases, BRAND_KEYS, BRAND_ALIASES, MODEL_KEYS, MODEL_TO_BRAND };
+
+
+/* ---------- a pasted list against the stock already on the shelf ----------
+
+   A pasted list is not always a list of new parts. Most of the time it is the
+   shop writing down what came in, and half of it is stock they already hold —
+   the same door for the same car. Until now every line was inserted as a brand
+   new part with a brand new code, so the shelf ended up with one part living
+   under two codes: two rows to keep in step, two quantities, and a search that
+   shows the customer one of them while the pieces are counted on the other.
+
+   So each line is first put beside what is already in stock. Same section, same
+   vehicle, same side, same condition, same variant, overlapping year — findMatch's
+   rules, which are the same rules Quick Transaction and Add New Stock use to
+   decide "this is that part". If it is already there, the line means ADD STOCK to
+   it, not invent it again. */
+
+/* The fields a written line can tell us about a part we already hold. Code, name
+   and the note are not here: a code is never rewritten, the name is built from
+   the other fields, and the note is appended rather than replaced. */
+const PASTE_FIELDS = [
+  ["series", "series"],
+  ["yearFrom", "year from"],
+  ["yearTo", "year to"],
+  ["color", "colour"],
+  ["price", "price"],
+  ["location", "shelf"],
+  ["supplier", "supplier"],
+];
+
+const blankish = (v) => v === null || v === undefined || v === "" || v === 0 || v === "Unassigned";
+
+/* What one line means, in full, before anything is written:
+
+     action  "add"   — nothing like it in stock, so it becomes a new part
+             "stock" — we hold it; the pieces go onto the part that exists
+     fills   things the line says that the stored part has blank. Safe, so these
+             are applied by default: filling a blank shelf or a missing year
+             takes nothing away.
+     clashes things the line says DIFFERENTLY from what is stored. Never applied
+             on their own. A price somebody set on purpose, overwritten by a
+             number off a pasted list without being shown, is the kind of change
+             that is only ever noticed at the till. Shown from -> to, with a tick.
+
+   Nothing here writes anything. It describes, and the screen confirms — the same
+   split the instruction box uses, for the same reason. */
+export function planRow(row, items = [], categories = DEFAULT_CATEGORIES) {
+  const item = rowToNewItem(row, categories);
+  const existing = findMatch(item, items);
+  if (!existing) return { action: "add", item, existing: null, fills: [], clashes: [] };
+
+  const fills = [], clashes = [];
+  for (const [field, label] of PASTE_FIELDS) {
+    const said = item[field];
+    if (blankish(said)) continue;                        // the line didn't say
+    const held = existing[field];
+    if (blankish(held)) fills.push({ field, label, to: said });
+    else if (String(held) !== String(said)) clashes.push({ field, label, from: held, to: said });
+  }
+  return { action: "stock", item, existing, fills, clashes };
+}
+
+export function planRows(rows = [], items = [], categories = DEFAULT_CATEGORIES) {
+  /* Each line is matched against the stock AND against the lines above it, so a
+     list that names the same part twice adds both lots of pieces to one part
+     instead of creating a duplicate on the second line — which is what would
+     happen if every line were matched against the original stock alone. */
+  const seen = [...items];
+  return rows.map((row) => {
+    const plan = { ...planRow(row, seen, categories), id: row.id };
+    if (plan.action === "add") seen.push({ ...plan.item, code: `pending-${row.id}` });
+    return plan;
+  });
+}

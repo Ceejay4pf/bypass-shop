@@ -82,6 +82,24 @@ and syncs live, so two staff on two phones always see the same stock.
   stays on the part instead of being thrown away. Price, quantity, colour, shelf
   and supplier are read off the line too, and sections the shop added itself are
   recognised by name, so a pasted "boot light — Toyota Premio 2016" files itself.
+
+  **A part already in stock is updated, not written again.** Most pasted lists are
+  half things the shop already holds. Every line used to be inserted as a brand new
+  part with a brand new code, so one door ended up living under two codes — two
+  quantities to keep in step, and a search that shows the customer one of them
+  while the pieces are counted on the other. Now each line is put beside the stock
+  first, on the same rules Sell and Add New Stock use to decide *this is that
+  part*: same section, same vehicle, same side, same condition, same variant,
+  overlapping year. A match means the **pieces go onto the part that exists**, and
+  anything the line says that the part had blank — colour, shelf, year, supplier,
+  price — is filled in.
+
+  A field where the line *disagrees* with what's stored is never taken quietly. It
+  is shown from → to with a tick box, because a price somebody set on purpose,
+  overwritten off a pasted list without being shown, is only ever noticed at the
+  till. The note is added to rather than replaced, and re-reading the same list
+  doesn't write it twice. If a line really is a separate part, one tap says so and
+  it gets its own code.
 - **Tell the system** — a box at the bottom of both adding screens. Type
   *"add a category for wiper blades"* or *"put all quantities as one"* and it shows
   you exactly what would change before doing it. See

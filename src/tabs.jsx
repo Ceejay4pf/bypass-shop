@@ -13,7 +13,7 @@ import {
   Wand2, Sun, Moon, Smartphone, CheckCircle2,
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
-import { parsePartsList, rowToNewItem, sideMissing } from "./lib/parseParts.js";
+import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
 import { readCommand, EXAMPLES } from "./lib/command.js";
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
@@ -2805,12 +2805,19 @@ export function AddItemTab({ items, categories, onAdd, user, admin = false, canE
    a row you can correct before anything is saved. Nothing is written
    to the inventory until the Save button is pressed.
 */
-export function BulkAddTab({ items, categories, onAddMany, user, admin = false, canEdit = false, onChanged }) {
+export function BulkAddTab({ items, categories, onAddMany, onStockMany, user, admin = false, canEdit = false, onChanged }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = still on the paste step
   const [openId, setOpenId] = useState(null); // which row is expanded for editing
   const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(null); // { added, failed }
+  const [done, setDone] = useState(null); // { added, stocked, failed }
+  /* Rows the person has overruled: "no, this one really is a separate part".
+     Kept as ids rather than a flag on the row, because re-reading the list
+     rebuilds the rows and a decision about the shelf should survive that. */
+  const [asNew, setAsNew] = useState(() => new Set());
+  /* Which contradicted fields they have agreed to take from the list, per row.
+     Nothing is taken by default — see planRow. */
+  const [takeClash, setTakeClash] = useState({});
 
   const read = () => {
     // The shop's own sections are passed in, so "boot light - Toyota Premio"
@@ -2843,14 +2850,80 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
   const ready = (rows || []).filter((r) => r.missing.length === 0);
   const needsWork = (rows || []).filter((r) => r.missing.length > 0);
 
+  /* Every ready line put beside the stock already on the shelf. A pasted list is
+     usually half things the shop already holds, and every line used to be
+     inserted as a brand new part with a brand new code — so the same door ended
+     up living under two codes, with the pieces counted on one and the customer
+     shown the other. See planRows. */
+  const plans = useMemo(
+    () => new Map(planRows(ready, items, categories).map((p) => [p.id, p])),
+    [ready, items, categories]
+  );
+  /* What each row will actually do, once the person's own overrules are applied. */
+  const planFor = (r) => {
+    const p = plans.get(r.id) || { action: "add", item: rowToNewItem(r, categories), fills: [], clashes: [] };
+    return asNew.has(r.id) ? { ...p, action: "add" } : p;
+  };
+  const toStock = ready.filter((r) => planFor(r).action === "stock");
+  const toAdd = ready.filter((r) => planFor(r).action === "add");
+
+  const setClash = (id, field, on) =>
+    setTakeClash((prev) => {
+      const set = new Set(prev[id] || []);
+      if (on) set.add(field); else set.delete(field);
+      return { ...prev, [id]: set };
+    });
+
   const save = async () => {
     setSaving(true);
-    const result = await onAddMany(ready.map((r) => rowToNewItem(r, categories)));
+    /* The parts already on the shelf first. If something fails half way, the
+       shop is left with stock added to real parts rather than a pile of fresh
+       duplicate codes, which is the easier of the two to make sense of. */
+    let stocked = 0, failed = 0, firstError = "";
+    /* No silent fallback if the handler is missing. Adding these as new parts
+       instead would be the exact duplicate-code fault this screen exists to stop,
+       and it would look like a success. */
+    if (toStock.length && !onStockMany) {
+      setSaving(false);
+      setDone({ added: 0, stocked: 0, failed: toStock.length, firstError: "Restocking isn't wired up on this screen." });
+      return;
+    }
+    if (toStock.length) {
+      const res = await onStockMany(
+        toStock.map((r) => {
+          const p = planFor(r);
+          const taken = takeClash[r.id] || new Set();
+          /* Blanks get filled, because filling a blank takes nothing away.
+             A field that disagrees is only taken if it was ticked. */
+          const patch = {};
+          for (const f of p.fills) patch[f.field] = p.item[f.field];
+          for (const c of p.clashes) if (taken.has(c.field)) patch[c.field] = p.item[c.field];
+          return {
+            code: p.existing.code,
+            name: p.existing.name,
+            addQty: p.item.qty,
+            patch,
+            /* The note is added to, never replaced — the part may have carried a
+               note for a year and the new line is one more thing known about it,
+               not a correction of what was there. */
+            appendNote: p.item.notes,
+          };
+        })
+      );
+      stocked = res.stocked; failed += res.failed; firstError = firstError || res.firstError;
+    }
+    let added = 0;
+    if (toAdd.length) {
+      const res = await onAddMany(toAdd.map((r) => planFor(r).item));
+      added = res.added; failed += res.failed; firstError = firstError || res.firstError;
+    }
     setSaving(false);
-    setDone(result);
+    setDone({ added, stocked, failed, firstError });
     // Keep only the rows that still need attention, so the screen shows
     // exactly what is left to do.
     setRows(needsWork);
+    setAsNew(new Set());
+    setTakeClash({});
   };
 
   /* ---------- step 1: paste ---------- */
@@ -2880,6 +2953,13 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
             Anything the shop has no field for — “with bracket”, “small crack on the corner” — is
             saved onto the part as a note rather than dropped. Everything is shown for checking on
             the next screen.
+          </div>
+          <div className="mt-2">
+            <span className="font-semibold text-[#1B2430]">A part already in stock is not written
+            twice.</span> If a line is a part the shop holds — same section, same vehicle, same side,
+            same condition — the pieces go onto the part that exists and anything new the line says
+            is filled in. You are shown which lines those are, and you can say a line is a separate
+            part if it really is.
           </div>
         </div>
 
@@ -2938,7 +3018,14 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
           {done.failed ? <AlertTriangle size={15} className="mt-0.5" /> : <Check size={15} className="mt-0.5" />}
           <div>
             <div className="font-semibold">
-              {done.added} part{done.added !== 1 ? "s" : ""} added to the inventory.
+              {/* Said as two numbers because they are two different things. "12
+                  parts saved" hides the fact that 9 of them went onto parts
+                  already on the shelf, which is the bit somebody checking the
+                  shelf count needs to know. */}
+              {[
+                done.added ? `${done.added} new part${done.added !== 1 ? "s" : ""} added` : "",
+                done.stocked ? `${done.stocked} part${done.stocked !== 1 ? "s" : ""} you already had got more stock` : "",
+              ].filter(Boolean).join(", ") || "Nothing was saved"}.
             </div>
             {done.failed > 0 && (
               <div className="text-xs mt-0.5">
@@ -2955,16 +3042,34 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
         </div>
       ) : (
         <>
-          <div className="flex gap-2 mb-4 text-xs">
-            <span className="bg-[#15926A22] text-[#15926A] font-bold rounded px-2 py-1">
-              {ready.length} ready
-            </span>
+          <div className="flex gap-2 mb-4 text-xs flex-wrap">
+            {toAdd.length > 0 && (
+              <span className="bg-[#15926A22] text-[#15926A] font-bold rounded px-2 py-1">
+                {toAdd.length} new part{toAdd.length !== 1 ? "s" : ""}
+              </span>
+            )}
+            {toStock.length > 0 && (
+              <span className="bg-[#2563EB22] text-[#2563EB] font-bold rounded px-2 py-1">
+                {toStock.length} already in stock
+              </span>
+            )}
             {needsWork.length > 0 && (
               <span className="bg-[#DC3B2E22] text-[#DC3B2E] font-bold rounded px-2 py-1">
                 {needsWork.length} need{needsWork.length === 1 ? "s" : ""} a detail
               </span>
             )}
           </div>
+
+          {toStock.length > 0 && (
+            <div className="text-xs text-[#5A6472] mb-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 leading-relaxed">
+              <span className="font-semibold text-[#2563EB]">{toStock.length}</span> of these
+              {toStock.length === 1 ? " is a part" : " are parts"} the shop already has. The pieces
+              go <span className="font-semibold text-[#1B2430]">onto the part that already exists</span>,
+              and anything the line says that the part didn't say is filled in — so you get one part
+              with the right count, not the same part under two codes. Tap a blue row to see exactly
+              what it will do, or to say it is a separate part after all.
+            </div>
+          )}
 
           <div className="space-y-2 mb-4">
             {rows.map((r) => (
@@ -2973,6 +3078,17 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
                 row={r}
                 categories={categories}
                 items={items}
+                plan={r.missing.length === 0 ? planFor(r) : null}
+                forcedNew={asNew.has(r.id)}
+                onForceNew={(on) =>
+                  setAsNew((prev) => {
+                    const next = new Set(prev);
+                    if (on) next.add(r.id); else next.delete(r.id);
+                    return next;
+                  })
+                }
+                taken={takeClash[r.id] || EMPTY_SET}
+                onTake={(field, on) => setClash(r.id, field, on)}
                 open={openId === r.id}
                 onToggle={() => setOpenId(openId === r.id ? null : r.id)}
                 onPatch={(c) => patch(r.id, c)}
@@ -2994,7 +3110,15 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
             className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.99] transition-transform"
           >
             {saving ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-            {saving ? "Saving…" : `Save ${ready.length} part${ready.length !== 1 ? "s" : ""} to inventory`}
+            {saving
+              ? "Saving…"
+              : /* The button says what it is about to do, split the way it will
+                   actually happen. "Save 12 parts" on a list where 9 are restocks
+                   is a promise of 12 new codes, and that is not what happens. */
+                [
+                  toAdd.length ? `Add ${toAdd.length} new part${toAdd.length !== 1 ? "s" : ""}` : "",
+                  toStock.length ? `restock ${toStock.length}` : "",
+                ].filter(Boolean).join(" · ") || "Nothing ready to save"}
           </button>
         </>
       )}
@@ -3002,10 +3126,15 @@ export function BulkAddTab({ items, categories, onAddMany, user, admin = false, 
   );
 }
 
+/* Shared so the default `taken` prop is not a fresh Set on every render, which
+   would make BulkRow think its props changed on every keystroke. */
+const EMPTY_SET = new Set();
+
 /* One parsed line, collapsed to a summary until tapped. */
-function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
+function BulkRow({ row, categories, items, plan = null, forcedNew = false, onForceNew, taken = EMPTY_SET, onTake, open, onToggle, onPatch, onDrop }) {
   const cat = categories.find((c) => c.key === row.cat);
   const bad = row.missing.length > 0;
+  const known = plan?.action === "stock" ? plan.existing : null;
   const brandModels =
     BRANDS.find((b) => b.name.toLowerCase() === String(row.brand).toLowerCase())?.models || [];
   // What the code will look like, so staff recognise it on the shelf label.
@@ -3018,11 +3147,13 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
       : "";
 
   return (
-    <div className={`bg-[#FFFFFF] border rounded-md overflow-hidden ${bad ? "border-[#DC3B2E]" : "border-[#DEE3E9]"}`}>
+    <div className={`bg-[#FFFFFF] border rounded-md overflow-hidden ${
+      bad ? "border-[#DC3B2E]" : known ? "border-[#2563EB]" : "border-[#DEE3E9]"
+    }`}>
       <button onClick={onToggle} className="w-full text-left px-3 py-2.5 flex items-start gap-2">
         <span
           className="w-1.5 self-stretch rounded-full shrink-0"
-          style={{ background: bad ? "#DC3B2E" : cat?.color || "#DEE3E9" }}
+          style={{ background: bad ? "#DC3B2E" : known ? "#2563EB" : cat?.color || "#DEE3E9" }}
         />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-[#1B2430] truncate">
@@ -3057,6 +3188,25 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
               Also noted: {row.extra}
             </div>
           )}
+          {/* What this line will DO, on the collapsed row, because that is the
+              only thing on this screen somebody has to check. A line that reads
+              correctly but silently makes a second copy of a part already on the
+              shelf looks identical to one that doesn't. */}
+          {known && (
+            <div className="text-[11px] text-[#2563EB] font-semibold mt-0.5 truncate">
+              Already in stock — {known.code} has {Number(known.qty) || 0}, adding{" "}
+              {plan.item.qty} → {(Number(known.qty) || 0) + plan.item.qty}
+              {plan.fills.length ? ` · filling in ${plan.fills.map((f) => f.label).join(", ")}` : ""}
+              {plan.clashes.length
+                ? ` · ${plan.clashes.length} thing${plan.clashes.length !== 1 ? "s" : ""} disagree${plan.clashes.length === 1 ? "s" : ""}`
+                : ""}
+            </div>
+          )}
+          {plan && plan.action === "add" && forcedNew && (
+            <div className="text-[11px] text-[#5A6472] font-semibold mt-0.5">
+              Saving as a separate part, on your say-so
+            </div>
+          )}
           {bad && (
             <div className="text-[11px] text-[#DC3B2E] font-semibold mt-0.5">
               Still needs: {row.missing.join(", ")}
@@ -3072,6 +3222,72 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
       {open && (
         <div className="px-3 pb-3 border-t border-[#DEE3E9] pt-3">
           <div className="text-[11px] text-[#5A6472] mb-3 italic">You wrote: “{row.raw}”</div>
+
+          {/* The one decision on this row that cannot be undone by editing a
+              field afterwards: whether this is a part the shop already holds or
+              a second one. Getting it wrong the "new part" way leaves two codes
+              for one part, which nobody notices until a stock count. */}
+          {(known || forcedNew) && (
+            <div className="mb-3 rounded-md border border-[#2563EB] bg-[#2563EB0D] p-3">
+              {known ? (
+                <>
+                  <div className="text-xs font-bold text-[#2563EB] uppercase tracking-wide mb-1">
+                    We already have this one
+                  </div>
+                  <div className="text-[11px] text-[#1B2430] leading-relaxed">
+                    <span className="font-mono">{known.code}</span> — {known.name}
+                    {known.location && known.location !== "Unassigned" ? ` · Shelf ${known.location}` : ""}
+                    <br />
+                    {Number(known.qty) || 0} on the shelf, this line adds {plan.item.qty} →{" "}
+                    <span className="font-bold">{(Number(known.qty) || 0) + plan.item.qty}</span>
+                  </div>
+
+                  {plan.fills.length > 0 && (
+                    <div className="text-[11px] text-[#15926A] mt-2 leading-relaxed">
+                      Filling in what the part didn't say:{" "}
+                      {plan.fills.map((f) => `${f.label} → ${f.to}`).join(", ")}
+                    </div>
+                  )}
+
+                  {plan.clashes.length > 0 && (
+                    <div className="mt-2">
+                      <div className="text-[11px] font-bold text-[#B7791F] leading-relaxed">
+                        Your line says something different. Nothing here changes unless you tick it —
+                        a price somebody set on purpose is not something a pasted list should quietly
+                        rewrite.
+                      </div>
+                      {plan.clashes.map((c) => (
+                        <label key={c.field} className="flex items-center gap-2 mt-1.5 text-[11px] text-[#1B2430] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={taken.has(c.field)}
+                            onChange={(e) => onTake?.(c.field, e.target.checked)}
+                            className="accent-[#2563EB]"
+                          />
+                          <span>
+                            {c.label}: <span className="line-through text-[#5A6472]">{String(c.from)}</span>{" "}
+                            → <span className="font-bold">{String(c.to)}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-xs text-[#5A6472] leading-relaxed">
+                  This matched a part already in stock, and you said it is a separate one.
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => onForceNew?.(!forcedNew)}
+                className="mt-2 text-[11px] font-bold uppercase tracking-wide text-[#2563EB] border border-[#2563EB] rounded px-2 py-1.5 hover:bg-[#2563EB] hover:text-white transition-colors"
+              >
+                {forcedNew ? "No — add the stock to the one we have" : "This is a separate part — give it its own code"}
+              </button>
+            </div>
+          )}
 
           <Field label="Category / section">
             <select value={row.cat} onChange={(e) => onPatch({ cat: e.target.value })} className={inputCls}>
