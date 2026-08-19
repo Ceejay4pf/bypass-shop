@@ -15,7 +15,10 @@ import {
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
 import { readCommand, EXAMPLES } from "./lib/command.js";
-import { quoteToDraft, salesToDraft, groupSalesForReceipt, receiptedSaleIds } from "./lib/receiptDraft.js";
+import {
+  quoteToDraft, salesToDraft, groupSalesForReceipt, receiptedSaleIds,
+  autoFillBatch, sortBatchesForPicker, priceGaps, suggestPrice, findQuotes, receiptsByQuote,
+} from "./lib/receiptDraft.js";
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
@@ -6550,6 +6553,7 @@ export function QuotationTab({ items, user, initialCode = "", onMakeReceipt }) {
       </div>
 
       <div className="text-[#2563EB] text-[11px] font-bold tracking-[0.2em] uppercase mb-2">Items</div>
+
       <div className="space-y-2 mb-3">
         {lines.map((l, i) => (
           <div key={i} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
@@ -6690,6 +6694,20 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
   const [showSales, setShowSales] = useState(false);
   const [recentSales, setRecentSales] = useState(null); // null = not loaded yet
   const [alreadyDone, setAlreadyDone] = useState(() => new Set());
+  /* A batch this screen filled in by itself, kept so it can say so and be undone
+     in one tap. Nothing is ever filled in silently. */
+  const [autoFilled, setAutoFilled] = useState(null);
+  const [autoTried, setAutoTried] = useState(false);
+  /* Ticking parts inside one batch, for the half of a delivery being paid for
+     now. Keyed by batch, so opening another does not carry the ticks over. */
+  const [pickingIn, setPickingIn] = useState("");
+  const [ticked, setTicked] = useState(() => new Set());
+  /* Finding the quote a customer has walked back in with. Loaded when asked for,
+     since most receipts are not from a quote. */
+  const [showQuotes, setShowQuotes] = useState(false);
+  const [quotes, setQuotes] = useState(null);
+  const [quoteQuery, setQuoteQuery] = useState("");
+  const [quoteReceipts, setQuoteReceipts] = useState(() => new Map());
   // VAT is optional (off by default). Two modes when on:
   //  - "inclusive": prices already include VAT -> back-calculate it out (total unchanged)
   //  - "exclusive": prices are pre-tax -> add VAT on top (total grows)
@@ -6712,7 +6730,7 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
      entirely correct doing it, is how a customer ends up with two receipts for
      one delivery. */
   useEffect(() => {
-    if (!showSales || recentSales) return;
+    if (recentSales) return;
     let alive = true;
     Promise.all([
       api.fetchSales(300).then((rows) => rows.map(api.rowToSale)),
@@ -6722,10 +6740,21 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
         if (!alive) return;
         setRecentSales(sales);
         setAlreadyDone(receiptedSaleIds(receipts));
+        setQuoteReceipts(receiptsByQuote(receipts));
       })
       .catch(() => { if (alive) setRecentSales([]); });
     return () => { alive = false; };
-  }, [showSales, recentSales]);
+  }, [recentSales]);
+
+  /* The quotes, when somebody goes looking for one. */
+  useEffect(() => {
+    if (!showQuotes || quotes) return;
+    let alive = true;
+    api.fetchQuotes(200)
+      .then((qs) => { if (alive) setQuotes(qs); })
+      .catch(() => { if (alive) setQuotes([]); });
+    return () => { alive = false; };
+  }, [showQuotes, quotes]);
 
   /* Sales gathered into the receipts they would become — one per customer per
      day. `Date.now()` is read here, at the moment the list is built, rather than
@@ -6734,13 +6763,49 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
     () => (recentSales ? groupSalesForReceipt(recentSales, { days: 14, now: Date.now() }) : []),
     [recentSales]
   );
+  /* Still to be receipted on top — that is the order somebody is working in. */
+  const pickerBatches = useMemo(
+    () => sortBatchesForPicker(saleBatches, alreadyDone),
+    [saleBatches, alreadyDone]
+  );
+  /* The prices still to write. This is the work the shop said it would be doing
+     by hand -- "yu will just write the prices" -- so the screen counts it and
+     points at it instead of leaving somebody to scan the list for blanks. */
+  const gaps = useMemo(() => priceGaps(lines), [lines]);
+  /* What the shelf says, for a part that came off a sale with no money recorded
+     against it. Only ever offered, never applied on its own: the shelf price is
+     the asking price, and what a customer actually paid is a different fact. */
+  const shelfPrices = useMemo(() => {
+    const out = new Map();
+    for (const g of gaps) {
+      const p = suggestPrice(lines[g.index], items);
+      if (p > 0) out.set(g.index, p);
+    }
+    return out;
+  }, [gaps, lines, items]);
+  const fillFromShelf = () =>
+    setLines((ls) => ls.map((l, i) => (shelfPrices.has(i) ? { ...l, price: String(shelfPrices.get(i)) } : l)));
+
+  /* The quotes matching what has been typed in the search box. */
+  const quoteMatches = useMemo(() => findQuotes(quotes || [], quoteQuery), [quotes, quoteQuery]);
+  const openBatches = useMemo(
+    () => saleBatches.filter((b) => !b.sales.every((x) => alreadyDone.has(x.id))),
+    [saleBatches, alreadyDone]
+  );
+
+  /* Nothing typed yet. Anything at all on the screen and this stops being an
+     empty form somebody has just opened, and filling it in would be interfering
+     with work in progress. */
+  const untouched =
+    !customer.trim() && !phone.trim() && !lines.some((l) => l.desc.trim() || Number(l.price) > 0);
 
   /* Pull a batch of sales in. It ADDS to whatever is on the screen rather than
      replacing it, so two customers' parts are never silently merged onto one
      receipt — but a blank first line is dropped, or every batch would arrive with
-     an empty row above it. */
-  const pullBatch = (batch) => {
-    const d = salesToDraft(batch.sales);
+     an empty row above it. `only` narrows it to the parts ticked. */
+  const pullBatch = (batch, only = null) => {
+    const chosen = only ? batch.sales.filter((x) => only.has(x.id)) : batch.sales;
+    const d = salesToDraft(chosen);
     if (!d) return;
     setLines((ls) => {
       const kept = ls.filter((l) => l.desc.trim() || Number(l.price) > 0);
@@ -6750,6 +6815,46 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
     if (!phone && d.phone) setPhone(d.phone);
     setSource((sc) => ({ ...sc, fromSales: [...new Set([...(sc.fromSales || []), ...d.fromSales])] }));
     setShowSales(false);
+    setPickingIn(""); setTicked(new Set());
+  };
+
+  /* Today's sales, already on the receipt, without anybody asking for them —
+     which is what the shop actually wanted: "yu dont have to write the items
+     again, they will already be there". It only happens when there is exactly one
+     batch it could possibly mean (see autoFillBatch), the form is untouched, and
+     the screen was not opened from a quotation. Otherwise the list is opened
+     instead, so the parts are still one tap away rather than a guess. */
+  useEffect(() => {
+    if (draft || autoTried || !recentSales || savedNumber) return;
+    if (!untouched) { setAutoTried(true); return; }
+    setAutoTried(true);
+    const b = autoFillBatch(saleBatches, alreadyDone, { now: Date.now() });
+    if (b) { pullBatch(b); setAutoFilled(b); return; }
+    if (openBatches.length) setShowSales(true);
+  }, [draft, autoTried, recentSales, savedNumber, untouched, saleBatches, alreadyDone, openBatches]);
+
+  /* "That is not the sale I am writing up." Everything the screen filled in goes,
+     and it does not fill it in again. */
+  const dismissAuto = () => {
+    setLines([{ desc: "", qty: "1", price: "" }]);
+    setCustomer(""); setPhone("");
+    setSource({ fromQuote: null, fromSales: [] });
+    setAutoFilled(null);
+    setShowSales(true);
+  };
+
+  /* A quotation found from this screen. It REPLACES what is here, unlike a batch
+     of sales: a quote is a whole agreed document, and half of one merged into
+     something else is not what either side signed up to. */
+  const pullQuote = (q) => {
+    const d = quoteToDraft(q);
+    if (!d) return;
+    setCustomer(d.customer); setPhone(d.phone);
+    setLines(d.lines.length ? d.lines : [{ desc: "", qty: "1", price: "" }]);
+    setDiscount(d.discount);
+    setSource({ fromQuote: d.fromQuote, fromSales: [] });
+    setAutoFilled(null);
+    setShowQuotes(false); setQuoteQuery("");
   };
 
   const setLine = (idx, patch) =>
@@ -7035,81 +7140,262 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
         </div>
       )}
 
-      {/* Pull in what the shop has already recorded, instead of naming the same
-          parts a second time. Sitting above the fields because it is the first
-          thing to do, not an afterthought once the list is half typed. */}
-      <div className="mb-4">
+      {/* The screen filled this in by itself. Said loudly, with the way out
+          right next to it — a pre-filled receipt looks authoritative, and the
+          figures on it are what somebody gets charged. */}
+      {autoFilled && (
+        <div className="bg-[#FFF7E6] border border-[#B7791F] rounded-md p-3 mb-4 text-xs text-[#1B2430] leading-relaxed">
+          <div className="font-bold text-[#B7791F] mb-1">
+            Filled in from today&apos;s sale to {autoFilled.buyer || "a walk-in customer"}
+          </div>
+          {autoFilled.sales.length} part{autoFilled.sales.length !== 1 ? "s" : ""} sold
+          {" "}{fmtDateTime(autoFilled.ts)} — the only sale today not yet on a receipt,
+          so it was put here for you. Check the prices and save.
+          <button
+            type="button"
+            onClick={dismissAuto}
+            className="mt-2 w-full text-[11px] font-bold uppercase tracking-wide text-[#B7791F] border border-[#B7791F] rounded py-1.5 hover:bg-[#B7791F] hover:text-white transition-colors"
+          >
+            Not this sale — clear it and let me choose
+          </button>
+        </div>
+      )}
+
+      {/* The two places a document can come from, instead of typing it again.
+          Above the fields because it is the first thing to do, not an afterthought
+          once the list is half typed. */}
+      <div className="grid grid-cols-2 gap-2 mb-2">
         <button
           type="button"
-          onClick={() => setShowSales((v) => !v)}
-          className="w-full text-xs font-bold uppercase tracking-wide text-[#15926A] border border-[#15926A] rounded-md py-2.5 flex items-center justify-center gap-2 hover:bg-[#15926A] hover:text-white transition-colors"
+          onClick={() => { setShowSales((v) => !v); setShowQuotes(false); }}
+          className={`text-[11px] font-bold uppercase tracking-wide border rounded-md py-2.5 px-2 flex items-center justify-center gap-1.5 transition-colors ${
+            showSales ? "bg-[#15926A] text-white border-[#15926A]" : "text-[#15926A] border-[#15926A] hover:bg-[#15926A11]"
+          }`}
         >
-          <ShoppingCart size={14} />
-          {showSales ? "Hide sales already recorded" : "Bring in a sale already recorded"}
+          <ShoppingCart size={14} className="shrink-0" />
+          <span className="truncate">
+            Sales{openBatches.length ? ` (${openBatches.length})` : ""}
+          </span>
         </button>
+        <button
+          type="button"
+          onClick={() => { setShowQuotes((v) => !v); setShowSales(false); }}
+          className={`text-[11px] font-bold uppercase tracking-wide border rounded-md py-2.5 px-2 flex items-center justify-center gap-1.5 transition-colors ${
+            showQuotes ? "bg-[#2563EB] text-white border-[#2563EB]" : "text-[#2563EB] border-[#2563EB] hover:bg-[#2563EB11]"
+          }`}
+        >
+          <FileText size={14} className="shrink-0" />
+          <span className="truncate">Fetch a quotation</span>
+        </button>
+      </div>
 
-        {showSales && (
-          <div className="mt-2 border border-[#DEE3E9] rounded-md p-3 bg-[#FFFFFF]">
-            {recentSales === null ? (
-              <div className="text-xs text-[#5A6472] flex items-center gap-2 py-2">
-                <Loader2 size={13} className="animate-spin" /> Reading the sales…
+      {/* Sales already recorded, gathered into the receipts they would become. */}
+      {showSales && (
+        <div className="mb-4 border border-[#DEE3E9] rounded-md p-3 bg-[#FFFFFF]">
+          {recentSales === null ? (
+            <div className="text-xs text-[#5A6472] flex items-center gap-2 py-2">
+              <Loader2 size={13} className="animate-spin" /> Reading the sales…
+            </div>
+          ) : saleBatches.length === 0 ? (
+            <div className="text-xs text-[#5A6472] py-2">
+              No sales in the last two weeks to build a receipt from. Sell something
+              on the Sell screen and it will be waiting here.
+            </div>
+          ) : (
+            <>
+              <div className="text-[11px] text-[#5A6472] mb-2 leading-relaxed">
+                Sales from the last two weeks, gathered by customer and day — one tap
+                puts the parts and the money on the receipt. A sale that came back is
+                not listed: the goods are on the shelf and the money went with them.
               </div>
-            ) : saleBatches.length === 0 ? (
-              <div className="text-xs text-[#5A6472] py-2">
-                No sales in the last two weeks to build a receipt from.
-              </div>
-            ) : (
-              <>
-                <div className="text-[11px] text-[#5A6472] mb-2 leading-relaxed">
-                  Sales from the last two weeks, gathered by customer and day — one
-                  tap puts the parts and the money on the receipt. A sale that came
-                  back is not listed: the goods are on the shelf and the money went
-                  with them.
-                </div>
-                <div className="space-y-2">
-                  {saleBatches.map((b) => {
-                    /* Every part in this batch already on a saved receipt. Said,
-                       not blocked — a customer can genuinely need a second copy,
-                       and refusing sends staff back to typing it by hand. */
-                    const done = b.sales.every((x) => alreadyDone.has(x.id));
-                    return (
-                      <div key={b.key} className="border border-[#DEE3E9] rounded-md p-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-[#1B2430] truncate">
-                            {b.buyer || "Walk-in"}
-                          </span>
-                          <span className="text-[#2563EB] font-bold text-sm tabular-nums shrink-0">
-                            KES {Math.round(b.total).toLocaleString()}
-                          </span>
+              <div className="space-y-2">
+                {pickerBatches.map((b) => {
+                  /* Every part in this batch already on a saved receipt. Said, not
+                     blocked — a customer can genuinely need a second copy, and
+                     refusing sends staff back to typing it by hand. */
+                  const done = b.sales.every((x) => alreadyDone.has(x.id));
+                  const picking = pickingIn === b.key;
+                  const chosen = b.sales.filter((x) => ticked.has(x.id)).length;
+                  return (
+                    <div
+                      key={b.key}
+                      className={`border rounded-md p-2.5 ${done ? "border-[#DEE3E9] opacity-70" : "border-[#15926A]"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-[#1B2430] truncate">
+                          {b.buyer || "Walk-in"}
+                        </span>
+                        <span className="text-[#2563EB] font-bold text-sm tabular-nums shrink-0">
+                          KES {Math.round(b.total).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[#5A6472] mt-0.5">
+                        {b.sales.length} part{b.sales.length !== 1 ? "s" : ""}
+                        {b.phone ? ` · ${b.phone}` : ""} · {fmtDateTime(b.ts)}
+                      </div>
+
+                      {/* Which parts, one per line when choosing between them — a
+                          customer paying for half a delivery today is normal. */}
+                      {picking ? (
+                        <div className="mt-2 space-y-1">
+                          {b.sales.map((x) => {
+                            const on = ticked.has(x.id);
+                            return (
+                              <button
+                                key={x.id}
+                                type="button"
+                                onClick={() =>
+                                  setTicked((t) => {
+                                    const n = new Set(t);
+                                    if (n.has(x.id)) n.delete(x.id);
+                                    else n.add(x.id);
+                                    return n;
+                                  })
+                                }
+                                className="w-full flex items-center gap-2 text-left text-[11px] py-1"
+                              >
+                                {on ? (
+                                  <CheckSquare size={14} className="text-[#15926A] shrink-0" />
+                                ) : (
+                                  <Square size={14} className="text-[#5A6472] shrink-0" />
+                                )}
+                                <span className="flex-1 truncate text-[#1B2430]">
+                                  {x.qty} × {x.name || x.code}
+                                </span>
+                                <span className="text-[#5A6472] tabular-nums shrink-0">
+                                  {Number(x.total) > 0 ? Math.round(x.total).toLocaleString() : "no price"}
+                                </span>
+                                {alreadyDone.has(x.id) && (
+                                  <span className="text-[#B7791F] shrink-0">done</span>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
-                        <div className="text-[11px] text-[#5A6472] mt-0.5">
-                          {b.sales.length} part{b.sales.length !== 1 ? "s" : ""}
-                          {b.phone ? ` · ${b.phone}` : ""} · {fmtDateTime(b.ts)}
-                        </div>
+                      ) : (
                         <div className="text-[11px] text-[#5A6472] mt-1 leading-relaxed">
                           {b.sales.map((x) => `${x.qty} × ${x.name || x.code}`).join(", ")}
                         </div>
-                        {done && (
-                          <div className="text-[11px] text-[#B7791F] font-semibold mt-1">
-                            Already on a receipt
-                          </div>
-                        )}
+                      )}
+
+                      {done && (
+                        <div className="text-[11px] text-[#B7791F] font-semibold mt-1">
+                          Already on a receipt
+                        </div>
+                      )}
+
+                      <div className="flex gap-2 mt-2">
                         <button
                           type="button"
-                          onClick={() => pullBatch(b)}
-                          className="mt-2 w-full text-[11px] font-bold uppercase tracking-wide text-[#2563EB] border border-[#2563EB] rounded py-1.5 hover:bg-[#2563EB] hover:text-white transition-colors"
+                          onClick={() => (picking && chosen ? pullBatch(b, ticked) : pullBatch(b))}
+                          className="flex-1 text-[11px] font-bold uppercase tracking-wide text-white bg-[#2563EB] rounded py-1.5 hover:opacity-90"
                         >
-                          {done ? "Put on this receipt anyway" : "Put these on the receipt"}
+                          {picking && chosen
+                            ? `Put ${chosen} on the receipt`
+                            : done
+                            ? "Put on this receipt anyway"
+                            : "Put these on the receipt"}
                         </button>
+                        {b.sales.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPickingIn(picking ? "" : b.key);
+                              setTicked(new Set());
+                            }}
+                            className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472] border border-[#DEE3E9] rounded py-1.5 px-2 shrink-0"
+                          >
+                            {picking ? "All" : "Some"}
+                          </button>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* The quotation a customer has walked back in with. Searchable, because a
+          shop with a hundred quotes on file cannot scroll to find one while
+          somebody waits at the counter. */}
+      {showQuotes && (
+        <div className="mb-4 border border-[#DEE3E9] rounded-md p-3 bg-[#FFFFFF]">
+          <div className="text-[11px] text-[#5A6472] mb-2 leading-relaxed">
+            Search by quote number, customer or phone. Everything agreed on the quote
+            — the parts, the prices and the discount — comes across, and the quote is
+            marked Converted once this receipt saves.
           </div>
-        )}
-      </div>
+          <input
+            value={quoteQuery}
+            onChange={(e) => setQuoteQuery(e.target.value)}
+            placeholder="QT-2026-0014, or Kamau"
+            className={inputCls + " mb-2"}
+          />
+          {quotes === null ? (
+            <div className="text-xs text-[#5A6472] flex items-center gap-2 py-2">
+              <Loader2 size={13} className="animate-spin" /> Reading the quotations…
+            </div>
+          ) : !quotes.length ? (
+            <div className="text-xs text-[#5A6472] py-2">
+              No quotations saved yet. Write one on the Quotation screen and it will be
+              waiting here when the customer comes back to pay.
+            </div>
+          ) : quoteMatches.length === 0 ? (
+            <div className="text-xs text-[#5A6472] py-2">Nothing matches that.</div>
+          ) : (
+            <div className="space-y-2">
+              {quoteMatches.slice(0, 25).map((q) => {
+                const rc = quoteReceipts.get(q.number);
+                return (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => pullQuote(q)}
+                    className={`w-full text-left border rounded-md p-2.5 hover:bg-[#2563EB11] transition-colors ${
+                      rc || q.status === "Converted" ? "border-[#DEE3E9] opacity-70" : "border-[#2563EB]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs font-bold text-[#2563EB] shrink-0">{q.number}</span>
+                      <span className="text-[#1B2430] font-bold text-sm tabular-nums shrink-0">
+                        KES {Math.round(q.total).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-sm text-[#1B2430] font-semibold truncate mt-0.5">
+                      {q.customer || "No name"}
+                    </div>
+                    <div className="text-[11px] text-[#5A6472]">
+                      {q.lines.length} item{q.lines.length !== 1 ? "s" : ""}
+                      {q.discount > 0 ? ` · ${Math.round(q.discount).toLocaleString()} off` : ""}
+                      {" · "}{fmtDateTime(q.ts)}
+                    </div>
+                    {/* The receipt is the evidence, not the label. A quote can read
+                        Converted from an earlier attempt; naming the receipt tells
+                        somebody what to go and look at. */}
+                    {rc ? (
+                      <div className="text-[11px] text-[#B7791F] font-semibold mt-1">
+                        Already receipted as {rc} — this would be a second one
+                      </div>
+                    ) : q.status === "Converted" ? (
+                      <div className="text-[11px] text-[#B7791F] font-semibold mt-1">
+                        Marked Converted
+                      </div>
+                    ) : null}
+                  </button>
+                );
+              })}
+              {quoteMatches.length > 25 && (
+                <div className="text-[11px] text-[#5A6472]">
+                  {quoteMatches.length - 25} more — narrow the search.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Document type — what to print. */}
       <Field label="Document type">
@@ -7163,6 +7449,26 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
       </Field>
 
       <div className="text-[#2563EB] text-[11px] font-bold tracking-[0.2em] uppercase mb-2">Items</div>
+
+      {/* What is left to do, in one line. A receipt cannot save with a price
+          missing, and finding out at the Save button is finding out too late. */}
+      {gaps.length > 0 && lines.some((l) => l.desc.trim()) && (
+        <div className="bg-[#FFF7E6] border border-[#B7791F] rounded-md p-2.5 mb-2 text-[11px] text-[#1B2430] leading-relaxed">
+          <span className="font-bold text-[#B7791F]">
+            {gaps.length} price{gaps.length !== 1 ? "s" : ""} still to write
+          </span>
+          {" — "}{gaps.map((g) => g.desc).join(", ")}
+          {shelfPrices.size > 0 && (
+            <button
+              type="button"
+              onClick={fillFromShelf}
+              className="mt-2 w-full text-[11px] font-bold uppercase tracking-wide text-[#B7791F] border border-[#B7791F] rounded py-1.5 hover:bg-[#B7791F] hover:text-white transition-colors"
+            >
+              Use the shelf price for {shelfPrices.size} of them
+            </button>
+          )}
+        </div>
+      )}
       <div className="space-y-2 mb-3">
         {lines.map((l, i) => (
           <div key={i} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
@@ -7202,6 +7508,18 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
                 {lineTotal(l).toLocaleString()}
               </div>
             </div>
+            {/* This part is on the shelf at a known price and this line has none.
+                Offered here, beside the empty box, rather than made to be
+                remembered. */}
+            {shelfPrices.has(i) && (
+              <button
+                type="button"
+                onClick={() => setLine(i, { price: String(shelfPrices.get(i)) })}
+                className="mt-2 text-[11px] font-semibold text-[#2563EB] hover:underline"
+              >
+                Shelf price: {shelfPrices.get(i).toLocaleString()} — use it
+              </button>
+            )}
           </div>
         ))}
       </div>

@@ -189,6 +189,20 @@ is the single most common thing to get wrong.
     picker says nothing about them — an absent record is not evidence.
   - A returned sale is never offered. The goods are back on the shelf and the
     money went with them.
+  - **Fill the document in without being asked, but only when there is nothing to
+    guess.** Today only, not already receipted, and exactly one candidate —
+    otherwise open the list and let somebody choose. A pre-filled receipt looks
+    authoritative and the figures on it are what a customer gets charged, so
+    getting this wrong is worse than not doing it. Always say it was done, always
+    put the undo next to the saying.
+  - Never touch a form somebody has started typing on, and never fill in twice —
+    latch the attempt, not the outcome.
+  - Suggest a price from the shelf; never apply one. The shelf price is the asking
+    price and what a customer paid is a different fact. A part priced 0 suggests
+    nothing: `0` on a receipt reads as *free*.
+  - Group by the **shop's** day. `toISOString()` is UTC and Nairobi is +3, so a
+    sale rung up before 3am would be filed under yesterday and a batch would
+    arrive split in two.
   - Pulling a batch in **adds** to the screen and never replaces it, so two
     customers' parts are not silently merged; the blank first row is dropped.
   - A price of zero arrives as an empty box, not `0`. Zero reads as free, and
@@ -277,6 +291,13 @@ numbers. Decide this deliberately — and enforce it in RLS.
   part. Pure and testable; the screen only renders the intent.
 - **Nested `<button>` elements** — a photo thumbnail button inside a card
   button. Invalid HTML, and taps land on the wrong one.
+- **A feature can be finished, deployed and still dead, because its table was
+  never created.** The quotation half of the receipt work could not have worked on
+  the live shop: `supabase/quotes.sql` had never been run, so `public.quotes` did
+  not exist, every quotation failed to save and Past Quotes was permanently empty.
+  Nothing in the build, the bundle or the deploy check could see it — only asking
+  the database what tables it actually has. Do that before believing a feature
+  works. `transfers` and `staff_contacts` were missing the same way.
 - **A `key` used to seed a form must not change when the seed is cleared.** The
   receipt screen was keyed on the incoming draft so that arriving from a quote
   replaced whatever was half-typed. Clearing the draft after a save flipped the

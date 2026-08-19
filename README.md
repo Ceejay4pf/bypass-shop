@@ -132,11 +132,23 @@ and syncs live, so two staff on two phones always see the same stock.
   receipt has actually saved.
 - **Receipt** — receipt, invoice or delivery note; automatic **PAID /
   DISCOUNTED / ON CREDIT** stamp; walk-in, referred or commission customer;
-  optional 16% VAT either inside the price or added on top. **Bring in a sale
-  already recorded** lists the last two weeks of sales gathered by customer and
-  day — one tap puts the parts and the money on the receipt, so nobody names the
-  same parts twice. A sale that came back is not offered, and a batch that is
-  already on a receipt says so.
+  optional 16% VAT either inside the price or added on top. It does not start
+  blank:
+  - **Today's sale is already on it.** If exactly one of today's sales has no
+    receipt yet, the screen opens holding it — the parts, the quantities and what
+    they went for — and says so in a banner with **Not this sale — clear it** next
+    to it. Two candidates and it never guesses; it opens the list instead.
+  - **Sales** — the last two weeks, gathered by customer and day, with the ones
+    still needing a receipt on top. **Some** lets you tick individual parts when a
+    customer is paying for half a delivery. A sale that came back is never offered,
+    and a batch already receipted says so.
+  - **Fetch a quotation** — search by quote number, customer or phone. The parts,
+    the prices and the agreed discount cross over; a quote that already has a
+    receipt tells you which one.
+  - **Prices still to write** — the count and the parts, at the top of the item
+    list, because finding out at the Save button is finding out too late. Where the
+    shop has a price on the shelf for that part, it is offered in one tap. A part
+    priced at 0 offers nothing rather than printing *free*.
 - **Credit Accounts** — a running balance per garage, with every charge and
   payment (cash, cheque, paybill) itemised on a statement.
 - **Branch Transfers** — a record of stock taken to or received from another branch.
