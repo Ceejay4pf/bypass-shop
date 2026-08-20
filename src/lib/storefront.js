@@ -68,7 +68,14 @@ export const PROMOS = [
 ];
 
 const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+/* Has the photograph in hand — the only test that may decide to draw an <img>. */
 const hasPhoto = (it) => Boolean(it && it.photo);
+/* Has one coming. The customer's page is sent the list without photographs and
+   fetches them afterwards for the cards on screen, so at the moment the window
+   is arranged most photographed parts have `hasPhoto` set and no bytes yet.
+   Ordering has to go by that, or the window would be arranged from whichever
+   pictures happened to land first and reshuffle underneath a customer's thumb. */
+const mayHavePhoto = (it) => Boolean(it && (it.photo || it.hasPhoto));
 
 /* One card for the strip, out of a part. `kind` tells the screen whether it has a
    photograph to show or a panel to paint. */
@@ -128,7 +135,7 @@ export function pickShowcase(items = [], sections = [], { max = 8, promos = PROM
     bySection.get(it.cat).push(it);
   }
   for (const list of bySection.values()) {
-    list.sort((a, b) => (hasPhoto(b) ? 1 : 0) - (hasPhoto(a) ? 1 : 0));
+    list.sort((a, b) => (mayHavePhoto(b) ? 1 : 0) - (mayHavePhoto(a) ? 1 : 0));
   }
 
   /* Biggest sections first, then one part from each in turn. */
@@ -193,7 +200,10 @@ export function catalogueCounts(items = []) {
     if (!it || !it.code) continue;
     parts += 1;
     if (n(it.price) > 0) priced += 1;
-    if (hasPhoto(it)) photos += 1;
+    /* Counted off the flag, not off the bytes: this figure is about how much of
+       the shelf has been photographed, and it must not tick upwards as pictures
+       land while somebody is reading it. */
+    if (mayHavePhoto(it)) photos += 1;
   }
   return { parts, priced, photos, sections: new Set((items || []).map((i) => i?.cat).filter(Boolean)).size };
 }

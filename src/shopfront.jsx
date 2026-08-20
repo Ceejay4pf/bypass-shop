@@ -313,6 +313,17 @@ export default function Shopfront() {
   /* How many rows are drawn. Growing as they scroll rather than making everybody
      wait for parts they will never look at. */
   const [shown, setShown] = useState(30);
+  /* The photographs, which arrive AFTER the list and not with it — keyed by part
+     code. The list itself only says which parts have one (`hasPhoto`), because
+     photographs here are whatever came off a phone and sending 604 of them in
+     the first request left this page blank for minutes on mobile data. Held
+     beside the parts rather than inside them so a batch landing doesn't mean
+     rewriting the shelf. */
+  const [photos, setPhotos] = useState({});
+  /* Codes already asked for, so scrolling back up doesn't ask twice. A ref, not
+     state: nothing on the screen depends on it. */
+  const askedFor = useRef(null);
+  if (!askedFor.current) askedFor.current = new Set();
 
   useEffect(() => { setCart(loadCart()); }, []);
 
@@ -350,10 +361,19 @@ export default function Shopfront() {
   const filtered = Boolean(cat || make || model);
   const view = searching ? "results" : filtered ? "section" : "home";
 
+  /* The shelf as the screen should see it: the parts, with any photograph that
+     has landed since put onto its part. Everything below works off this, so a
+     photograph arriving simply redraws the card it belongs to. */
+  const shelf = useMemo(() => {
+    const list = items || [];
+    if (!list.length || !Object.keys(photos).length) return list;
+    return list.map((it) => (photos[it.code] ? { ...it, photo: photos[it.code] } : it));
+  }, [items, photos]);
+
   /* Room for the posters and then some real parts behind them. The strip
      scrolls, so a card nobody swipes to costs nothing but the picture — and the
      posters are the only pictures being downloaded. */
-  const cards = useMemo(() => pickShowcase(items || [], sections, { max: 12 }), [items, sections]);
+  const cards = useMemo(() => pickShowcase(shelf, sections, { max: 12 }), [shelf, sections]);
   const counts = useMemo(() => catalogueCounts(items || []), [items]);
 
   /* The cars the shop has parts for, biggest first, and the models under
@@ -365,14 +385,14 @@ export default function Shopfront() {
      sections are then counted inside it, so "Doors · 4" under Toyota Premio means
      four Premio doors and not four doors in the building. */
   const carList = useMemo(
-    () => (items || []).filter((it) => inMake(it, make) && inModel(it, model)),
-    [items, make, model],
+    () => shelf.filter((it) => inMake(it, make) && inModel(it, model)),
+    [shelf, make, model],
   );
   const grid = useMemo(() => sectionCards(carList, sections), [carList, sections]);
 
   /* What the screen in front of them lists. On a section, the tapped part first. */
   const listed = useMemo(() => {
-    const list = items || [];
+    const list = shelf;
     if (searching) {
       return list.filter((it) => matchesQuery(it, query, sectionOf(it.cat)?.label || ""));
     }
@@ -381,7 +401,50 @@ export default function Shopfront() {
     if (!focus) return narrowed;
     return [...narrowed].sort((a, b) => (b.code === focus ? 0 : 1) - (a.code === focus ? 0 : 1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, carList, sections, cat, query, searching, filtered, focus]);
+  }, [shelf, carList, sections, cat, query, searching, filtered, focus]);
+
+  /* The parts on the screen right now that have a photograph still to come: the
+     cards in the window, one part per section tile, and the rows actually drawn.
+     Nothing else — a photograph nobody is looking at is somebody's bundle spent
+     for nothing. */
+  const wanted = useMemo(() => {
+    const out = [];
+    const seen = new Set();
+    const add = (code) => { if (code && !seen.has(code)) { seen.add(code); out.push(code); } };
+    for (const c of cards) if (c.kind !== "promo") add(c.code);
+    /* A section tile borrows the photograph of the first part in it that has one
+       — same first part this picks, because the order is the catalogue's. */
+    const done = new Set();
+    for (const it of carList) {
+      if (!it.hasPhoto || done.has(it.cat)) continue;
+      done.add(it.cat);
+      add(it.code);
+    }
+    for (const it of listed.slice(0, shown)) if (it.hasPhoto) add(it.code);
+    return out;
+  }, [cards, carList, listed, shown]);
+
+  /* Fetching them, in batches, once the screen is already drawn.
+
+     Failures are silent by design: a card without its photograph shows its
+     coloured tile and everything else on the page still works, so there is
+     nothing here worth interrupting a customer with. */
+  useEffect(() => {
+    const fresh = wanted.filter((c) => !askedFor.current.has(c));
+    if (!fresh.length) return;
+    fresh.forEach((c) => askedFor.current.add(c));
+    let alive = true;
+    (async () => {
+      /* One batch at a time. A long scroll can want a hundred at once, and
+         firing them all together is how a phone's connection gets buried. */
+      for (let i = 0; i < fresh.length; i += 40) {
+        const got = await api.fetchCataloguePhotos(fresh.slice(i, i + 40));
+        if (!alive) return;
+        if (Object.keys(got).length) setPhotos((prev) => ({ ...prev, ...got }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [wanted]);
 
   useEffect(() => { setShown(30); }, [query, cat, make, model]);
   /* Back to the top when the screen changes. Landing halfway down a new list is

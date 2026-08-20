@@ -1424,9 +1424,15 @@ export async function fetchFinanceData() {
    ============================================================ */
 
 /* The catalogue, in the same camelCase shape as the rest of the app so the
-   public page can use the same helpers. `photo` is the first image only; the
-   rest are left on the server, because a customer on a bundle should not be
-   made to download four angles of a bumper to read its price. */
+   public page can use the same helpers.
+
+   NO PHOTOGRAPHS COME DOWN WITH THE LIST. The view sends has_photo and nothing
+   else about the picture, so the shop window can be drawn the moment the words
+   arrive. Photographs are asked for afterwards, by code, through
+   fetchCataloguePhotos — because photographs here are stored inline as they came
+   off a phone, and one part carrying a camera original used to mean minutes of
+   blank screen and megabytes of somebody's bundle spent before a single price
+   was readable. `photo` starts empty on every item and is filled in later. */
 export function rowToCatalogueItem(r) {
   return {
     code: r.code,
@@ -1450,7 +1456,11 @@ export function rowToCatalogueItem(r) {
        nobody's business but the shop's. It is not read here because it does not
        arrive here, which is the only version of "the customer can't see it"
        that survives somebody opening the network tab. */
-    photo: r.photo || "",
+    /* False for a part with no photograph AND for one whose photograph is too
+       heavy to send a customer — either way the page draws its coloured tile and
+       nobody waits. */
+    hasPhoto: r.has_photo === true,
+    photo: "",
   };
 }
 
@@ -1462,6 +1472,30 @@ export async function fetchCatalogue() {
     .order("name", { ascending: true });
   if (error) throw error;
   return (data || []).map(rowToCatalogueItem);
+}
+
+/* The photographs for named parts, once their cards are on the screen.
+
+   Asked for in small batches on purpose: the point of taking them out of the list
+   was that nobody waits for a picture of a part they are not looking at. A batch
+   that fails is not an error a customer should ever see — the cards keep their
+   coloured tiles and the page carries on working, so this returns {} rather than
+   throwing. */
+export async function fetchCataloguePhotos(codes = []) {
+  const want = [...new Set((codes || []).filter(Boolean))].slice(0, 40);
+  if (!want.length) return {};
+  try {
+    const { data, error } = await supabase
+      .from("catalogue_photos")
+      .select("code,photo")
+      .in("code", want);
+    if (error) throw error;
+    const out = {};
+    for (const r of data || []) if (r.photo) out[r.code] = r.photo;
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 /* Section names for grouping. Optional in both directions: the app's built-in

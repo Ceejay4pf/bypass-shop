@@ -29,9 +29,15 @@
 -- ============================================================
 
 -- ---------- WHAT IS ON THE SHELF, FOR ANYBODY ----------
--- One photo, not all of them. The images are stored inline, and a catalogue
--- page that downloads every angle of every part would cost the customer their
--- bundle before the first row appeared.
+-- NO PHOTOGRAPH IN THIS VIEW, ONLY WHETHER THERE IS ONE.
+-- This used to send (images->>0) with every row, and it made the shop window
+-- unusable: photographs are stored inline, straight off a phone, so one part
+-- carrying an untouched camera file meant several megabytes had to land before
+-- the first row was drawn. On mobile data that is minutes of a blank screen, and
+-- it is the customer's bundle being spent. The list now says has_photo, the page
+-- draws immediately, and the photographs are fetched afterwards from the view
+-- below — for the few cards actually on screen, and never for a part whose
+-- photograph is too big to send to a stranger.
 --
 -- AND NO QUANTITY. There is no qty column below, deliberately. Being in this
 -- view already means in stock — that is the where clause at the bottom — and how
@@ -66,7 +72,11 @@ select
   i.color,
   i.name,
   i.price,
-  (i.images->>0) as photo
+  -- Whether there is a photograph worth sending, not the photograph itself. False
+  -- for a part with none AND for a part whose photograph is heavier than the cap
+  -- below, so the page knows not to ask for it and draws its coloured tile
+  -- instead. The size is not published: a customer is told yes or no.
+  (octet_length(i.images->>0) <= 500000) as has_photo
 from public.inventory i
 where coalesce(i.status, 'Active') = 'Active'
   and coalesce(i.qty, 0) > 0;       -- only what can actually be handed over
@@ -78,6 +88,31 @@ where coalesce(i.status, 'Active') = 'Active'
 -- is what a customer would be told on the phone anyway.
 
 grant select on public.catalogue to anon, authenticated;
+
+-- ---------- THE PHOTOGRAPHS, ASKED FOR BY NAME ----------
+-- Fetched after the list is already on the screen, and only for the handful of
+-- cards a customer can actually see, so a shop window full of photographed parts
+-- still opens in one go and the rest arrive as they are scrolled to.
+--
+-- THE 500 kB CAP IS THE POINT OF THIS VIEW.
+-- Photographs are stored inline as they came off the phone; one of this shop's is
+-- several megabytes. A part like that is not sent to a stranger on a bundle at
+-- all — it is left out here and reported as has_photo = false above, so the page
+-- shows the part's coloured tile and the customer waits for nothing. The real cure
+-- is shrinking a photograph when it is taken; until then, this is the wall.
+drop view if exists public.catalogue_photos;
+
+create view public.catalogue_photos
+with (security_invoker = false) as
+select
+  i.code,
+  (i.images->>0) as photo
+from public.inventory i
+where coalesce(i.status, 'Active') = 'Active'
+  and coalesce(i.qty, 0) > 0
+  and octet_length(i.images->>0) <= 500000;
+
+grant select on public.catalogue_photos to anon, authenticated;
 
 -- The section names, so the public page can group by "Front Bumpers" rather
 -- than by "FBM". Built-in sections are in the app's own code; this covers the
