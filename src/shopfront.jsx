@@ -282,7 +282,10 @@ export default function Shopfront() {
   const searching = Boolean(query.trim());
   const view = searching ? "results" : cat ? "section" : "home";
 
-  const cards = useMemo(() => pickShowcase(items || [], sections, { max: 8 }), [items, sections]);
+  /* Room for the posters and then some real parts behind them. The strip
+     scrolls, so a card nobody swipes to costs nothing but the picture — and the
+     posters are the only pictures being downloaded. */
+  const cards = useMemo(() => pickShowcase(items || [], sections, { max: 12 }), [items, sections]);
   const grid = useMemo(() => sectionCards(items || [], sections), [items, sections]);
   const counts = useMemo(() => catalogueCounts(items || []), [items]);
 
