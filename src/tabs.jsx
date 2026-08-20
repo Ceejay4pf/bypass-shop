@@ -118,7 +118,7 @@ const matchesQuery = (i, cat, q) => {
 };
 
 /* ======================= DASHBOARD ======================= */
-export function DashboardTab({ items, notifications, categories, sales = [], salesReady = true, user, onNav, onOpenLedger, admin = false, canEdit = false, onChanged, onGo }) {
+export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger, admin = false }) {
   const totalItems = items.length;
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
   const lowStock = items.filter(isLowStock);
@@ -442,22 +442,9 @@ export function DashboardTab({ items, notifications, categories, sales = [], sal
       </div>
       )}
 
-      {/* On the home screen for everybody, not just admins. "What sold today",
-          "is there a premio front bumper" and "who owes us" are the questions
-          asked from behind the counter with a customer waiting — the answer has
-          to be one screen away, and reading the shelf changes nothing. The half
-          that changes stock still asks for the same rights it always did. */}
-      <CommandBox
-        items={items}
-        categories={categories}
-        sales={sales}
-        salesReady={salesReady}
-        user={user}
-        admin={admin}
-        canEdit={canEdit}
-        onChanged={onChanged}
-        onGo={onGo}
-      />
+      {/* The instruction box used to sit here. It lives in Staff Feed now, next
+          to the team's own chat, because that is where somebody goes to ask
+          something — the home screen is for reading figures, not typing. */}
     </div>
   );
 }
@@ -2363,7 +2350,11 @@ function AnswerBody({ m, onGo }) {
   );
 }
 
-function CommandBox({ items, categories, sales = [], salesReady = true, user, admin = false, canEdit = false, onChanged, onGo }) {
+/* fill is for the Staff Feed, where this box is the whole screen rather than a
+   panel at the bottom of one: it stretches to the height it is given, and the
+   conversation takes whatever is left over after the composer, exactly as the
+   team chat beside it does. Everywhere else it stays a panel. */
+function CommandBox({ items, categories, sales = [], salesReady = true, user, admin = false, canEdit = false, onChanged, onGo, fill = false }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -2563,7 +2554,11 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
   const canSend = isAnswer;
 
   return (
-    <div className="mt-6 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+    <div
+      className={`bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3 ${
+        fill ? "flex-1 min-h-0 flex flex-col" : "mt-6"
+      }`}
+    >
       <div className="flex items-center gap-2 mb-1">
         <Wand2 size={16} className="text-[#2563EB]" />
         <span className="font-bold uppercase tracking-wide text-xs text-[#1B2430]">
@@ -2578,19 +2573,36 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           </button>
         )}
       </div>
-      <p className="text-xs text-[#5A6472] mb-2">
-        Ask what sold, what is on the shelf or who owes money — or tell it to add a section,
-        set quantities and prices across many parts, or open the screen that makes a report,
-        statement or receipt. Anything that changes stock shows you the full list first.
-      </p>
+      {/* The description is what teaches the box, so it stays until there is a
+          conversation to read instead. In the Staff Feed it would otherwise eat
+          the height the transcript needs. */}
+      {(!fill || chat.length === 0) && (
+        <p className="text-xs text-[#5A6472] mb-2">
+          Ask what sold, what is on the shelf or who owes money — or how any part of this app
+          works. Tell it to add a section, set quantities and prices across many parts, or open
+          the screen that makes a report, statement or receipt. Anything that changes stock
+          shows you the full list first.
+        </p>
+      )}
 
       {/* ---- the conversation, cut into days ----
            Capped and scrolling, because a day of a busy shop asking things would
            otherwise push the box itself off the bottom of the phone. It is scrolled
            to the newest message whenever one arrives — an answer that lands out of
            sight reads as nothing having happened. */}
-      {groups.length > 0 && (
-        <div ref={scroller} className="mb-3 space-y-2 max-h-[26rem] overflow-y-auto">
+      {(groups.length > 0 || fill) && (
+        <div
+          ref={scroller}
+          className={`mb-3 space-y-2 overflow-y-auto ${
+            fill ? "flex-1 min-h-0" : "max-h-[26rem]"
+          }`}
+        >
+          {fill && groups.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-center text-xs text-[#5A6472] gap-1.5 py-6">
+              <Wand2 size={22} className="text-[#DEE3E9]" />
+              <span>Nothing asked yet. Type a question, or tap one below.</span>
+            </div>
+          )}
           {groups.map((g) => (
             <div key={g.key}>
               <button
@@ -2635,6 +2647,11 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
         </div>
       )}
 
+      {/* Everything from here down is the composer, held together so it keeps its
+          own height when this box is stretched to fill a screen — a preview of
+          forty parts about to change must never squeeze the button off the
+          bottom. */}
+      <div className={fill ? "shrink-0" : ""}>
       <textarea
         value={text}
         onChange={(e) => { setText(e.target.value); setErr(""); }}
@@ -2770,6 +2787,7 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           {busy ? "Working…" : actionable ? intent.confirm : "Ask"}
         </button>
       )}
+      </div>
     </div>
   );
 }
@@ -5890,11 +5908,36 @@ function BiometricCard({ email }) {
   );
 }
 
-/* ======================= STAFF FEED (group chat) ======================= */
-// One shop-wide group chat. Every signed-in staff member posts and reads
-// here — enquiries, best-price questions, general info. Sender name + time
-// show on each message; live via realtime.
-export function StaffFeedTab({ userId, user, admin }) {
+/* ======================= STAFF FEED (group chat + the assistant) =======================
+
+   Two chats behind two pills, because they are the same act: you have a question
+   and you type it. One is answered by whoever is holding a phone, the other by
+   the system itself — and which of the two knows the answer isn't something you
+   should have to decide before you start typing.
+
+   Team is the default. The assistant is the newer thing, but the feed's own job
+   is the reason somebody opens this screen, and an unread message from the shop
+   floor must never be behind a tab.
+
+   The assistant sits here rather than on the home screen because this is the
+   screen for asking. The home screen is for reading figures. */
+export function StaffFeedTab({
+  userId,
+  user,
+  admin,
+  /* Everything below this line belongs to the assistant pane, and is handed
+      straight to CommandBox. salesReady matters: an unreadable sales register
+      and an empty one look identical, and it must say it cannot see rather than
+      answer "nothing sold today". */
+  items = [],
+  categories = [],
+  sales = [],
+  salesReady = true,
+  canEdit = false,
+  onChanged,
+  onGo,
+}) {
+  const [pane, setPane] = useState("team"); // team | ask
   const [messages, setMessages] = useState(null); // null = loading
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -5961,12 +6004,52 @@ export function StaffFeedTab({ userId, user, admin }) {
     <div className="bp-fade-up flex flex-col" style={{ height: "calc(100vh - 8.5rem)" }}>
       <SectionTitle eyebrow="Everyone · Bypass Shop" title="Staff Feed" />
 
-      {err && (
+      {/* Two pills, not a menu. Which chat you are in has to be readable at a
+          glance, and switching has to cost one tap — anything deeper and the
+          assistant goes unused. */}
+      <div className="flex gap-1.5 mb-3 shrink-0">
+        {[
+          { key: "team", label: "Team", icon: MessageCircle },
+          { key: "ask", label: "Ask the system", icon: Wand2 },
+        ].map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setPane(p.key)}
+            className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide rounded-full px-3 py-1.5 active:scale-[0.98] ${
+              pane === p.key
+                ? "bg-[#2563EB] text-[#F3F5F8]"
+                : "bg-[#F3F5F8] border border-[#DEE3E9] text-[#5A6472]"
+            }`}
+          >
+            <p.icon size={13} /> {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* The feed's own error, which has nothing to do with the assistant — it
+          would read as the assistant being broken if it stayed on screen while
+          the other pane was open. */}
+      {err && pane === "team" && (
         <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3 flex items-start gap-2">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {err}
         </div>
       )}
 
+      {pane === "ask" ? (
+        <CommandBox
+          fill
+          items={items}
+          categories={categories}
+          sales={sales}
+          salesReady={salesReady}
+          user={user}
+          admin={admin}
+          canEdit={canEdit}
+          onChanged={onChanged}
+          onGo={onGo}
+        />
+      ) : (
+      <>
       <div
         ref={scrollerRef}
         className="flex-1 overflow-y-auto bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 space-y-3"
@@ -6050,6 +6133,8 @@ export function StaffFeedTab({ userId, user, admin }) {
           <Send size={16} /> {sending ? "…" : "Send"}
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 }

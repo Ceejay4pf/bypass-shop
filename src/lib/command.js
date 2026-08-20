@@ -519,7 +519,11 @@ export function readCommand(text, { items = [], categories = [] } = {}) {
 
   return {
     kind: "unknown",
-    why: "I didn't follow that. I can change things — add or rename a section, set quantities or prices across many parts — and I can answer questions about sales and stock, or open the screen that makes a report, statement or receipt.",
+    /* The list has to be a real list of what it does, in the order somebody is
+       likely to want it, because this sentence is the only teaching the box gets
+       once the examples have been typed over. Asking how the app works is last
+       and named plainly — it is the thing nobody guesses is possible. */
+    why: "I didn't follow that. I can answer questions about sales and stock, open the screen that makes a report, statement or receipt, change things — add or rename a section, set quantities or prices across many parts — and explain how any part of this app works. Try \"how do i record a sale\" or \"what is a part code made of\".",
     raw,
   };
 }

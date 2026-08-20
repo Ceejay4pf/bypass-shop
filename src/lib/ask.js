@@ -37,6 +37,9 @@ import { selectParts, readCommand } from "./command.js";
 import { periodRange, totals, topSelling, sellers, fmtDay, monthName } from "./reports.js";
 import { reorderLevel, isOutOfStock, isLowStock } from "../data.js";
 import { tidy } from "./parseParts.js";
+/* help.js knows about the app; everything else in this file knows about the
+   shop. Both are asked in the same box, in the same breath. */
+import { findHelp, isHowTo, HELP_MENU } from "./help.js";
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 export const money = (n) => `KES ${Math.round(num(n)).toLocaleString()}`;
@@ -750,6 +753,21 @@ function journeyAnswer(raw, low, { now }) {
   return null;
 }
 
+/* ---------- questions about the app itself ----------
+
+   A topic out of help.js, dressed in the same answer shape as everything else so
+   the box has one kind of thing to render. */
+function helpAnswer(topic) {
+  if (!topic) return null;
+  const dest = (g) => (g ? { tab: g.tab, options: g.options || {}, label: g.label } : null);
+  return answer(topic.title, topic.lines, {
+    topic: "help",
+    rows: topic.rows || null,
+    go: dest(topic.go),
+    goAlt: dest(topic.goAlt),
+  });
+}
+
 /* ---------- the one entry point ---------- */
 
 function answer(title, lines, extra = {}) {
@@ -789,7 +807,31 @@ export function askShop(
   if (!raw) return null;
   const low = raw.toLowerCase();
 
-  /* Journeys first. "generate a report for last month" is not a question about
+  /* Questions about the app come first, and only when the wording is explicitly
+     how-to: "how do i record a sale" and "what sold today" both contain the word
+     sale, and only one of them wants a figure. Without this, the first was
+     answered with the second's number — true, and the wrong answer.
+
+     Above the journey reader as well, because "how do i print a receipt" would
+     otherwise come back as a bare button to the receipt screen when what was
+     asked for was how the thing works. A sentence naming a part code is left
+     alone: "how do i sell FBM-TOY-PRE-16-0001" is about that part.
+
+     It also sits above looksLikeAsk(), because "explain part codes" is an
+     instruction in shape and a question in intent, and that test is deliberately
+     too narrow to see it. */
+  const howTo = isHowTo(low);
+  if (howTo && !CODE_RE.test(raw)) {
+    const h = helpAnswer(findHelp(low));
+    if (h) return { ...h, raw };
+    /* Asked how something works, and no topic fits. If it isn't a figure
+       question either — a bare "help", or "explain the zzz" — the menu is the
+       answer, because the part matcher below would report not knowing the word
+       "help", which is true and useless. */
+    if (!looksLikeAsk(raw)) return { ...helpAnswer(HELP_MENU), raw };
+  }
+
+  /* Journeys next. "generate a report for last month" is not a question about
      figures — it is a request for the screen that prints them — and answering it
      with the figures would leave the person still looking for the button. */
   const journey = journeyAnswer(raw, low, { now });
@@ -807,7 +849,7 @@ export function askShop(
     if (p) return { ...p, raw };
   }
 
-  if (!looksLikeAsk(raw)) return null;
+  if (!looksLikeAsk(raw) && !howTo) return null;
 
   if (SALES_WORDS.test(low)) {
     if (!salesReady) return { ...registerUnreadable(), raw };
@@ -825,15 +867,26 @@ export function askShop(
   const part = partAnswer(raw, low, { items, categories, sales, salesReady });
   if (part) return { ...part, raw };
 
+  /* Last resort before giving up: the question may be about the app rather than
+     the shop, phrased without any of the how-to wording — "part codes", "shelf
+     locations", "who is allowed to delete". Cheaper to answer it than to make
+     somebody guess the phrasing that unlocks it. */
+  const late = helpAnswer(findHelp(low));
+  if (late) return { ...late, raw };
+
+  /* Somebody who typed "help" and nothing else gets the menu, not a shrug. */
+  if (howTo) return { ...helpAnswer(HELP_MENU), raw };
+
   return {
     ...answer("I'm not sure what you're asking", [
-      "I can answer three kinds of thing, and open any screen that makes a document.",
+      "I can answer about the shop and about the app itself, and open any screen that makes a document.",
     ], {
       topic: "unsure",
       rows: [
         { a: "Sales", b: "what sales were made today · how much did we make this month · who sold the most · what is still unpaid", c: "" },
         { a: "Stock", b: "do we have a premio front bumper · all details about SMI-TOY-FIE-16-0006 · what is low on stock", c: "" },
         { a: "Papers", b: "generate a report for last month · write a receipt · open the financial statement", c: "" },
+        { a: "The app", b: "how do i record a sale · what is a part code made of · who can delete a part · how do i add stock that arrived", c: "" },
       ],
     }),
     raw,
@@ -871,6 +924,8 @@ export const ASK_EXAMPLES = [
   "what is low on stock",
   "generate a report for last month",
   "write a receipt",
+  "how do i record a sale",
+  "what is a part code made of",
   "add a category for boot lights",
   "put all quantities as one",
 ];

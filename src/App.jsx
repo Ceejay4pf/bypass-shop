@@ -620,22 +620,10 @@ function BypassShop({ session }) {
               items={items}
               notifications={notifications}
               categories={CATEGORIES}
-              /* The register, not the feed, so "what did we sell this month"
-                 counts every sale rather than the last 200 things that
-                 happened. */
-              sales={salesRegister}
-              /* Whether the register answered at all. An empty list and a
-                 refused query look the same from inside the assistant, and
-                 "nothing sold today" said about a day that had ten sales is the
-                 worst thing it could say. */
-              salesReady={registerReady}
               user={user}
               onNav={go}
               onOpenLedger={openLedger}
               admin={admin}
-              canEdit={can("edit")}
-              onChanged={refreshAfterCommand}
-              onGo={assistantGo}
             />
           )}
           {tab === "quick" && can("quick") && (
@@ -756,7 +744,24 @@ function BypassShop({ session }) {
           )}
           {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
           {tab === "transfers" && <TransfersTab items={items} user={user} />}
-          {tab === "feed" && <StaffFeedTab userId={session.user.id} user={user} admin={admin} />}
+          {tab === "feed" && (
+            <StaffFeedTab
+              userId={session.user.id}
+              user={user}
+              admin={admin}
+              /* The assistant pane's half. The register, not the activity feed,
+                 so "what did we sell this month" counts every sale rather than
+                 the last 200 things that happened — and registerReady so an
+                 unreadable register is said out loud instead of read as zero. */
+              items={items}
+              categories={CATEGORIES}
+              sales={salesRegister}
+              salesReady={registerReady}
+              canEdit={can("edit")}
+              onChanged={refreshAfterCommand}
+              onGo={assistantGo}
+            />
+          )}
           {tab === "notify" && admin && (
             <NotifyTab notifications={notifications} admin={admin} onChanged={refreshAfterUndo} />
           )}
