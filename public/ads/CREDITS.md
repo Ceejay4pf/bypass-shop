@@ -29,6 +29,18 @@ Parts, it beats every one of these and it is the shop's own.
 - **mirrors-plain.jpg** (SMN) — “White moth on a wet car side mirror, reflecting a blurred outdoor scene with trees and a road.”, cc0 1.0, mujuonly · wordpress · https://wordpress.org/photos/photo/7756a60509/
 - **mirrors-indicator.jpg** (SMI) — “Close orange car wing mirror”, cc0 1.0, Markus Spiske · rawpixel · https://www.rawpixel.com/image/593189/orange-classic-car
 
+## The staff login board
+
+- **login-hero.jpg** — the same Toyota 86 headlamp as `headlights.jpg`, cropped
+  to a 2:1 band and brightened, sharpened and given more colour for the login
+  screen (`src/LoginGate.jsx`). CC0, so a derivative is allowed and owes nobody
+  anything. Its own file rather than a filter over the poster, because the poster
+  on the customer's page must not change when somebody tunes this one.
+
+The six posters above are also the pictures shown on the way in after a login
+(`src/EntryDoors.jsx`), which is why that screen costs a phone nothing it has not
+already downloaded.
+
 The three replaced photographs — a Mercedes-Benz B200 tail light, a honeycomb
 grille mesh and a loose headlamp unit — are in this repository's history if
 anybody wants them back.

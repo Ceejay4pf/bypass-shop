@@ -46,6 +46,44 @@ body {
 }
 .bp-pop { animation: bp-pop 0.2s ease both; }
 
+/* ---- THE DOORS (src/EntryDoors.jsx) ----
+   The two shutters rolling apart after a login. Slow to start and fast to
+   finish, which is how a heavy door actually moves, and they end off-screen
+   with `forwards` so nothing slides back over the shop.
+
+   A phone set to reduce motion gets them out of the way almost at once instead
+   of nothing at all: the screen behind has to be uncovered either way, and the
+   Next button is on a timer that does not know about this rule. */
+@keyframes bp-door-l {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-101%); }
+}
+@keyframes bp-door-r {
+  from { transform: translateX(0); }
+  to   { transform: translateX(101%); }
+}
+.bp-door-l { animation: bp-door-l 1.5s cubic-bezier(0.62, 0.02, 0.3, 1) forwards; }
+.bp-door-r { animation: bp-door-r 1.5s cubic-bezier(0.62, 0.02, 0.3, 1) forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-door-l, .bp-door-r { animation-duration: 0.2s; animation-timing-function: ease-out; }
+}
+
+/* A band of light travelling across the login picture — the only movement on
+   that screen, and it is what makes a photograph look lit rather than pasted on. */
+/* The band is a quarter of the picture wide and sits at its left edge, so -100%
+   is just off the left and 400% is just off the right. */
+@keyframes bp-sheen {
+  0%   { transform: translateX(-100%) skewX(-16deg); opacity: 0; }
+  25%  { opacity: 0.7; }
+  75%  { opacity: 0.7; }
+  100% { transform: translateX(400%) skewX(-16deg); opacity: 0; }
+}
+.bp-sheen { animation: bp-sheen 4.5s ease-in-out 0.6s infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .bp-sheen { animation: none; opacity: 0; }
+}
+
 /* =========================================================
    DARK MODE
    ---------------------------------------------------------

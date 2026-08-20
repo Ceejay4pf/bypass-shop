@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
 import LoginGate from "./LoginGate.jsx";
+import EntryDoors, { forgetEntry } from "./EntryDoors.jsx";
 import Welcome from "./Welcome.jsx";
 import LockScreen from "./LockScreen.jsx";
 import PendingGate from "./PendingGate.jsx";
@@ -72,7 +73,14 @@ export default function App() {
     );
   }
   if (!session) return <LoginGate />;
-  return <BypassShop session={session} />;
+  /* The doors go OVER the app, not instead of it, so the inventory is being
+     fetched while they roll — the animation costs the shop no waiting. */
+  return (
+    <>
+      <BypassShop session={session} />
+      <EntryDoors session={session} />
+    </>
+  );
 }
 
 function useClock() {
@@ -157,7 +165,7 @@ function BypassShop({ session }) {
       api.getForceLogoutAt(session.user.id).then((ts) => {
         if (!alive) return;
         if (logoutBaseline === null) { logoutBaseline = ts; return; }
-        if (ts > logoutBaseline) { signOut(); }
+        if (ts > logoutBaseline) { forgetEntry(); signOut(); }
       });
     };
     check();
@@ -449,7 +457,10 @@ function BypassShop({ session }) {
     else if (t.kind === "adjust") handleAdjust(t.code, t.newQty, t.reason);
   };
 
-  const handleLogout = async () => { clearRoleSession(); await signOut(); };
+  /* forgetEntry() so the doors belong to a login and not to a phone: the next
+     person to sign in on this counter phone gets the whole way in, not the tail
+     end of somebody else's. */
+  const handleLogout = async () => { clearRoleSession(); forgetEntry(); await signOut(); };
 
   const lowStockCount = useMemo(
     () => items.filter(isLowStock).length,

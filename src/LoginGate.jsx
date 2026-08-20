@@ -35,6 +35,16 @@ function SparePartIcon() {
   );
 }
 
+/* The one button that is the point of whichever screen is up: log in, verify the
+   code, create the account. Written once because it was written five times, and
+   the five had already begun to drift apart. Blue into cyan, so the thing to
+   press is the brightest thing on a white card. */
+const primaryBtn =
+  "w-full bg-gradient-to-r from-[#2563EB] to-[#06B6D4] text-white font-bold uppercase " +
+  "tracking-wide rounded-xl py-3.5 flex items-center justify-center gap-2 " +
+  "shadow-lg shadow-[#2563EB40] active:scale-[0.99] transition-transform " +
+  "disabled:opacity-50 disabled:shadow-none";
+
 export default function LoginGate() {
   // Which login method: the 4 shared role logins, or a personal account.
   const [tab, setTab] = useState("role");      // role | own
@@ -449,28 +459,61 @@ export default function LoginGate() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF1FF] via-[#F3F5F8] to-[#F3F5F8] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#DCEBFF] via-[#F2F7FF] to-[#D7F4FB] flex items-center justify-center p-4">
       <div className="w-full max-w-sm bp-pop">
-        {/* Branded blue hero with a spare-part graphic */}
-        <div className="relative overflow-hidden rounded-2xl mb-5 shadow-lg bg-gradient-to-br from-[#1E4FD6] via-[#2563EB] to-[#3B82F6]">
-          {/* soft decorative circles */}
-          <div className="absolute -top-10 -right-8 w-32 h-32 rounded-full bg-white/10" />
-          <div className="absolute -bottom-12 -left-10 w-40 h-40 rounded-full bg-white/5" />
+        {/* ---------- THE BOARD ----------
+            A photograph of a real part under a blue-to-cyan wash, rather than
+            the flat blue panel that was here before: this is a spare-parts shop
+            and the first screen should say so at a glance. The picture is one of
+            the shop window's own — see public/ads/CREDITS.md — brightened and
+            sharpened for this use and saved as its own file, so the poster on
+            the customer's page is untouched. */}
+        <div className="relative overflow-hidden rounded-3xl mb-5 shadow-2xl ring-1 ring-white/50">
+          <img
+            src="/ads/login-hero.jpg"
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {/* The wash. Heavy at the top left so the shop name stays readable
+              whatever the picture is doing underneath, thinning to cyan at the
+              bottom right so the part itself still shows through. */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(14,35,120,0.93) 0%, rgba(37,99,235,0.82) 48%, rgba(6,182,212,0.55) 100%)",
+            }}
+          />
+          {/* One band of light crossing the picture. The only movement on this
+              screen, and it is what stops a photograph under a flat colour
+              looking like a sticker. */}
+          <div className="bp-sheen absolute top-0 bottom-0 left-0 w-1/4 bg-white/30 blur-lg pointer-events-none" />
 
           <div className="relative px-6 pt-6 pb-7 text-center">
-            <div className="text-white/70 text-[11px] font-bold tracking-[0.25em] uppercase">
+            <div className="text-[#BFDBFE] text-[11px] font-bold tracking-[0.25em] uppercase">
               Jaspare Auto · Main Shop
             </div>
 
             {/* Spare-part emblem (gear + piston) */}
-            <div className="mx-auto my-3 w-16 h-16 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center ring-1 ring-white/25">
+            <div className="mx-auto my-3 w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center ring-1 ring-[#67E8F9]/60 shadow-lg">
               <SparePartIcon />
             </div>
 
-            <h1 className="text-white text-3xl font-extrabold uppercase tracking-wide">
+            <h1
+              className="text-white text-3xl font-extrabold uppercase tracking-wide"
+              style={{ textShadow: "0 2px 12px rgba(4,12,40,0.55)" }}
+            >
               Bypass Shop
             </h1>
-            <p className="text-white/80 text-xs mt-1">Branch Inventory Management System</p>
+            <p className="text-[#E6F6FF] text-xs mt-1">Branch Inventory Management System</p>
+
+            <div className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white/15 ring-1 ring-white/30 backdrop-blur px-3 py-1.5">
+              <ShieldCheck size={13} className="text-[#A5F3FC]" />
+              <span className="text-[11px] font-semibold text-white">
+                Every action is saved under your name
+              </span>
+            </div>
           </div>
         </div>
 
@@ -482,7 +525,7 @@ export default function LoginGate() {
           </div>
         )}
 
-        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-5 shadow-xl">
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-2xl p-5 shadow-xl">
           {/* ---------- A NEW PHONE ----------
               Takes over the whole card. The password was right, but this
               account has not been used on this phone before, so nothing is
@@ -538,7 +581,7 @@ export default function LoginGate() {
               <button
                 onClick={confirmDeviceCode}
                 disabled={busy || devCode.length !== 6}
-                className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+                className={primaryBtn}
               >
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
                 Trust this phone &amp; log in
@@ -619,7 +662,7 @@ export default function LoginGate() {
               <button
                 onClick={confirmOtp}
                 disabled={busy || otpCode.length !== 6}
-                className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+                className={primaryBtn}
               >
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
                 Log in
@@ -745,7 +788,7 @@ export default function LoginGate() {
                   <button
                     onClick={submitRole}
                     disabled={busy || !isConfigured}
-                    className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+                    className={primaryBtn}
                   >
                     {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
                     Log in as {chosenRole.label}
@@ -815,7 +858,7 @@ export default function LoginGate() {
               <button
                 onClick={confirmCode}
                 disabled={busy || code.length !== 6}
-                className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+                className={primaryBtn}
               >
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
                 Verify &amp; create account
@@ -930,7 +973,7 @@ export default function LoginGate() {
           <button
             onClick={submit}
             disabled={busy || !isConfigured}
-            className="w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+            className={primaryBtn}
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
             {mode === "signin" ? "Log In" : "Continue"}
@@ -951,7 +994,7 @@ export default function LoginGate() {
               <button
                 onClick={requestOtp}
                 disabled={busy || !isConfigured}
-                className="w-full border border-[#2563EB] text-[#2563EB] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
+                className="w-full border-2 border-[#2563EB] text-[#2563EB] font-bold uppercase tracking-wide rounded-xl py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-50"
               >
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
                 Email me a code
