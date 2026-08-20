@@ -4427,9 +4427,98 @@ function BatchCodes({ codes }) {
   );
 }
 
+/* What a customer actually asked for. The feed row only carries a summary, so
+   this is fetched on the first tap — one order at a time, rather than loading
+   every order alongside every notification. Collapsed by default for the same
+   reason BatchCodes is: the feed has to stay readable. */
+/* Named `orderRef`, not `ref` — React keeps that word for itself and a
+   component would never receive it. */
+function EnquiryLines({ orderRef }) {
+  const [open, setOpen] = useState(false);
+  const [order, setOrder] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || order || busy) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const o = await api.fetchCustomerOrder(orderRef);
+      /* An order can be missing if customer_enquiries.sql was never run on this
+         database. Say so, rather than showing an empty list that reads as
+         "they ordered nothing". */
+      if (!o) setErr("The parts list for this order couldn't be found.");
+      setOrder(o);
+    } catch (e) {
+      setErr(e.message || "Couldn't load what they asked for.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2">
+      <button onClick={toggle} className="text-[11px] font-semibold text-[#2563EB] flex items-center gap-1">
+        {open ? "Hide what they asked for" : "Show what they asked for"}
+        <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-1.5 text-[11px]">
+          {busy && <span className="text-[#5A6472]">Loading…</span>}
+          {err && <span className="text-[#DC3B2E]">{err}</span>}
+          {order && (
+            <>
+              <div className="space-y-1">
+                {order.lines.map((l, i) => (
+                  <div key={`${l.code}-${i}`} className="flex items-baseline justify-between gap-2 bg-[#FFFFFF] border border-[#DEE3E9] rounded px-2 py-1">
+                    <div className="min-w-0">
+                      <span className="font-mono text-[10px] text-[#2563EB]">{l.code}</span>
+                      <div className="text-[#1B2430]">{l.name}</div>
+                    </div>
+                    <div className="text-right shrink-0 text-[#5A6472]">
+                      <div className="font-semibold text-[#1B2430]">× {l.qty}</div>
+                      {/* They asked for four and the shelf had one: that is the
+                          first thing to mention on the call. */}
+                      {Number(l.requested) > Number(l.qty) && (
+                        <div className="text-[#B45309]">asked for {l.requested}</div>
+                      )}
+                      <div>{Number(l.price) > 0 ? `KES ${Number(l.price).toLocaleString()}` : "no price set"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {order.note && (
+                <div className="mt-1.5 bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1.5 text-[#5A6472]">
+                  <span className="font-bold uppercase tracking-wide text-[10px] text-[#1B2430]">They wrote</span>
+                  <div className="italic">"{order.note}"</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* A customer's number as they typed it, in the form wa.me and tel: want.
+   Local numbers arrive as 0724…; both links need 254724…. */
+function intlPhone(phone) {
+  let p = String(phone || "").replace(/[^\d]/g, "");
+  if (p.startsWith("0")) p = "254" + p.slice(1);
+  return p;
+}
+
 function NotifRow({ n, compact, onUndo }) {
   const typeMeta = {
     sale: { label: "Sold", cls: "bg-[#DC3B2E22] text-[#DC3B2E]" },
+    /* An order from the public list. Deliberately a different colour from a
+       sale: nothing has been sold and nothing has left the shelf — somebody
+       still has to ring back. */
+    enquiry: { label: "Customer order", cls: "bg-[#FFA53C22] text-[#B45309]" },
     stock: { label: "Stock added", cls: "bg-[#15926A22] text-[#15926A]" },
     new_item: { label: "New item", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
     adjust: { label: "Adjusted", cls: "bg-[#2E86DE22] text-[#2E86DE]" },
@@ -4484,6 +4573,45 @@ function NotifRow({ n, compact, onUndo }) {
           <span className={`px-2 py-0.5 rounded font-semibold ${n.paid ? "bg-[#15926A22] text-[#15926A]" : "bg-[#DC3B2E22] text-[#DC3B2E]"}`}>
             {n.paid ? "Paid" : "Pending"}
           </span>
+        </div>
+      )}
+      {/* An order sent from the public list. The point of this block is the two
+          buttons: the customer is very likely still holding their phone, and
+          the whole arrangement is that somebody rings them straight back.
+          Nothing has been sold and no stock has moved — the sale is still
+          recorded on the Sell screen by whoever handles it. */}
+      {n.type === "enquiry" && (
+        <div className="mt-2 bg-[#FFA53C11] border border-[#FFA53C55] rounded px-2 py-2">
+          <div className="text-xs flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-[#1B2430]">{n.buyer || "No name given"}</span>
+            {n.phone ? <span className="text-[#5A6472]">· {n.phone}</span> : null}
+            <span className="text-[#2563EB]">
+              · {Number(n.total) > 0 ? `KES ${Number(n.total).toLocaleString()}` : "no prices on the list"}
+            </span>
+          </div>
+          <div className="text-[11px] text-[#5A6472] mt-1">
+            Sent from the online list. Nothing is paid and no stock has moved —
+            call to confirm, then record the sale on Sell.
+          </div>
+          {n.code && <EnquiryLines orderRef={n.code} />}
+          {n.phone && (
+            <div className="flex gap-2 mt-2">
+              <a
+                href={`tel:+${intlPhone(n.phone)}`}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-[#2563EB] text-[#F3F5F8] rounded-md py-1.5 text-[11px] font-bold uppercase tracking-wide"
+              >
+                <Phone size={12} /> Call
+              </a>
+              <a
+                href={`https://wa.me/${intlPhone(n.phone)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-1.5 bg-[#15926A] text-[#F3F5F8] rounded-md py-1.5 text-[11px] font-bold uppercase tracking-wide"
+              >
+                <MessageCircle size={12} /> WhatsApp
+              </a>
+            </div>
+          )}
         </div>
       )}
       <div className="flex items-center justify-between mt-1.5">
@@ -4872,6 +5000,9 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
   const tabs = [
     ["all", "All"],
     ["sale", "Sales"],
+    /* Second, not last: an order from the public list is somebody waiting for a
+       phone call, and it goes stale faster than anything else in this feed. */
+    ["enquiry", "Customer orders"],
     ["stock", "Restocks"],
     ["new_item", "New items"],
     ["return", "Returns"],

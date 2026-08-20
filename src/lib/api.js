@@ -1408,3 +1408,144 @@ export async function fetchFinanceData() {
     problems,
   };
 }
+
+/* ============================================================
+   THE PUBLIC ENQUIRY LIST — what a customer with no account sees,
+   and the order they send back.
+
+   Two calls out (a narrow view and one function, both set up in
+   supabase/customer_enquiries.sql) and three calls in for staff. The public
+   half never touches the inventory, notifications or sales tables: the view is
+   a hand-picked list of columns, and the function is the only thing on this
+   whole database an anonymous visitor is allowed to run.
+
+   Nothing here changes a stock count. An order is a request for a call back —
+   the sale is recorded by a person on the real screen, as it always was.
+   ============================================================ */
+
+/* The catalogue, in the same camelCase shape as the rest of the app so the
+   public page can use the same helpers. `photo` is the first image only; the
+   rest are left on the server, because a customer on a bundle should not be
+   made to download four angles of a bumper to read its price. */
+export function rowToCatalogueItem(r) {
+  return {
+    code: r.code,
+    cat: r.cat,
+    brand: r.brand || "",
+    model: r.model || "",
+    series: r.series || "",
+    yearFrom: r.year_from,
+    yearTo: r.year_to,
+    condition: r.condition || "",
+    side: r.side || "",
+    variant: r.variant || "",
+    color: r.color || "",
+    name: r.name || "",
+    /* 0 means nobody has written a price on this part. It is shown as "ask for
+       the price" rather than as free, and rather than being hidden — most of
+       this shop's shelf is priced at the counter. */
+    price: Number(r.price) || 0,
+    qty: Number(r.qty) || 0,
+    photo: r.photo || "",
+  };
+}
+
+export async function fetchCatalogue() {
+  const { data, error } = await supabase
+    .from("catalogue")
+    .select("*")
+    .order("cat", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(rowToCatalogueItem);
+}
+
+/* Section names for grouping. Optional in both directions: the app's built-in
+   sections cover most of them, this covers the ones the shop added, and a shop
+   that never ran part_categories.sql gets an empty list rather than an error. */
+export async function fetchCatalogueSections() {
+  try {
+    const { data, error } = await supabase.from("catalogue_sections").select("*");
+    if (error) throw error;
+    return (data || []).map((r) => ({ key: r.key, label: r.label, sort: r.sort ?? 100 }));
+  } catch {
+    return [];
+  }
+}
+
+/* Send an order. The database re-reads every price and name from the inventory
+   and ignores the browser's copy, so what comes back is the shop's own figures,
+   not the customer's. It returns the reference to show them. */
+export async function placeCustomerOrder({ customer, phone, note, items }) {
+  const { data, error } = await supabase.rpc("place_customer_order", {
+    p_customer: customer,
+    p_phone: phone,
+    p_note: note || "",
+    p_items: (items || []).map((l) => ({ code: l.code, qty: l.qty })),
+  });
+  if (error) {
+    /* The function raises in plain English on purpose — no name, no phone, an
+       empty basket, too many in an hour — so its message is the one to show. */
+    throw new Error(error.message || "That didn't send. Check your connection and try again.");
+  }
+  return data;
+}
+
+/* ---- the staff side of the same thing ---- */
+function rowToCustomerOrder(r) {
+  return {
+    id: r.id,
+    ref: r.ref,
+    ts: new Date(r.ts).getTime(),
+    customer: r.customer || "",
+    phone: r.phone || "",
+    note: r.note || "",
+    lines: Array.isArray(r.items) ? r.items : [],
+    pieces: Number(r.pieces) || 0,
+    total: Number(r.total) || 0,
+    status: r.status || "new",
+    handledBy: r.handled_by || "",
+    handledAt: r.handled_at ? new Date(r.handled_at).getTime() : null,
+    source: r.source || "web",
+  };
+}
+
+export async function fetchCustomerOrders(limit = 100) {
+  const { data, error } = await supabase
+    .from("customer_orders")
+    .select("*")
+    .order("ts", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map(rowToCustomerOrder);
+}
+
+export async function setCustomerOrderStatus(id, status, who) {
+  const { error } = await supabase
+    .from("customer_orders")
+    .update({ status, handled_by: who, handled_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/* One order, by the reference on its notification. The feed entry only carries a
+   summary — "Premio front bumper and 2 more" — and somebody about to ring the
+   customer needs the actual list, so the row fetches it when it's opened rather
+   than every order being loaded with the feed. */
+export async function fetchCustomerOrder(ref) {
+  const { data, error } = await supabase
+    .from("customer_orders")
+    .select("*")
+    .eq("ref", ref)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCustomerOrder(data) : null;
+}
+
+export function subscribeCustomerOrders(onChange) {
+  const ch = supabase
+    .channel("customer_orders_rt")
+    .on("postgres_changes", { event: "*", schema: "public", table: "customer_orders" }, () => onChange())
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
