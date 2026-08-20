@@ -33,6 +33,7 @@ import {
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
+import { publicLink } from "./lib/publicRoute.js";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
 } from "./lib/appLock.js";
@@ -3770,9 +3771,17 @@ export function AddStockTab({ items, categories, onAddStock, initialCode = "" })
 }
 
 /* ======================= EDIT PARTS (admin) ======================= */
-// Admin-only: browse the list, pick a part, edit its details & price.
-// Quantity is intentionally NOT editable here — that stays with Add Stock / Sell.
-export function EditPartsTab({ items, categories, onSave, initialCode = "", focusInfo = false }) {
+/* Admin-only: browse the list, pick a part, edit its details, price - and the
+   shelf count.
+
+   The count used to be read-only here, with a note pointing at Add Stock and
+   Sell. That is right for stock arriving and stock going out of the door, and
+   wrong for the third case, which is the common one: the number in the system
+   simply does not match the number on the shelf. Adding four pieces that never
+   arrived, or selling four that nobody bought, both put a lie in the day's
+   figures. So a correction goes in as a correction - through api.adjustQty,
+   which asks why and records it under the person's name. */
+export function EditPartsTab({ items, categories, onSave, onAdjust, initialCode = "", focusInfo = false }) {
   const [query, setQuery] = useState("");
   // A part long-pressed in Search arrives already open for editing.
   const [selected, setSelected] = useState(
@@ -3788,14 +3797,26 @@ export function EditPartsTab({ items, categories, onSave, initialCode = "", focu
   }, [items, categories, query]);
 
   if (selected) {
+    /* The row as it stands now, not as it was when it was tapped. It matters
+       for the count: a part can be sold on another phone while this screen is
+       open, and the form must be arguing with the real number. */
+    const live = items.find((i) => i.code === selected.code) || selected;
     return (
       <EditPartForm
         key={selected.code}
-        item={selected}
+        item={live}
         categories={categories}
         focusInfo={focusInfo}
         onCancel={() => setSelected(null)}
-        onSave={async (patch) => {
+        canAdjust={Boolean(onAdjust)}
+        onSave={async ({ stockChange, ...patch }) => {
+          /* The count first, and only carry on if it went through - if the
+             correction failed, saving the details would close the screen and
+             the count would silently stay wrong. */
+          if (stockChange) {
+            const counted = await onAdjust(selected.code, stockChange.to, stockChange.reason);
+            if (counted === false) return;
+          }
           const ok = await onSave(selected.code, patch);
           if (ok !== false) setSelected(null);
         }}
@@ -3807,7 +3828,8 @@ export function EditPartsTab({ items, categories, onSave, initialCode = "", focu
     <div className="bp-fade-up">
       <SectionTitle eyebrow="Admin · manage parts" title="Edit Parts" />
       <div className="text-[#5A6472] text-xs mb-3">
-        Pick a part to edit its details and price. To change quantity, use Add New Stock or Sell Item.
+        Pick a part to edit its details, its price, or the number on the shelf if
+        the system has it wrong.
       </div>
       <div className="relative mb-4">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
@@ -3838,7 +3860,7 @@ export function EditPartsTab({ items, categories, onSave, initialCode = "", focu
   );
 }
 
-function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false }) {
+function EditPartForm({ item, categories, onCancel, onSave, canAdjust = false, focusInfo = false }) {
   const [cat, setCat] = useState(item.cat || categories[0]?.key || "");
   const [brand, setBrand] = useState(item.brand || "");
   const [model, setModel] = useState(item.model || "");
@@ -3858,6 +3880,11 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
   const [supplier, setSupplier] = useState(item.supplier || "");
   const [notes, setNotes] = useState(item.notes || "");
   const [images, setImages] = useState(Array.isArray(item.images) ? item.images.filter(Boolean) : []);
+  /* The shelf count, and why it is being changed. Kept as typed text so the box
+     can be emptied while somebody counts again, rather than snapping to 0. */
+  const [qty, setQty] = useState(String(item.qty ?? 0));
+  const [qtyTouched, setQtyTouched] = useState(false);
+  const [qtyWhy, setQtyWhy] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -3878,6 +3905,15 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
     return () => { alive = false; };
   }, [item.code]);
 
+  /* Follow the real count until somebody types over it. Two things this stops:
+     a sale recorded on another phone leaving a stale number in the box, which
+     would then be saved back as a "correction"; and a count that saved fine
+     followed by a detail save that didn't, which would otherwise be corrected
+     to the same number twice. */
+  React.useEffect(() => {
+    if (!qtyTouched) setQty(String(item.qty ?? 0));
+  }, [item.qty, qtyTouched]);
+
   // "Add information" from the search long-press jumps straight to the
   // location / supplier / notes / photos block.
   const infoRef = React.useRef(null);
@@ -3897,9 +3933,27 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
     );
   };
 
+  /* Whether the count is being changed at all, worked out once so the box, the
+     warning and the save all agree. A blank box is somebody mid-count, not a
+     request to set the shelf to nothing. */
+  const qtyTyped = String(qty).trim();
+  const qtyNum = Number(qtyTyped);
+  const qtyValid = qtyTyped !== "" && Number.isInteger(qtyNum) && qtyNum >= 0;
+  const qtyMoved = canAdjust && qtyValid && qtyNum !== Number(item.qty || 0);
+
   const submit = async () => {
     if (!brand.trim() || !model.trim() || price === "") {
       setErr("Brand, model and price are required.");
+      return;
+    }
+    if (canAdjust && qtyTyped !== "" && !qtyValid) {
+      setErr("The number on the shelf must be a whole number, 0 or more.");
+      return;
+    }
+    /* A reason is required, because a count that changed for no stated reason is
+       indistinguishable from a mistake when somebody reads it back next month. */
+    if (qtyMoved && qtyWhy.trim().length < 3) {
+      setErr("Say why the count is changing - a recount, breakage, a part taken without being recorded.");
       return;
     }
     setErr("");
@@ -3926,6 +3980,9 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
         supplier: supplier.trim(),
         notes: notes.trim(),
         images,
+        /* Not one of the row's details: the screen above puts this through
+           adjustQty so it lands in Notifications with a reason and a name. */
+        ...(qtyMoved ? { stockChange: { to: qtyNum, reason: qtyWhy.trim() } } : {}),
       });
     } finally {
       setSaving(false);
@@ -3946,10 +4003,66 @@ function EditPartForm({ item, categories, onCancel, onSave, focusInfo = false })
 
       <div className="text-xs text-[#5A6472] mb-3 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
         Code: <span className="font-mono text-[#2563EB]">{item.code}</span>
-        <span className="mx-2">·</span>
-        In stock: <span className="font-semibold text-[#1B2430]">{item.qty}</span>
-        <span className="text-[#5A6472]"> (change via Add Stock / Sell)</span>
+        {!canAdjust && (
+          <>
+            <span className="mx-2">·</span>
+            In stock: <span className="font-semibold text-[#1B2430]">{item.qty}</span>
+          </>
+        )}
       </div>
+
+      {/* The count on the shelf. Its own block, away from the details, because
+          it is the one field on this screen that changes what the shop owns. */}
+      {canAdjust && (
+        <div className="mb-4 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+          <div className="flex items-end gap-3">
+            <div className="w-28">
+              <Field label="On the shelf">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={qty}
+                  onChange={(e) => { setQtyTouched(true); setQty(e.target.value); }}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <div className="flex-1 text-[11px] text-[#5A6472] leading-relaxed pb-3">
+              {qtyMoved ? (
+                <span className="text-[#B45309] font-semibold">
+                  {item.qty} → {qtyNum} ({qtyNum > Number(item.qty || 0) ? "+" : ""}
+                  {qtyNum - Number(item.qty || 0)})
+                </span>
+              ) : (
+                <>
+                  Change this only to make the system match what is actually there.
+                  Stock arriving belongs on Add New Stock, stock sold on Sell Item.
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Only asked for once the number has actually moved, so the common
+              case - editing a name or a price - is not made to explain itself. */}
+          {qtyMoved && (
+            <div className="mt-1">
+              <Field label="Why is the count changing?" hint="Goes into Notifications with your name on it.">
+                <input
+                  value={qtyWhy}
+                  onChange={(e) => setQtyWhy(e.target.value)}
+                  placeholder="e.g. recounted the shelf / one broken / taken by the workshop"
+                  className={inputCls}
+                />
+              </Field>
+              <div className="text-[11px] text-[#5A6472] -mt-1">
+                This is recorded as a correction, not a sale - it changes no money
+                and appears in no day&rsquo;s takings.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <Field label="Category / section">
         <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
@@ -5122,6 +5235,274 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
           <NotifRow key={n.id} n={n} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ======================= CUSTOMER ORDERS =======================
+   What came off the public parts list. Not a sale — a customer has chosen parts
+   themselves and left a name and a number, and somebody has to ring them.
+
+   Two things this screen is for, and it is really only for these two:
+     1. Ring them back. The number is one tap, on the row.
+     2. Turn what they chose into the document they need — a quotation if they
+        asked the price, a receipt if they are coming with the money — without
+        typing their list a second time. That is the same reason a quotation can
+        become a receipt: retyping a list of parts is where the money slips.
+
+   Nothing here moves stock. The sale is still recorded on Sell by whoever
+   actually hands the parts over. */
+
+const ORDER_STATES = [
+  { key: "new", label: "To call", cls: "bg-[#FFA53C22] text-[#B45309]" },
+  { key: "called", label: "Called", cls: "bg-[#2563EB22] text-[#2563EB]" },
+  { key: "done", label: "Done", cls: "bg-[#15926A22] text-[#15926A]" },
+  { key: "cancelled", label: "Cancelled", cls: "bg-[#6B748022] text-[#5A6472]" },
+];
+const orderState = (s) => ORDER_STATES.find((x) => x.key === s) || ORDER_STATES[0];
+
+function OrderCard({ order, busy, onStatus, onQuote, onReceipt }) {
+  const [openLines, setOpenLines] = useState(false);
+  const st = orderState(order.status);
+  const intl = intlPhone(order.phone);
+  /* Where the shelf cannot cover what was asked for. The first thing to say on
+     the call, so it is on the card and not hidden behind the parts list. */
+  const short = (order.lines || []).filter((l) => Number(l.requested) > Number(l.qty));
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-xs text-[#2563EB]">{order.ref}</span>
+        <span className="text-[#5A6472] text-xs">{timeAgo(order.ts)}</span>
+      </div>
+      <div className="mt-1 flex items-baseline gap-2 flex-wrap">
+        <span className="font-semibold text-sm">{order.customer || "No name given"}</span>
+        <span className="text-xs text-[#5A6472]">{order.phone}</span>
+      </div>
+      <div className="text-xs text-[#5A6472] mt-0.5">
+        {order.lines.length} {order.lines.length === 1 ? "part" : "parts"} · {order.pieces} {order.pieces === 1 ? "piece" : "pieces"}
+        {" · "}
+        {order.total > 0
+          ? <span className="text-[#2563EB] font-semibold">KES {order.total.toLocaleString()}</span>
+          : <span>no prices on the list — quote at the counter</span>}
+      </div>
+
+      {short.length > 0 && (
+        <div className="mt-1.5 text-[11px] text-[#B45309]">
+          Asked for more than the shelf has: {short.map((l) => `${l.name || l.code} (${l.requested} wanted, ${l.qty} here)`).join("; ")}
+        </div>
+      )}
+
+      {order.note && (
+        <div className="mt-1.5 text-[11px] bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1.5 text-[#5A6472]">
+          <span className="font-bold uppercase tracking-wide text-[10px] text-[#1B2430]">They wrote</span>
+          <div className="italic">"{order.note}"</div>
+        </div>
+      )}
+
+      <button onClick={() => setOpenLines((v) => !v)} className="mt-2 text-[11px] font-semibold text-[#2563EB] flex items-center gap-1">
+        {openLines ? "Hide the parts" : "Show the parts"}
+        <ChevronRight size={12} className={`transition-transform ${openLines ? "rotate-90" : ""}`} />
+      </button>
+      {openLines && (
+        <div className="mt-1.5 space-y-1">
+          {order.lines.map((l, i) => (
+            <div key={`${l.code}-${i}`} className="flex items-baseline justify-between gap-2 text-[11px] border border-[#DEE3E9] rounded px-2 py-1">
+              <div className="min-w-0">
+                <span className="font-mono text-[10px] text-[#2563EB]">{l.code}</span>
+                <div>{l.name}</div>
+              </div>
+              <div className="text-right shrink-0 text-[#5A6472]">
+                <div className="font-semibold text-[#1B2430]">× {l.qty}</div>
+                {Number(l.requested) > Number(l.qty) && <div className="text-[#B45309]">asked for {l.requested}</div>}
+                <div>{Number(l.price) > 0 ? `KES ${Number(l.price).toLocaleString()}` : "no price set"}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- ring them ---- */}
+      {order.phone && (
+        <div className="flex gap-2 mt-2.5">
+          <a href={`tel:+${intl}`} className="flex-1 flex items-center justify-center gap-1.5 bg-[#2563EB] text-[#F3F5F8] rounded-md py-2 text-[11px] font-bold uppercase tracking-wide">
+            <Phone size={12} /> Call
+          </a>
+          <a href={`https://wa.me/${intl}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 bg-[#15926A] text-[#F3F5F8] rounded-md py-2 text-[11px] font-bold uppercase tracking-wide">
+            <MessageCircle size={12} /> WhatsApp
+          </a>
+        </div>
+      )}
+
+      {/* ---- and turn it into the document they need ---- */}
+      <div className="flex gap-2 mt-2">
+        <button onClick={() => onQuote(order)} className="flex-1 flex items-center justify-center gap-1.5 border border-[#DEE3E9] rounded-md py-2 text-[11px] font-bold uppercase tracking-wide text-[#5A6472] hover:border-[#2563EB] hover:text-[#2563EB]">
+          <FileText size={12} /> Quotation
+        </button>
+        <button onClick={() => onReceipt(order)} className="flex-1 flex items-center justify-center gap-1.5 border border-[#DEE3E9] rounded-md py-2 text-[11px] font-bold uppercase tracking-wide text-[#5A6472] hover:border-[#2563EB] hover:text-[#2563EB]">
+          <Receipt size={12} /> Receipt
+        </button>
+      </div>
+
+      {/* ---- where it has got to ---- */}
+      <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${st.cls}`}>{st.label}</span>
+        {order.handledBy && <span className="text-[10px] text-[#5A6472]">by {order.handledBy}</span>}
+        <span className="ml-auto flex gap-1">
+          {ORDER_STATES.filter((s) => s.key !== order.status).map((s) => (
+            <button
+              key={s.key}
+              disabled={busy}
+              onClick={() => onStatus(order, s.key)}
+              className="text-[10px] font-semibold px-2 py-1 rounded border border-[#DEE3E9] text-[#5A6472] hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-40"
+            >
+              {s.label}
+            </button>
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function CustomerOrdersTab({ user, onQuote, onReceipt }) {
+  const [orders, setOrders] = useState(null);   // null = not loaded yet
+  const [err, setErr] = useState("");
+  const [filter, setFilter] = useState("new");  // the ones nobody has rung yet
+  const [busy, setBusy] = useState("");
+  const [copied, setCopied] = useState("");
+
+  const load = () => api.fetchCustomerOrders(200).then((rows) => { setOrders(rows); setErr(""); })
+    .catch((e) => {
+      setOrders([]);
+      /* Almost always one thing: the migration hasn't been run. Say which file,
+         because the alternative is somebody deciding the feature is broken. */
+      setErr(/relation|does not exist|schema/i.test(e.message || "")
+        ? "The customer orders table isn't there yet — run supabase/customer_enquiries.sql in Supabase → SQL Editor."
+        : e.message || "Couldn't load the orders.");
+    });
+
+  useEffect(() => {
+    load();
+    /* An order sent while somebody is looking at this screen appears without a
+       refresh. The whole arrangement is that the shop rings back while the
+       customer is still holding their phone. */
+    try {
+      return api.subscribeCustomerOrders(() => load());
+    } catch {
+      return undefined;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setStatus = async (order, status) => {
+    setBusy(order.id);
+    try {
+      await api.setCustomerOrderStatus(order.id, status, user);
+      setOrders((list) => (list || []).map((o) => (o.id === order.id ? { ...o, status, handledBy: user } : o)));
+    } catch (e) {
+      setErr(e.message || "Couldn't save that.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const link = publicLink({ origin: window.location.origin, publicHost: import.meta.env.VITE_PUBLIC_HOST || "" });
+  const share = () => {
+    const msg = `${SHOP_INFO.branch.name} — see what we have in stock and send us what you need:\n${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied("Link copied.");
+    } catch {
+      setCopied("Couldn't copy — hold the link to select it.");
+    }
+    setTimeout(() => setCopied(""), 2500);
+  };
+
+  const counts = useMemo(() => {
+    const map = {};
+    for (const o of orders || []) map[o.status] = (map[o.status] || 0) + 1;
+    return map;
+  }, [orders]);
+
+  const shown = useMemo(
+    () => (orders || []).filter((o) => filter === "all" || o.status === filter),
+    [orders, filter]
+  );
+
+  return (
+    <div className="bp-fade-up">
+      <SectionTitle eyebrow="From the public parts list" title="Customer Orders" />
+
+      {/* ---- the link that makes this screen fill up ---- */}
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3 mb-4">
+        <div className="text-xs text-[#5A6472]">
+          Customers open this link with no account, see what is on the shelf and send what they need.
+          Nothing is paid there and no stock moves — it arrives here, and in Notifications, for a call back.
+        </div>
+        <div className="font-mono text-[11px] text-[#2563EB] mt-2 break-all">{link}</div>
+        <div className="flex gap-2 mt-2">
+          <button onClick={share} className="flex items-center gap-1.5 bg-[#15926A] text-[#F3F5F8] rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide">
+            <MessageCircle size={12} /> Send on WhatsApp
+          </button>
+          <button onClick={copy} className="flex items-center gap-1.5 border border-[#DEE3E9] rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#5A6472]">
+            <FileText size={12} /> Copy the link
+          </button>
+        </div>
+        {copied && <div className="text-[11px] text-[#15926A] mt-1.5">{copied}</div>}
+      </div>
+
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3">{err}</div>
+      )}
+
+      <div className="mb-3">
+        <Pills
+          size="xs"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            /* Every count is shown, including a nought — an empty "To call" is
+               the state somebody is aiming for, and worth being able to see. */
+            ...ORDER_STATES.map((s) => ({ key: s.key, label: s.label, count: counts[s.key] || 0 })),
+            { key: "all", label: "All" },
+          ]}
+        />
+      </div>
+
+      {orders === null ? (
+        <div className="flex items-center gap-2 text-[#5A6472] text-sm py-8 justify-center">
+          <Loader2 size={15} className="animate-spin" /> Loading orders…
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="text-center py-8 px-4">
+          <ShoppingCart size={28} className="mx-auto text-[#2563EB] mb-2" />
+          <div className="font-semibold text-sm">
+            {(orders || []).length === 0 ? "No customer orders yet" : `Nothing marked "${orderState(filter).label}"`}
+          </div>
+          <div className="text-xs text-[#5A6472] mt-1">
+            {(orders || []).length === 0
+              ? "Send the link above to a customer, or put it on the shop's WhatsApp status."
+              : "Try another filter."}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {shown.map((o) => (
+            <OrderCard
+              key={o.id}
+              order={o}
+              busy={busy === o.id}
+              onStatus={setStatus}
+              onQuote={onQuote}
+              onReceipt={onReceipt}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -7389,20 +7770,62 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
   );
 }
 
+/* The banner a document wears when a customer's own order filled it in.
+
+   Used by both Quotation and Receipt, because both are reached from the same
+   button on Customer Orders and both need to say the same three things: which
+   order this is, where the shelf could not manage what was asked for, and
+   anything the customer typed. Somebody handed a pre-filled document with no
+   explanation assumes it is left over from whoever used the phone last. */
+function FromOrderNote({ order, shortOf = [], note = "", what = "quotation" }) {
+  if (!order?.ref) return null;
+  return (
+    <div className="bg-[#EEF2F6] border border-[#2563EB] rounded-md p-3 mb-4 text-xs text-[#1B2430] leading-relaxed">
+      <span className="font-bold text-[#2563EB]">From customer order {order.ref}</span>
+      {" — "}
+      {order.customer ? `${order.customer} chose these parts` : "the parts were chosen"} on the
+      online list, so they are already below. Nothing was paid and no stock has
+      moved. Put your prices in and the {what} is ready.
+      {shortOf.length > 0 && (
+        <div className="mt-2 text-[#B45309]">
+          <span className="font-semibold">More was asked for than the shelf has:</span>{" "}
+          {shortOf
+            .map((l) => `${l.name || l.code} — asked for ${l.asked}, ${l.have} on the shelf`)
+            .join("; ")}
+          . The lines below carry what can actually be given.
+        </div>
+      )}
+      {note && (
+        <div className="mt-2 italic text-[#6B7480]">They wrote: &ldquo;{note}&rdquo;</div>
+      )}
+    </div>
+  );
+}
+
 /* ======================= QUOTATION ======================= */
 /* Staff type each line (part + qty + unit price they set manually); the
    system does the arithmetic — line totals, subtotal, discount and grand
    total — and can share the finished quote on WhatsApp or print it. */
-export function QuotationTab({ items, user, initialCode = "", onMakeReceipt }) {
-  const [customer, setCustomer] = useState("");
-  const [phone, setPhone] = useState("");
-  const [discount, setDiscount] = useState("");
+export function QuotationTab({ items, user, initialCode = "", draft = null, onMakeReceipt }) {
+  /* A `draft` is a list somebody has already made — today that means an order a
+     customer sent off the public parts list. They chose the parts themselves, so
+     nobody in the shop should be typing them again. */
+  const [customer, setCustomer] = useState(draft?.customer || "");
+  const [phone, setPhone] = useState(draft?.phone || "");
+  const [discount, setDiscount] = useState(draft?.discount || "");
   // A part long-pressed in Search arrives as the first line, prefilled.
   const [lines, setLines] = useState(() => {
+    if (draft?.lines?.length) return draft.lines;
     const it = initialCode ? items.find((i) => i.code === initialCode) : null;
     if (!it) return [{ desc: "", qty: "1", price: "" }];
     return [{ desc: it.name || it.code, qty: "1", price: String(it.price || "") }];
   });
+  /* Where this came from, kept so the screen can say so. A quote that arrived
+     from an order is one somebody is about to read down the phone, and knowing
+     it is ENQ-2026-0007 saves asking the customer to list their parts again. */
+  const [fromOrder] = useState(draft?.fromOrder || null);
+  const [shortOf] = useState(draft?.shortOf || []);
+  const [orderNote] = useState(draft?.note || "");
   const [savedNumber, setSavedNumber] = useState(""); // set after a successful save
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
@@ -7566,6 +7989,8 @@ export function QuotationTab({ items, user, initialCode = "", onMakeReceipt }) {
         </div>
       )}
 
+      <FromOrderNote order={fromOrder} shortOf={shortOf} note={orderNote} what="quotation" />
+
       <div className="flex gap-3">
         <div className="flex-1">
           <Field label="Customer name (optional)">
@@ -7709,8 +8134,15 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
      off the prop, because lines can be added by hand afterwards and the source is
      still where it started. */
   const [source, setSource] = useState(() =>
-    draft ? { fromQuote: draft.fromQuote || null, fromSales: draft.fromSales || [] } : { fromQuote: null, fromSales: [] }
+    draft
+      ? { fromQuote: draft.fromQuote || null, fromSales: draft.fromSales || [], fromOrder: draft.fromOrder || null }
+      : { fromQuote: null, fromSales: [], fromOrder: null }
   );
+  /* An order the customer sent in themselves: what the shelf fell short on and
+     whatever they typed, kept so the receipt screen can show it while somebody
+     is on the phone to them. */
+  const [shortOf] = useState(draft?.shortOf || []);
+  const [orderNote] = useState(draft?.note || "");
   const [savedNumber, setSavedNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
@@ -8149,6 +8581,7 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
       {/* Where these figures came from, said plainly. Somebody handed a
           half-filled screen with no explanation assumes it is left over from
           whoever used the phone last, and clears it. */}
+      <FromOrderNote order={source.fromOrder} shortOf={shortOf} note={orderNote} what="receipt" />
       {source.fromQuote?.number && (
         <div className="bg-[#EEF2F6] border border-[#2563EB] rounded-md p-3 mb-4 text-xs text-[#1B2430] leading-relaxed">
           <span className="font-bold text-[#2563EB]">From quotation {source.fromQuote.number}</span>

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FileBarChart, Settings as SettingsIcon,
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
-  Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon, Scale,
+  Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon, Scale, ClipboardList,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
 import LoginGate from "./LoginGate.jsx";
@@ -19,11 +19,12 @@ import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
 import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
 import * as api from "./lib/api.js";
 import { generateCode, isLowStock } from "./data.js";
+import { orderToDraft } from "./lib/receiptDraft.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab, BulkAddTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
   LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab, StaffFeedTab,
-  ReceiptTab, CreditAccountsTab, TransfersTab,
+  ReceiptTab, CreditAccountsTab, TransfersTab, CustomerOrdersTab,
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 import { FinanceTab } from "./finance.jsx";
@@ -42,6 +43,9 @@ const NAV = [
   { id: "edit", label: "Edit Parts", icon: Pencil, cap: "edit" },
   { id: "stock", label: "Add New Stock", icon: PackagePlus },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
+  /* What came in off the public parts list. Above Quotation and Receipt
+     because that is what an order turns into. */
+  { id: "orders", label: "Customer Orders", icon: ClipboardList },
   { id: "quote", label: "Quotation", icon: FileText },
   { id: "receipt", label: "Receipt", icon: Receipt },
   { id: "credit", label: "Credit Accounts", icon: Wallet },
@@ -247,6 +251,29 @@ function BypassShop({ session }) {
     go("receipt");
   };
 
+  /* The same idea for a quotation. An order off the public list can become
+     either document — the price they asked for, or the receipt for the money
+     they are bringing — and which one it is only becomes clear on the phone. */
+  const [quoteDraft, setQuoteDraft] = useState(null);
+  const [quoteSeq, setQuoteSeq] = useState(0);
+  const openQuoteFrom = (draft) => {
+    setQuoteDraft(draft);
+    setQuoteSeq((n) => n + 1);
+    go("quote");
+  };
+  /* A customer order, on its way to being one or the other. Converted here so
+     both screens are handed the identical draft — see src/lib/receiptDraft.js. */
+  const quoteFromOrder = (order) => {
+    const d = orderToDraft(order);
+    if (d) openQuoteFrom(d);
+    else showToast("That order has no parts on it.", "warn");
+  };
+  const receiptFromOrder = (order) => {
+    const d = orderToDraft(order);
+    if (d) openReceiptFrom(d);
+    else showToast("That order has no parts on it.", "warn");
+  };
+
   /* A part was long-pressed in Search and an action chosen. Carry the part
      over to the right screen so staff don't have to search for it twice. */
   const handlePick = (action, item) => {
@@ -377,8 +404,15 @@ function BypassShop({ session }) {
     run(async () => { await api.sellItem(sale, user); setTab(admin ? "notify" : "dashboard"); },
       `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to Jaspare Auto`,
       sale.paid ? "ok" : "warn");
-  const handleAdjust = (code, newQty, reason) =>
-    run(() => api.adjustQty(code, newQty, reason, user), `Adjusted ${code} → ${newQty}`);
+  /* Returns whether it actually went through, because Edit Parts saves the
+     count and the details one after the other and must not carry on past a
+     failed count. */
+  const handleAdjust = async (code, newQty, reason) => {
+    let ok = false;
+    await run(async () => { await api.adjustQty(code, newQty, reason, user); ok = true; },
+      `Adjusted ${code} → ${newQty}`);
+    return ok;
+  };
   /* `info` says where the stock went — see DeleteItemSheet. It is optional
      so any caller that still deletes without asking keeps working. */
   const handleDelete = (code, info = {}) =>
@@ -694,6 +728,7 @@ function BypassShop({ session }) {
               items={items}
               categories={CATEGORIES}
               onSave={handleEditItem}
+              onAdjust={handleAdjust}
               initialCode={pickFor("edit") || pickFor("info")}
               focusInfo={Boolean(pickFor("info"))}
             />
@@ -720,12 +755,19 @@ function BypassShop({ session }) {
               initialCode={pickFor("sell")}
             />
           )}
+          {tab === "orders" && (
+            <CustomerOrdersTab user={user} onQuote={quoteFromOrder} onReceipt={receiptFromOrder} />
+          )}
           {tab === "quote" && (
+            /* Keyed on the arrival count as well as the picked part, for the same
+               reason the receipt screen is: a quote arriving from an order must
+               replace what is half-typed here rather than merge into it. */
             <QuotationTab
-              key={pickFor("quote") || "quote"}
+              key={`quote-${quoteSeq}-${pickFor("quote") || ""}`}
               items={items}
               user={user}
               initialCode={pickFor("quote")}
+              draft={quoteDraft}
               onMakeReceipt={openReceiptFrom}
             />
           )}

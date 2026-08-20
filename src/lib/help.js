@@ -92,10 +92,11 @@ export const HELP_TOPICS = [
   },
   {
     key: "editprice",
-    test: /\b(?:(?:change|edit|set|put|fix|correct|adjust) (?:the |a |its )?(?:price|cost|colour|color|condition|shelf|notes?|detail|details)|price change|reprice|(?:change|edit) (?:a|the) part)\b/,
-    title: "Changing a price or a detail",
+    test: /\b(?:(?:change|edit|set|put|fix|correct|adjust) (?:the |a |its )?(?:stock )?(?:price|cost|colour|color|condition|shelf|notes?|detail|details|quantity|qty|count|number)|price change|reprice|(?:change|edit) (?:a|the) part|(?:count|quantity|qty|stock|number) is wrong|wrong (?:count|quantity|number)|recount)\b/,
+    title: "Changing a price, a detail or the count",
     lines: [
-      "Edit Parts, for one part at a time — price, condition, colour, year, shelf, notes, photos.",
+      "Edit Parts, for one part at a time — price, condition, colour, year, shelf, notes, photos, and the number on the shelf.",
+      "Changing the count there asks why, and files it as a correction under your name. Use it when the system disagrees with the shelf; stock arriving still belongs on Add New Stock and stock sold on Sell Item, because those are what the day's figures are built from.",
       "For many at once, tell this box: \"set all Premio bumper prices to 9500\". It lists every part it would change, with the old price beside the new one, before anything happens.",
       "A price change is written into the part's ledger with who changed it. The section code in a part's code can never be changed — a part filed in the wrong section is moved by adding it again in the right one.",
     ],
@@ -180,12 +181,23 @@ export const HELP_TOPICS = [
     go: { tab: "reports", label: "Open Reports" },
   },
   {
+    key: "orders",
+    test: /\b(customer orders?|online (?:list|order|orders|shop)|enq-|enquir(?:y|ies)|public (?:list|link|page)|share the (?:list|stock|link)|send (?:the |a )?link|website|web ?site|link to (?:customers?|send))\b/,
+    title: "Orders customers send in themselves",
+    lines: [
+      "There is a second page with no sign-in on it: the parts in stock, a basket, and a name and phone number. Customer Orders has the link to copy or send on WhatsApp.",
+      "An order arrives as ENQ-2026-0001 in Customer Orders and in Notifications. Nothing is paid and no stock moves — it is somebody asking. Call them, then write a quotation or a receipt from the order itself with one button.",
+      "The public page shows a price only where a part has one, and \"Ask for the price\" everywhere else. Photos added in Edit Parts appear there too.",
+    ],
+    go: { tab: "orders", label: "Open Customer Orders" },
+  },
+  {
     key: "receipt",
     test: /\b(receipt|receipts|invoice|rcp)\b/,
     title: "Receipts",
     lines: [
       "Receipt numbers are given out in order — RCP-2026-0001, then 0002 — so no two receipts share one and nothing is missing from the middle.",
-      "Sales already recorded today can be pulled straight in, so the parts are not typed a second time off a printed page. A saved quotation can be fetched in the same way.",
+      "Sales already recorded today can be pulled straight in, so the parts are not typed a second time off a printed page. A saved quotation, or an order a customer sent in on the online list, can be fetched in the same way.",
       "It prints on paper or saves as a PDF from the print dialog.",
     ],
     go: { tab: "receipt", label: "Open Receipt" },
@@ -197,6 +209,7 @@ export const HELP_TOPICS = [
     lines: [
       "A quotation is numbered QT-2026-0001 and saved, so it can be found again when the customer comes back a week later.",
       "When they agree to it, fetch it into a receipt with one button — nothing is retyped and the prices cannot drift between the two papers.",
+      "An order sent in on the online list becomes a quotation with one button, with the customer's parts, name and number already on it — you only put the prices in.",
       "Writing a quotation changes no stock. Nothing leaves the shelf until a sale is recorded.",
     ],
     go: { tab: "quote", label: "Open Quotation" },
@@ -395,8 +408,8 @@ export const HELP_MENU = {
     "Ask me about the shop, or about the app itself — type it the way you would say it.",
   ],
   rows: [
-    { a: "Doing", b: "how do i record a sale · how do i add a part · how do i give a receipt · how do i add stock that arrived", c: "" },
-    { a: "Knowing", b: "what is a part code made of · what does low stock mean · who can delete a part · how are receipt numbers given out", c: "" },
+    { a: "Doing", b: "how do i record a sale · how do i add a part · how do i give a receipt · how do i add stock that arrived · how do i fix a wrong count", c: "" },
+    { a: "Knowing", b: "what is a part code made of · what does low stock mean · who can delete a part · how are receipt numbers given out · the online list for customers", c: "" },
     { a: "Asking", b: "what sales were made today · do we have a premio front bumper · who owes us money · what is low on stock", c: "" },
   ],
 };

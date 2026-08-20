@@ -145,6 +145,49 @@ export function receiptedSaleIds(receipts = []) {
   return out;
 }
 
+/* ---------- from an order sent off the public list ---------- */
+
+/* A customer has picked parts off the public list themselves and sent their name
+   and number with them. That is a quotation already written by the customer, so
+   nobody should be typing it again — the same reason quoteToDraft exists.
+
+   It becomes a QUOTATION or a RECEIPT from the same draft, because which one it
+   is depends on the phone call: they want the price, or they are on their way
+   with the money.
+
+   How many, when the shelf has fewer than they asked for: what the shelf can
+   actually give. The quantity they wanted is kept beside it as `shortOf` so the
+   screen can say so — quoting for four of something there is one of is how a
+   customer is promised a part twice. */
+export function orderToDraft(order) {
+  if (!order) return null;
+  const rows = (order.lines || []).filter((l) => l && (l.code || l.name));
+  if (!rows.length) return null;
+  return {
+    customer: String(order.customer || "").trim(),
+    phone: String(order.phone || "").trim(),
+    lines: rows.map((l) => {
+      const name = String(l.name || "").trim();
+      const code = String(l.code || "").trim();
+      const desc = name && code ? `${name} (${code})` : name || code;
+      /* What can be handed over, falling back to what was asked for when the
+         part has since sold out — a line of zero on a document says nothing. */
+      const qty = Number(l.qty) > 0 ? l.qty : l.requested;
+      return line(desc, qty, l.price);
+    }),
+    discount: "",
+    /* Which order this came from, so the screen can name it and nobody has to
+       remember whether ENQ-2026-0007 was dealt with. */
+    fromOrder: { ref: order.ref || "", customer: String(order.customer || "").trim() },
+    /* The lines where the shelf could not cover what they asked for, named so
+       the person on the phone can say which. */
+    shortOf: rows
+      .filter((l) => Number(l.requested) > Number(l.qty))
+      .map((l) => ({ code: l.code, name: l.name, asked: Number(l.requested) || 0, have: Number(l.qty) || 0 })),
+    note: String(order.note || "").trim(),
+  };
+}
+
 /* ---------- what the screen can fill in without being asked ---------- */
 
 /* The one batch a blank Receipt screen should open already holding.
