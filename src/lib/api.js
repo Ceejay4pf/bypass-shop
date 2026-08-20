@@ -1445,7 +1445,11 @@ export function rowToCatalogueItem(r) {
        the price" rather than as free, and rather than being hidden — most of
        this shop's shelf is priced at the counter. */
     price: Number(r.price) || 0,
-    qty: Number(r.qty) || 0,
+    /* No quantity. The catalogue view stopped sending one: everything in it is
+       in stock — that is the view's own filter — and how MANY the shop holds is
+       nobody's business but the shop's. It is not read here because it does not
+       arrive here, which is the only version of "the customer can't see it"
+       that survives somebody opening the network tab. */
     photo: r.photo || "",
   };
 }

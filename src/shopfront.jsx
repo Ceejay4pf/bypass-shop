@@ -7,13 +7,27 @@
    number, and somebody rings them back.
 
    HOW IT IS LAID OUT, AND WHY
-   A shop window first — pictures of what is in stock — then the sections, and a
-   customer chooses one before seeing any parts. Six hundred parts in one scroll
-   is a warehouse, not a shop: nobody reads it, and the bumper they came for is
-   four hundred rows down. Choosing "Front Bumpers" and then reading twenty is
-   how somebody actually shops. Search is the exception and stays on every
-   screen, because a customer who knows what they want should never have to
-   guess which shelf the shop files it under.
+   A shop window first — pictures of what is in stock — then two ways in, and a
+   customer picks one before seeing any parts. Six hundred parts in one scroll is
+   a warehouse, not a shop: nobody reads it, and the bumper they came for is four
+   hundred rows down.
+
+   The two ways in are the car and the part, because those are the two ways
+   somebody arrives: "I have a Premio" or "I need a bumper". They narrow the same
+   list and they combine — Toyota, then Wish, then Taillights — and each one can
+   be crossed off on its own. Search is the exception and stays on every screen,
+   because a customer who knows what they want should never have to guess which
+   shelf the shop files it under.
+
+   WHAT IT NEVER SAYS: HOW MANY
+   Not one number on this page is a quantity. Every count is a count of different
+   parts — what there is to choose between. Everything listed is in stock, because
+   the view behind the page only carries what is; that is the whole of what a
+   customer is told, and it is what they need. What the shop holds of any one part
+   is the shop's business, and the link is handed to strangers. This is not done
+   by hiding a figure on the screen: the column is not in the public view, so the
+   number never reaches the browser and there is nothing to find in a network tab.
+   See supabase/customer_enquiries.sql and src/lib/cart.js.
 
    WHAT THIS PAGE IS NOT
    It is not a till. It takes no money and it moves no stock — an order here is a
@@ -45,7 +59,10 @@ import { DEFAULT_CATEGORIES, mergeCategories, condColor } from "./data.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { pickShowcase, sectionCards, catalogueCounts } from "./lib/storefront.js";
 import {
-  addToCart, setCartQty, removeFromCart, cartTotals, cartFull,
+  makeCards, modelChips, makeKey, makeLabel, inMake, inModel, browseTitle, OTHER_MODELS,
+} from "./lib/browse.js";
+import {
+  addToCart, setCartQty, removeFromCart, cartTotals, cartFull, MAX_PER_LINE,
   loadCart, saveCart, clearCart, matchesQuery, yearText, priceText,
 } from "./lib/cart.js";
 
@@ -138,8 +155,9 @@ function Showcase({ cards, onPick }) {
 }
 
 /* One section to choose from. Its own photograph if any part in it has one, its
-   own colour if not, and the two counts a customer actually wants: how many
-   different parts, and how many pieces are on the shelf. */
+   own colour if not, and the one count a customer is owed: how many different
+   parts there are to choose between. Not how many of each — see the note about
+   quantities at the top of this file. */
 function SectionCard({ card, onOpen }) {
   return (
     <button
@@ -157,22 +175,61 @@ function SectionCard({ card, onOpen }) {
       <div className="absolute inset-x-0 bottom-0 p-2.5 text-[#F3F5F8]">
         <div className="font-bold text-[13px] leading-tight">{card.label}</div>
         <div className="text-[10px] text-[#DEE3E9] mt-0.5">
-          {card.count} {card.count === 1 ? "part" : "parts"} · {card.pieces} on the shelf
+          {card.count} different {card.count === 1 ? "part" : "parts"}
         </div>
       </div>
     </button>
   );
 }
 
+/* ---- ONE CAR MAKE TO CHOOSE FROM ----
+   A customer does not come in wanting "a taillight". They come in wanting a
+   taillight for their Premio, and the make is the first half of that. Painted
+   panels rather than badges: the colours are this app's, not the car makers' —
+   see src/lib/browse.js. */
+function MakeCard({ card, active, onPick }) {
+  return (
+    <button
+      onClick={() => onPick(card.key)}
+      className={`rounded-lg px-2.5 py-2 text-left active:scale-[0.99] ${active ? "ring-2 ring-[#1B2430]" : ""}`}
+      style={{ backgroundColor: card.color }}
+    >
+      <div className="font-bold text-[13px] leading-tight text-[#F3F5F8]">{card.label}</div>
+      <div className="text-[10px] text-[#DEE3E9] mt-0.5">
+        {card.count} {card.count === 1 ? "part" : "parts"}
+        {card.models > 1 ? ` · ${card.models} models` : ""}
+      </div>
+    </button>
+  );
+}
+
+/* A filter that is in force, and the way off it. Three of these can be on at
+   once — Toyota, Wish, Taillights — and every one of them has to be removable on
+   its own, or the only way back is starting over. */
+function FilterChip({ label, onClear }) {
+  return (
+    <span className="inline-flex items-center gap-1 bg-[#1B2430] text-[#F3F5F8] rounded-full pl-3 pr-1.5 py-1 text-xs font-semibold">
+      {label}
+      <button onClick={onClear} className="p-0.5 text-[#DEE3E9]" aria-label={`Remove ${label}`}>
+        <X size={12} />
+      </button>
+    </span>
+  );
+}
+
 function Row({ item, section, inCart, onAdd, onStep, highlight = false }) {
   const years = yearText(item);
+  const car = [makeLabel(item.brand), item.model].filter(Boolean).join(" ").trim();
   return (
     <div className={`bg-[#FFFFFF] rounded-lg p-3 flex gap-3 border ${highlight ? "border-[#2563EB] ring-1 ring-[#2563EB]" : "border-[#DEE3E9]"}`}>
       <Thumb item={item} section={section} />
       <div className="min-w-0 flex-1">
         <div className="font-semibold text-sm text-[#1B2430] leading-snug">{item.name || item.code}</div>
         <div className="text-[11px] text-[#5A6472] mt-0.5 flex flex-wrap gap-x-2">
-          {section && <span>{section.label}</span>}
+          {/* The car first. It is what somebody is checking, and a part named
+              "Taillight Left" tells them nothing without it. */}
+          {car && <span className="font-semibold text-[#1B2430]">{car}</span>}
+          {section && <span>{car ? "· " : ""}{section.label}</span>}
           {years && <span>· {years}</span>}
           {item.side && <span>· {item.side}</span>}
           {item.color && <span>· {item.color}</span>}
@@ -186,9 +243,10 @@ function Row({ item, section, inCart, onAdd, onStep, highlight = false }) {
               {item.condition}
             </span>
           )}
-          <span className="text-[11px] text-[#15926A] font-semibold">
-            {item.qty} on the shelf
-          </span>
+          {/* That it is here means it is in stock — the public list only carries
+              what is. How many are on the shelf is not shown, and is not in the
+              data this page was given to show. */}
+          <span className="text-[11px] text-[#15926A] font-semibold">In stock</span>
         </div>
       </div>
       <div className="flex flex-col items-end justify-between shrink-0 gap-2">
@@ -205,7 +263,10 @@ function Row({ item, section, inCart, onAdd, onStep, highlight = false }) {
             <span className="text-sm font-bold text-[#1B2430] min-w-[1.2rem] text-center">{inCart.qty}</span>
             <button
               onClick={() => onStep(item.code, inCart.qty + 1)}
-              disabled={inCart.qty >= item.qty}
+              /* Stops at the most one line may ask for, not at what is on the
+                 shelf. A basket cannot know that any more, and the shop says so
+                 on the phone if somebody asks for more than it has. */
+              disabled={inCart.qty >= MAX_PER_LINE}
               className="px-2 py-1 text-[#2563EB] disabled:opacity-30"
               aria-label="One more"
             >
@@ -230,9 +291,15 @@ export default function Shopfront() {
   const [sections, setSections] = useState(DEFAULT_CATEGORIES);
   const [err, setErr] = useState("");
   const [query, setQuery] = useState("");
-  /* "" on the front page, a section key once one is chosen. A search overrides
-     both: somebody who has typed knows what they want. */
+  /* The three ways of narrowing the list, and they combine: a make, a model
+     within it, and a section. All "" on the front page. A search overrides all
+     three — somebody who has typed knows what they want. */
   const [cat, setCat] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  /* The makes are shown a handful at a time. Fourteen tiles is a wall, and the
+     ones after the first few hold one or two parts each. */
+  const [allMakes, setAllMakes] = useState(false);
   /* The part tapped in the shop window, shown first in its section so the thing
      they pointed at is the thing they get. */
   const [focus, setFocus] = useState("");
@@ -280,14 +347,28 @@ export default function Shopfront() {
 
   const sectionOf = (key) => sections.find((s) => s.key === key);
   const searching = Boolean(query.trim());
-  const view = searching ? "results" : cat ? "section" : "home";
+  const filtered = Boolean(cat || make || model);
+  const view = searching ? "results" : filtered ? "section" : "home";
 
   /* Room for the posters and then some real parts behind them. The strip
      scrolls, so a card nobody swipes to costs nothing but the picture — and the
      posters are the only pictures being downloaded. */
   const cards = useMemo(() => pickShowcase(items || [], sections, { max: 12 }), [items, sections]);
-  const grid = useMemo(() => sectionCards(items || [], sections), [items, sections]);
   const counts = useMemo(() => catalogueCounts(items || []), [items]);
+
+  /* The cars the shop has parts for, biggest first, and the models under
+     whichever one has been chosen. */
+  const makes = useMemo(() => makeCards(items || []), [items]);
+  const models = useMemo(() => (make ? modelChips(items || [], make) : []), [items, make]);
+
+  /* Everything for the chosen car — the whole shelf when no car is chosen. The
+     sections are then counted inside it, so "Doors · 4" under Toyota Premio means
+     four Premio doors and not four doors in the building. */
+  const carList = useMemo(
+    () => (items || []).filter((it) => inMake(it, make) && inModel(it, model)),
+    [items, make, model],
+  );
+  const grid = useMemo(() => sectionCards(carList, sections), [carList, sections]);
 
   /* What the screen in front of them lists. On a section, the tapped part first. */
   const listed = useMemo(() => {
@@ -295,17 +376,17 @@ export default function Shopfront() {
     if (searching) {
       return list.filter((it) => matchesQuery(it, query, sectionOf(it.cat)?.label || ""));
     }
-    if (!cat) return [];
-    const inSection = list.filter((it) => it.cat === cat);
-    if (!focus) return inSection;
-    return [...inSection].sort((a, b) => (b.code === focus ? 0 : 1) - (a.code === focus ? 0 : 1));
+    if (!filtered) return [];
+    const narrowed = cat ? carList.filter((it) => it.cat === cat) : carList;
+    if (!focus) return narrowed;
+    return [...narrowed].sort((a, b) => (b.code === focus ? 0 : 1) - (a.code === focus ? 0 : 1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, sections, cat, query, searching, focus]);
+  }, [items, carList, sections, cat, query, searching, filtered, focus]);
 
-  useEffect(() => { setShown(30); }, [query, cat]);
+  useEffect(() => { setShown(30); }, [query, cat, make, model]);
   /* Back to the top when the screen changes. Landing halfway down a new list is
      disorienting on a phone. */
-  useEffect(() => { window.scrollTo({ top: 0 }); }, [cat, searching]);
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [cat, make, model, searching]);
 
   const totals = cartTotals(cart);
   const lineFor = (code) => cart.find((l) => l.code === code) || null;
@@ -321,14 +402,27 @@ export default function Shopfront() {
   const step = (code, qty) => change(setCartQty(cart, code, qty));
   const drop = (code) => change(removeFromCart(cart, code));
 
+  /* Choosing narrows what is already chosen rather than replacing it: a customer
+     on Toyota who taps Doors wants Toyota doors. Only a search clears the lot,
+     because a search is a fresh question. */
   const openSection = (key) => { setQuery(""); setFocus(""); setCat(key); };
-  const backHome = () => { setQuery(""); setFocus(""); setCat(""); };
+  const openMake = (key) => {
+    setQuery(""); setFocus("");
+    /* Tapping the make you are already in backs out of it, which is what the
+       highlighted tile looks like it should do. */
+    if (makeKey(key) === makeKey(make)) { setMake(""); setModel(""); return; }
+    setMake(key); setModel("");
+  };
+  const openModel = (key) => { setQuery(""); setFocus(""); setModel(model === key ? "" : key); };
+  const backHome = () => {
+    setQuery(""); setFocus(""); setCat(""); setMake(""); setModel("");
+  };
 
   /* Tapping something in the shop window. A poster goes wherever it was pointed;
      a part opens its own section with itself at the top, so a customer sees what
      they tapped and everything like it underneath. */
   const pickCard = (c) => {
-    if (c.query) { setCat(""); setFocus(""); setQuery(c.query); return; }
+    if (c.query) { setCat(""); setMake(""); setModel(""); setFocus(""); setQuery(c.query); return; }
     if (c.code) { setQuery(""); setFocus(c.code); setCat(c.cat); return; }
     if (c.cat) openSection(c.cat);
   };
@@ -413,13 +507,36 @@ export default function Shopfront() {
             <Showcase cards={cards} onPick={pickCard} />
 
             <p className="text-xs text-[#5A6472] mb-4">
-              Everything here is on the shelf now — {counts.parts.toLocaleString()} different parts,
-              {" "}{counts.pieces.toLocaleString()} pieces. Choose a section, add what you need and send it.
-              We call you back on the number you give. Nothing is paid for here.
+              Everything on this page is in stock — {counts.parts.toLocaleString()} different parts
+              across {counts.sections} {counts.sections === 1 ? "section" : "sections"}. Start with your
+              car or with the part you need, add it and send it. We call you back on the number you
+              give. Nothing is paid for here.
             </p>
 
+            {/* ---- WHICH CAR ---- */}
+            {makes.length > 0 && (
+              <div className="mb-5">
+                <div className="font-bold text-sm uppercase tracking-wide text-[#5A6472] mb-2">
+                  Which car?
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {(allMakes ? makes : makes.slice(0, 8)).map((m) => (
+                    <MakeCard key={m.key} card={m} active={makeKey(make) === m.key} onPick={openMake} />
+                  ))}
+                </div>
+                {makes.length > 8 && (
+                  <button
+                    onClick={() => setAllMakes((v) => !v)}
+                    className="mt-2 text-xs font-bold uppercase tracking-wide text-[#2563EB]"
+                  >
+                    {allMakes ? "Fewer makes" : `All ${makes.length} makes`}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="font-bold text-sm uppercase tracking-wide text-[#5A6472] mb-2">
-              What are you looking for?
+              Or which part?
             </div>
             {grid.length === 0 ? (
               <div className="text-center py-8 px-6">
@@ -439,24 +556,70 @@ export default function Shopfront() {
           /* ================= A SECTION, OR A SEARCH ================= */
           <>
             <button onClick={backHome} className="flex items-center gap-1.5 text-[#2563EB] text-sm font-semibold mb-3">
-              <ArrowLeft size={15} /> All sections
+              <ArrowLeft size={15} /> Start again
             </button>
+
+            {/* ---- what is being asked for, and the way off each part of it ----
+                Three narrowings can be in force at once. Showing them as words
+                the customer can cross off is the difference between a list they
+                are steering and a list that has decided things for them. */}
+            {!searching && filtered && (
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {make && (
+                  <FilterChip
+                    label={makeLabel(make)}
+                    onClear={() => { setMake(""); setModel(""); }}
+                  />
+                )}
+                {model && <FilterChip label={browseTitle({ model })} onClear={() => setModel("")} />}
+                {cat && <FilterChip label={here?.label || cat} onClear={() => setCat("")} />}
+              </div>
+            )}
+
             <div className="flex items-baseline justify-between gap-2 mb-2">
               <div className="font-bold text-base">
-                {searching ? "Search results" : here?.label || cat}
+                {searching
+                  ? "Search results"
+                  : browseTitle({ make, model, sectionLabel: here?.label || cat }) || "Everything in stock"}
               </div>
               <div className="text-[11px] text-[#5A6472]">
                 {listed.length} {listed.length === 1 ? "part" : "parts"}
               </div>
             </div>
 
+            {/* ---- the models under this make ----
+                An X-Trail button covers the NT30s, the NT31s and the NT32s; a
+                chassis-code button is there because that is how a used Subaru
+                gets asked for. See src/lib/browse.js. */}
+            {!searching && make && models.length > 1 && (
+              <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-4 px-4 mb-2">
+                {models.map((m) => {
+                  const on = model === m.key;
+                  return (
+                    <button
+                      key={m.key}
+                      onClick={() => openModel(m.key)}
+                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border ${
+                        on
+                          ? "bg-[#2563EB] border-[#2563EB] text-[#F3F5F8]"
+                          : "bg-[#FFFFFF] border-[#DEE3E9] text-[#5A6472]"
+                      }`}
+                    >
+                      {m.label} · {m.count}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {listed.length === 0 ? (
               <div className="text-center py-10 px-6">
                 <PackageSearch size={30} className="mx-auto text-[#2563EB] mb-2" />
                 <div className="font-semibold">Nothing matches that</div>
                 <div className="text-xs text-[#5A6472] mt-1">
-                  Try the car's model on its own, or call us and describe the part —
-                  we have more coming in than is on this list.
+                  {filtered && !searching
+                    ? "That car and that section have nothing in common on the shelf just now. Cross one of them off above, or ask us — we have more coming in than is on this list."
+                    : "Try the car's model on its own, or call us and describe the part — we have more coming in than is on this list."}
                 </div>
                 <a href={waLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 mt-3 bg-[#15926A] text-[#F3F5F8] text-xs font-bold uppercase tracking-wide rounded-md px-3 py-2">
                   <MessageCircle size={13} /> Ask on WhatsApp
@@ -492,7 +655,9 @@ export default function Shopfront() {
                 section. */}
             {!searching && grid.length > 1 && (
               <div className="mt-6">
-                <div className="font-bold text-xs uppercase tracking-wide text-[#5A6472] mb-2">Other sections</div>
+                <div className="font-bold text-xs uppercase tracking-wide text-[#5A6472] mb-2">
+                  {cat ? "Other sections" : make ? "Narrow it down" : "Other sections"}
+                </div>
                 <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-4 px-4">
                   {grid.filter((c) => c.key !== cat).map((c) => (
                     <button
@@ -549,12 +714,14 @@ export default function Shopfront() {
                   It is on the shop's screen now, with your name and number. Somebody will call you
                   to confirm the parts{sent.total > 0 ? " and the price" : " and give you the price"}.
                 </p>
-                {Number(sent.short) > 0 && (
-                  <p className="text-xs text-[#B45309] mt-2">
-                    One or more parts had fewer on the shelf than you asked for — we will tell you
-                    exactly what we can do when we call.
-                  </p>
-                )}
+                {/* The shop's copy of this order records where it asked for more
+                    than there is, and whoever rings says so. It is not printed
+                    back to the customer here: "there were fewer than that" is a
+                    fact about the shop's shelf, and this page does not hand those
+                    out — see src/lib/cart.js. */}
+                <p className="text-xs text-[#5A6472] mt-2">
+                  How many of each we can supply is confirmed on that call.
+                </p>
                 <p className="text-xs text-[#5A6472] mt-3">
                   Keep {sent.ref} to hand — quoting it saves explaining the whole order again.
                 </p>
@@ -587,11 +754,10 @@ export default function Shopfront() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold leading-snug">{l.name}</div>
                         <div className="text-[11px] text-[#5A6472]">{priceText(l.price)}</div>
-                        {l.stock > 0 && l.qty > l.stock && (
-                          <div className="text-[11px] text-[#B45309]">
-                            Only {l.stock} on the shelf — we will confirm the rest.
-                          </div>
-                        )}
+                        {/* No "only 2 on the shelf" line. A basket is not told the
+                            shop's counts, so it cannot know — and the shop reads
+                            what was asked for and says on the phone what it can
+                            actually supply. */}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button onClick={() => step(l.code, l.qty - 1)} className="border border-[#DEE3E9] rounded p-1 text-[#5A6472]" aria-label="One fewer">

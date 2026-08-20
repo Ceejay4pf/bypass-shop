@@ -1,7 +1,7 @@
 /* Bypass Shop — minimal service worker.
    Caches the app shell so it opens fast and survives a flaky connection.
    Live inventory data still comes from Supabase over the network. */
-const CACHE = "bypass-shop-v28";
+const CACHE = "bypass-shop-v29";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (e) => {

@@ -59,10 +59,14 @@ export const HELP_TOPICS = [
   },
   {
     key: "bulk",
-    test: /\b(paste|whatsapp|list of parts|whole list|bulk|many at once|several parts|import)\b/,
+    /* "upload" only counts when the sentence isn't about a photo — uploading a
+       picture of a part is the photos topic further down, and this topic is read
+       first, so it has to say no to that itself. */
+    test: /\b(paste|whatsapp|list of parts|whole list|bulk|many (?:parts |items |of them )?at once|several parts|import|upload(?![^.?!]*\b(?:photo|picture|image|camera)\b)|excel|spread ?sheet|csv|document|word file|attachment)\b/,
     title: "Adding a whole list at once",
     lines: [
       "Add a List of Parts takes a list the way it was already written — a WhatsApp message, a notebook page, a supplier's text — and reads every line into a row.",
+      "Or upload the file somebody sent: Excel, Word, CSV, a text file or a PDF. It is read on this screen and the lines appear in the box for checking. A photograph of a written list can't be read — there is no text in a picture.",
       "Nothing is saved until you press Save. Every row can be corrected first, and a row it couldn't read says so instead of being dropped quietly.",
       "A part already on the list is offered as added stock rather than a second copy of the same part.",
     ],

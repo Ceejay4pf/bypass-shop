@@ -14,6 +14,11 @@ import {
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
+/* Turns an Excel sheet, a Word table, a CSV or a PDF into the same lines
+   somebody would have typed. It writes nothing — see the note at the top of
+   src/lib/readDoc.js — so an uploaded document still goes through the reader and
+   the check-before-saving screen exactly like a pasted one. */
+import { readDocument } from "./lib/readDoc.js";
 /* readInstruction reads a question first and an order second — see the note over
    CommandBox for why that order is a safety rule rather than a preference. */
 import { readInstruction, ASK_EXAMPLES } from "./lib/ask.js";
@@ -3102,6 +3107,36 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
   /* Which contradicted fields they have agreed to take from the list, per row.
      Nothing is taken by default — see planRow. */
   const [takeClash, setTakeClash] = useState({});
+  /* ---- uploading a document ----
+     `docNote` is what the reader made of the file, said in words: how many lines,
+     which columns it used, which it left alone, and anything it had to leave out.
+     It is shown rather than kept quiet, because a document read wrongly and read
+     rightly look identical once the text is in the box. */
+  const [reading, setReading] = useState(false);
+  const [docNote, setDocNote] = useState("");
+  const [docErr, setDocErr] = useState("");
+  const fileRef = React.useRef(null);
+
+  const takeFile = async (file) => {
+    if (!file || reading) return;
+    setReading(true);
+    setDocErr("");
+    setDocNote("");
+    try {
+      const out = await readDocument({ name: file.name, buffer: await file.arrayBuffer() });
+      /* Added to whatever is already in the box, never over it. Somebody may have
+         typed six lines by hand and then remembered the sheet, and losing those
+         six would be this screen's fault. */
+      setText((prev) => (prev.trim() ? `${prev.replace(/\s+$/, "")}\n${out.text}` : out.text));
+      setDocNote(`${file.name} — ${out.note}`);
+    } catch (e) {
+      setDocErr(e?.message || "That file could not be read.");
+    } finally {
+      setReading(false);
+      /* Cleared so choosing the same file again still counts as a change. */
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   const read = () => {
     // The shop's own sections are passed in, so "boot light - Toyota Premio"
@@ -3214,10 +3249,11 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
   if (rows === null) {
     return (
       <div className="bp-fade-up">
-        <SectionTitle eyebrow="Bulk entry" title="Paste a List of Parts" />
+        <SectionTitle eyebrow="Bulk entry" title="Add a List of Parts" />
 
         <div className="text-[#5A6472] text-xs mb-4 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 leading-relaxed">
-          Write or paste the parts the way you normally say them — one per line. The shop works
+          Write or paste the parts the way you normally say them — one per line, or{" "}
+          <span className="font-semibold text-[#1B2430]">upload the sheet somebody sent you</span>. The shop works
           out the <span className="font-semibold text-[#1B2430]">category, vehicle, year and side</span>{" "}
           by itself, and shows you everything for checking before it saves.
           <div className="mt-2 font-mono text-[11px] text-[#1B2430] bg-white border border-[#DEE3E9] rounded p-2 leading-relaxed">
@@ -3247,6 +3283,56 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
           </div>
         </div>
 
+        {/* ---------- UPLOAD A DOCUMENT ----------
+            The file is read here in the shop's own browser and turned into the
+            lines below. Nothing is sent anywhere and nothing is saved: the text
+            lands in the same box, goes through the same reader, and every line is
+            shown for checking before one part is written. */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); }}
+          onDrop={(e) => { e.preventDefault(); takeFile(e.dataTransfer?.files?.[0]); }}
+          className="mb-4 border border-dashed border-[#DEE3E9] rounded-md p-3 bg-[#FFFFFF]"
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            accept=".csv,.tsv,.txt,.md,.xlsx,.xlsm,.docx,.pdf,.json,.html,.htm,.xls,.doc"
+            onChange={(e) => takeFile(e.target.files?.[0])}
+          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={reading}
+              className="flex items-center gap-2 bg-[#1B2430] text-[#F3F5F8] text-xs font-bold uppercase tracking-wide rounded-md px-3 py-2 disabled:opacity-50"
+            >
+              {reading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {reading ? "Reading the file…" : "Upload a document"}
+            </button>
+            <span className="text-[11px] text-[#5A6472]">
+              Excel, Word, CSV, PDF or a text file — or drag it onto this box.
+            </span>
+          </div>
+          <div className="text-[11px] text-[#5A6472] mt-2 leading-relaxed">
+            The lines appear below for you to check. Nothing is saved until you say so, and what is
+            already typed is kept — an upload is added to it.
+            {" "}A photograph of a written list cannot be read: there is no text in a picture.
+          </div>
+
+          {docErr && (
+            <div className="mt-2 text-xs text-[#DC3B2E] bg-[#FBEAE8] border border-[#DC3B2E] rounded p-2 flex items-start gap-2">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>{docErr}</span>
+            </div>
+          )}
+          {docNote && (
+            <div className="mt-2 text-xs text-[#15926A] bg-[#E6F6EF] border border-[#15926A] rounded p-2 flex items-start gap-2">
+              <FileText size={13} className="mt-0.5 shrink-0" />
+              <span>{docNote}</span>
+            </div>
+          )}
+        </div>
+
         <Field label="Your list">
           <textarea
             value={text}
@@ -3254,6 +3340,17 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
             rows={10}
             placeholder={"Left-hand side headlight - Toyota Premio 2016\nRear bumper - Nissan Note 2014\n..."}
             className={inputCls + " font-mono text-sm"}
+            /* A file dragged onto the big box is read here as well. Left alone, the
+               browser would throw the whole page away and open the file instead,
+               losing anything already typed — and the big box is the one somebody
+               aims at. Dragged TEXT is left to the browser to paste as usual. */
+            onDragOver={(e) => { if (e.dataTransfer?.types?.includes("Files")) e.preventDefault(); }}
+            onDrop={(e) => {
+              const file = e.dataTransfer?.files?.[0];
+              if (!file) return;
+              e.preventDefault();
+              takeFile(file);
+            }}
           />
         </Field>
 

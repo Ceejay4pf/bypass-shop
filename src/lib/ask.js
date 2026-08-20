@@ -719,7 +719,14 @@ const DESTINATIONS = [
   { test: /\b(credit accounts?|debtors?|who owes)\b/, tab: "credit", label: "Credit Accounts" },
   { test: /\b(transfers?|another (?:shop|branch)|branch)\b/, tab: "transfers", label: "Branch Transfers" },
   { test: /\b(sell|sale of a|record a sale)\b/, tab: "sell", label: "Sell Item" },
-  { test: /\b(whole list|paste|bulk)\b/, tab: "bulk", label: "Add a Whole List" },
+  /* "upload", "excel", "csv" and the rest live here because the screen that takes a
+     pasted list is the same screen that reads a file — there is one way in, not two. */
+  {
+    test: /\b(whole list|list of parts|paste|bulk|upload|excel|spread ?sheet|csv|word file|attachment)\b/,
+    tab: "bulk",
+    label: "Add a List of Parts",
+    say: "A list can be pasted in, or the file somebody sent — Excel, Word, CSV, text or PDF — can be uploaded and read on that screen. Either way you check the rows before anything is saved.",
+  },
 ];
 
 function journeyAnswer(raw, low, { now }) {

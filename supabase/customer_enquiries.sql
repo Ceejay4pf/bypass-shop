@@ -22,16 +22,32 @@
 --
 -- WHAT THE PUBLIC CAN SEE
 -- The catalogue view, and only these columns of it. Cost price, supplier,
--- shelf location, internal notes, who filed the part and the reorder level are
--- all left behind on purpose — a competitor reading the public page must learn
--- nothing a customer wouldn't be told at the counter.
+-- shelf location, internal notes, who filed the part, the reorder level AND THE
+-- QUANTITY are all left behind on purpose — a competitor reading the public page
+-- must learn nothing a customer wouldn't be told at the counter. A customer at
+-- the counter is told "yes, we have that", not "we have four".
 -- ============================================================
 
 -- ---------- WHAT IS ON THE SHELF, FOR ANYBODY ----------
 -- One photo, not all of them. The images are stored inline, and a catalogue
 -- page that downloads every angle of every part would cost the customer their
 -- bundle before the first row appeared.
-create or replace view public.catalogue
+--
+-- AND NO QUANTITY. There is no qty column below, deliberately. Being in this
+-- view already means in stock — that is the where clause at the bottom — and how
+-- many of a thing the shop holds is nobody's business but the shop's. Hiding it
+-- on the page would have been theatre: this link is handed to strangers, and one
+-- look at a browser's network tab would have handed a competitor the shop's
+-- entire stock position. Not sending it is the only version of that promise that
+-- holds. The ordering function re-reads the real quantity from public.inventory
+-- server-side, so nothing about placing an order depends on this.
+--
+-- Dropped rather than replaced: Postgres will not let create-or-replace remove a
+-- column from an existing view, so the old three-column-longer version has to go
+-- first and the grant has to be made again after.
+drop view if exists public.catalogue;
+
+create view public.catalogue
 with (security_invoker = false) as   -- runs as the owner, so it can read past
                                      -- the inventory table's own RLS. That is
                                      -- the whole mechanism: the table stays
@@ -50,7 +66,6 @@ select
   i.color,
   i.name,
   i.price,
-  i.qty,
   (i.images->>0) as photo
 from public.inventory i
 where coalesce(i.status, 'Active') = 'Active'

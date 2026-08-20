@@ -15,11 +15,18 @@
    and the screen has to say so.
 
    Nothing here touches stock. A basket is a request for a phone call.
+
+   AND IT IS NOT TOLD WHAT IS ON THE SHELF
+   The public catalogue does not carry the shop's counts — not hidden on the
+   screen, not sent to the browser at all. What a shop holds of anything is its
+   own business, and a competitor with the link should learn no more than a
+   customer at the counter would. So a basket line records what the customer
+   was shown and what they asked for, and never how many there were.
 --------------------------------------------------------- */
 
 const KEY = "bypass.basket.v1";
 const MAX_LINES = 40;     // the database refuses more, so refuse it here too
-const MAX_PER_LINE = 99;
+export const MAX_PER_LINE = 99;
 
 const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -36,9 +43,6 @@ export function cartLine(item, qty = 1) {
     price: n(item.price),
     photo: item.photo || "",
     condition: item.condition || "",
-    /* What the shelf said at the time, so the basket can warn when somebody
-       asks for three of something there is one of. */
-    stock: n(item.qty),
     qty: clamp(Math.round(n(qty)) || 1, 1, MAX_PER_LINE),
   };
 }
@@ -71,10 +75,15 @@ export const cartFull = (cart) => (cart || []).length >= MAX_LINES;
 
 /* What the basket comes to, and what it honestly cannot say.
    `quoted` is the number of lines with no price on them — the screen must show
-   that number next to the total or the total is a lie by omission. */
+   that number next to the total or the total is a lie by omission.
+
+   Nothing here compares what was asked for against what is on the shelf. The
+   customer is not told the shop's counts — see the note at the top of this
+   file — so a basket cannot know it is asking for more than there is. The shop
+   sees that when the order lands, and says so on the phone. */
 export function cartTotals(cart) {
   const list = Array.isArray(cart) ? cart : [];
-  let pieces = 0, priced = 0, quoted = 0, total = 0, over = 0;
+  let pieces = 0, priced = 0, quoted = 0, total = 0;
   for (const l of list) {
     const qty = clamp(Math.round(n(l.qty)) || 1, 1, MAX_PER_LINE);
     pieces += qty;
@@ -84,9 +93,8 @@ export function cartTotals(cart) {
     } else {
       quoted += 1;
     }
-    if (n(l.stock) > 0 && qty > n(l.stock)) over += 1;
   }
-  return { lines: list.length, pieces, priced, quoted, total, over };
+  return { lines: list.length, pieces, priced, quoted, total };
 }
 
 /* ---- kept on the customer's own phone ---- */

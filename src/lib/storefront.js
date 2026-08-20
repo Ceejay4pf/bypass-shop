@@ -12,8 +12,8 @@
    they are answered differently:
 
    The window itself is answered with posters — one photograph per section, of
-   the kind of part that section holds, captioned with the section's name and
-   what is on the shelf. See PROMOS below.
+   the kind of part that section holds, captioned with the section's name and how
+   many different parts it holds. See PROMOS below.
 
    The individual part is not, and must not be. A part with a photo is shown as a
    photograph; a part without one is shown as a bold panel in its section's colour
@@ -30,17 +30,29 @@
    and kept under 60 kB each, because this page is opened on a phone on mobile
    data and a slow shop window is a closed shop window.
 
+   This shop sells parts off Japanese cars, so the posters are parts off Japanese
+   cars wherever a free-to-use photograph of one exists — a Nissan tail light, a
+   Toyota headlamp, a Toyota grille. Three do not exist and are close-ups with no
+   badge in them instead; CREDITS.md says which, and where they were looked for.
+
    They are pictures of similar parts, not of this shop's own stock, and they are
-   never captioned as anything but the section: "Taillights — 159 in stock" is
-   true, and no poster claims to be a photograph of the part a customer is buying.
-   A photograph added to a part in Edit Parts beats every one of these, and takes
-   priority over them wherever both could show.
+   never captioned as anything but the section: "Taillights — 159 different ones"
+   is true, and no poster claims to be a photograph of the part a customer is
+   buying. A photograph added to a part in Edit Parts beats every one of these,
+   and takes priority over them wherever both could show.
+
+   AND NO POSTER, OR ANY CARD HERE, CARRIES A QUANTITY
+   Every count in this file is a count of DIFFERENT PARTS — a variety, the number
+   of things there are to choose from. How many of any one of them sit on the
+   shelf is the shop's business, is not in the public catalogue at all, and could
+   not be counted here if somebody wanted to. Everything a customer can see is in
+   stock, because the view only carries what is; that is all they are told.
 
    To add one: drop the file in public/ads/ and add a line here.
 
      { image: "/ads/bumpers.jpg",
        headline: "Front bumpers in",      // optional: the section's name is used
-       sub: "Premio, Wish, Fielder",      // optional: "N in stock now" is used
+       sub: "Premio, Wish, Fielder",      // optional: "N different ones" is used
        cat: "FBM" }                       // tapping it opens that section
                                           // or: query: "premio bumper" to search
 
@@ -89,9 +101,10 @@ export function pickShowcase(items = [], sections = [], { max = 8, promos = PROM
 
   for (const p of promos || []) {
     if (!p || !p.image) continue;
-    /* What the section it points at actually has today. A poster is only allowed
-       to appear if there is something behind it, and its caption is that count
-       rather than a number somebody typed here months ago. */
+    /* How many different parts the section it points at actually has today. A
+       poster is only allowed to appear if there is something behind it, and its
+       caption is that count rather than a number somebody typed here months ago.
+       A count of parts, never of pieces — see the note above. */
     const held = p.cat ? (items || []).filter((it) => it && it.cat === p.cat).length : 0;
     if (p.cat && held === 0) continue;
     const sec = sectionOf(p.cat);
@@ -99,7 +112,7 @@ export function pickShowcase(items = [], sections = [], { max = 8, promos = PROM
       kind: "promo",
       image: p.image,
       headline: p.headline || sec?.label || "",
-      sub: p.sub || (held ? `${held} in stock now` : ""),
+      sub: p.sub || (held ? `${held} ${held === 1 ? "to choose from" : "different ones"}` : ""),
       color: p.color || sec?.color || "#1B2430",
       cat: p.cat || "",
       query: p.query || "",
@@ -138,9 +151,10 @@ export function pickShowcase(items = [], sections = [], { max = 8, promos = PROM
 
 /* The sections to choose from — the front page of the catalogue.
 
-   Only sections with something in them. A count of parts AND of pieces, because
-   "Doors · 12 parts" and "Doors · 12 parts, 30 on the shelf" are different
-   promises. `photo` is borrowed from the first part in the section that has one,
+   Only sections with something in them, and a count of the different parts in
+   each — twelve doors means twelve doors to choose between, all of them in stock.
+   Not how many of each: that is not in the data this page is given.
+   `photo` is borrowed from the first part in the section that has one,
    so a section illustrates itself when it can — and failing that, from the
    section's poster, so the front page is pictures rather than a grid of coloured
    boxes. A real part's photograph always wins: it is this shop's actual stock. */
@@ -149,10 +163,9 @@ export function sectionCards(items = [], sections = [], { promos = PROMOS } = {}
   const map = new Map();
   for (const it of items || []) {
     if (!it || !it.code) continue;
-    if (!map.has(it.cat)) map.set(it.cat, { key: it.cat, count: 0, pieces: 0, priced: 0, photo: "" });
+    if (!map.has(it.cat)) map.set(it.cat, { key: it.cat, count: 0, priced: 0, photo: "" });
     const g = map.get(it.cat);
     g.count += 1;
-    g.pieces += Math.max(n(it.qty), 0);
     if (n(it.price) > 0) g.priced += 1;
     if (!g.photo && hasPhoto(it)) g.photo = it.photo;
   }
@@ -172,15 +185,15 @@ export function sectionCards(items = [], sections = [], { promos = PROMOS } = {}
 }
 
 /* The one line of figures on the front page. Said plainly because it is the
-   thing a customer is deciding on: is it worth ringing these people. */
+   thing a customer is deciding on: is it worth ringing these people. How many
+   different parts, and how many sections they fall into — no pieces. */
 export function catalogueCounts(items = []) {
-  let parts = 0, pieces = 0, priced = 0, photos = 0;
+  let parts = 0, priced = 0, photos = 0;
   for (const it of items || []) {
     if (!it || !it.code) continue;
     parts += 1;
-    pieces += Math.max(n(it.qty), 0);
     if (n(it.price) > 0) priced += 1;
     if (hasPhoto(it)) photos += 1;
   }
-  return { parts, pieces, priced, photos, sections: new Set((items || []).map((i) => i?.cat).filter(Boolean)).size };
+  return { parts, priced, photos, sections: new Set((items || []).map((i) => i?.cat).filter(Boolean)).size };
 }
