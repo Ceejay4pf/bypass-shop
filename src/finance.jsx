@@ -82,11 +82,14 @@ function Card({ title, icon: Icon, children, right }) {
 }
 
 /* ======================= THE TAB ======================= */
-export function FinanceTab({ user, admin }) {
+export function FinanceTab({ user, admin, initialView = "statements" }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("statements");
+  /* "i want to record an expense" should land on the expenses view, not on the
+     statements it opens with — otherwise the person who said what they wanted
+     still has to find the tab. */
+  const [view, setView] = useState(initialView);
   // "" = every month since the shop started.
   const [month, setMonth] = useState("");
 

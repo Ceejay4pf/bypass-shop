@@ -10,11 +10,14 @@ import {
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
-  Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail,
+  Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail, ChevronDown,
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
-import { readCommand, EXAMPLES } from "./lib/command.js";
+/* readInstruction reads a question first and an order second — see the note over
+   CommandBox for why that order is a safety rule rather than a preference. */
+import { readInstruction, ASK_EXAMPLES } from "./lib/ask.js";
+import { loadChat, saveChat, clearChat, groupByDay, daySummary, newId } from "./lib/chatLog.js";
 import {
   quoteToDraft, salesToDraft, groupSalesForReceipt, receiptedSaleIds,
   autoFillBatch, sortBatchesForPicker, priceGaps, suggestPrice, findQuotes, receiptsByQuote,
@@ -115,7 +118,7 @@ const matchesQuery = (i, cat, q) => {
 };
 
 /* ======================= DASHBOARD ======================= */
-export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger, admin = false }) {
+export function DashboardTab({ items, notifications, categories, sales = [], salesReady = true, user, onNav, onOpenLedger, admin = false, canEdit = false, onChanged, onGo }) {
   const totalItems = items.length;
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
   const lowStock = items.filter(isLowStock);
@@ -438,6 +441,23 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
         </div>
       </div>
       )}
+
+      {/* On the home screen for everybody, not just admins. "What sold today",
+          "is there a premio front bumper" and "who owes us" are the questions
+          asked from behind the counter with a customer waiting — the answer has
+          to be one screen away, and reading the shelf changes nothing. The half
+          that changes stock still asks for the same rights it always did. */}
+      <CommandBox
+        items={items}
+        categories={categories}
+        sales={sales}
+        salesReady={salesReady}
+        user={user}
+        admin={admin}
+        canEdit={canEdit}
+        onChanged={onChanged}
+        onGo={onGo}
+      />
     </div>
   );
 }
@@ -690,11 +710,15 @@ function ItemActionSheet({ item, categories, onClose, actions }) {
   );
 }
 
-export function SearchTab({ items, categories, onDelete, onPick, canEdit = false }) {
+export function SearchTab({ items, categories, onDelete, onPick, canEdit = false, initialQuery = "" }) {
   // Step 1: pick a category (or "All"). Step 2: search within it.
   // null = nothing chosen yet (show the category picker first).
-  const [cat, setCat] = useState(null); // "__all__" | category key | null
-  const [query, setQuery] = useState("");
+  /* Arriving with words already typed — the assistant sending somebody here
+     because it wasn't sure what they meant — skips step one and searches
+     everything. Making them choose a category first would be asking them to
+     narrow a search they haven't seen the results of yet. */
+  const [cat, setCat] = useState(initialQuery ? "__all__" : null); // "__all__" | category key | null
+  const [query, setQuery] = useState(initialQuery);
   // The result being long-pressed, if any — drives the action sheet.
   const [held, setHeld] = useState(null);
   // The part being removed — the sheet asks where the stock went first.
@@ -2238,68 +2262,218 @@ export function MyPermissionsTab({ userId }) {
   );
 }
 
-/* ======================= THE INSTRUCTION BOX =======================
-   A box at the bottom of the adding screens where the shop types what it wants
-   done, in its own words, instead of somebody having to change the app:
+/* ======================= THE ASSISTANT =======================
+   A box where the shop talks to the app in its own words. Two halves, one
+   field, because the person typing does not think of them as two things:
 
-     add a category for wiper blades
-     put all quantities as one
-     set all bumper prices to 9000
+     TELLING it            adding a category, setting quantities or prices
+                           across many parts at once
 
-   src/lib/command.js reads the sentence and returns a DESCRIPTION of what would
-   happen — which parts, and what each one changes from and to. This screen shows
-   that description and nothing happens until the button is pressed. That split
-   is deliberate: an instruction that acted on its own first guess would one day
-   read "set all bumpers to 2" as the wrong bumpers and rewrite forty stock
-   counts with nobody having seen the list.
+     ASKING it             what sales were made today, whether a premio front
+                           bumper is on the shelf and everything known about it,
+                           who owes money, what is low on stock
 
-   It understands two jobs — sections, and quantities/prices in bulk — and says
-   so plainly when it doesn't understand, rather than guessing.
+     SENDING you           "generate a report for last month" opens Reports
+                           already set to last month; "write a receipt" opens the
+                           receipt screen. The box does not try to build the
+                           document itself — the screens that do it properly
+                           already exist, and half-building one somewhere else is
+                           how two versions of the same paper start to disagree.
+
+   src/lib/ask.js reads questions and journeys, src/lib/command.js reads orders,
+   and readInstruction() tries the question side FIRST. That order is a safety
+   rule, not a preference: "what is the price of a premio bumper" reads to the
+   order side as a price change, and the number it finds is the "a" in "a premio"
+   — so it would offer to reprice every Premio bumper to one shilling. Nobody
+   should be shown that button for having asked a question.
+
+   Nothing an order describes happens until it is confirmed. The description
+   lists every part and what each one changes from and to, because an
+   instruction acting on its own first guess would one day read "set all bumpers
+   to 2" as the wrong bumpers with nobody having seen the list.
+
+   Everything said either way is kept, cut into days — see src/lib/chatLog.js.
+   One long transcript is a wall of grey nobody scrolls, so only today is open
+   and an older day is a single line until it is tapped.
 */
-function CommandBox({ items, categories, user, admin = false, canEdit = false, onChanged }) {
+function AnswerBody({ m, onGo }) {
+  return (
+    <div className="text-xs text-[#1B2430] space-y-1">
+      {m.title && <div className="font-bold">{m.title}</div>}
+      {(m.lines || []).map((l, i) => (
+        <p key={i} className="text-[#5A6472] leading-relaxed">{l}</p>
+      ))}
+
+      {/* A single part, every field it has. A field nobody filled in is still
+          listed, as "not recorded" — a blank row is a job to do, and leaving the
+          row out is what makes it invisible. */}
+      {m.facts && (
+        <div className="mt-1.5 border-t border-[#DEE3E9] pt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+          {m.facts.map((f) => (
+            <React.Fragment key={f.k}>
+              <span className="text-[11px] text-[#5A6472]">{f.k}</span>
+              <span className="text-[11px] font-semibold break-words">{f.v}</span>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+      {m.rows?.length > 0 && (
+        <div className="mt-1.5 border-t border-[#DEE3E9] pt-1.5 max-h-60 overflow-y-auto">
+          {m.rows.map((r, i) => (
+            <div key={i} className="flex items-start justify-between gap-2 py-0.5">
+              <div className="min-w-0">
+                <div className="flex gap-1.5">
+                  {r.a && <span className="text-[11px] font-mono text-[#2563EB] shrink-0">{r.a}</span>}
+                  <span className={`text-[11px] font-semibold break-words ${r.tone === "warn" ? "text-[#B45309]" : ""}`}>{r.b}</span>
+                </div>
+                {r.note && <div className="text-[10px] text-[#5A6472] break-words">{r.note}</div>}
+              </div>
+              {r.c && <span className="text-[11px] font-bold shrink-0">{r.c}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {m.more && <p className="text-[11px] text-[#5A6472] italic">{m.more}</p>}
+      {m.footer && (
+        <p className="text-[10px] text-[#5A6472] leading-relaxed border-t border-[#DEE3E9] pt-1.5 mt-1.5">
+          {m.footer}
+        </p>
+      )}
+
+      {onGo && (m.go || m.goAlt) && (
+        <div className="flex flex-wrap gap-1.5 pt-1.5">
+          {[m.go, m.goAlt].filter(Boolean).map((g, i) => (
+            <button
+              key={g.tab + i}
+              onClick={() => onGo(g.tab, g.options || {})}
+              className={`text-[11px] font-bold uppercase tracking-wide rounded-md px-2.5 py-1.5 flex items-center gap-1 active:scale-[0.98] ${
+                i === 0
+                  ? "bg-[#2563EB] text-[#F3F5F8]"
+                  : "border border-[#DEE3E9] text-[#5A6472] bg-[#F3F5F8]"
+              }`}
+            >
+              {g.label} <ChevronRight size={13} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommandBox({ items, categories, sales = [], salesReady = true, user, admin = false, canEdit = false, onChanged, onGo }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState("");
   const [err, setErr] = useState("");
+  const [chat, setChat] = useState([]);
+  /* Day headings whose open/shut state has been flipped from the default. Held
+     as the flip rather than as "open" so the default can be "today only" without
+     the list needing rewriting when the date changes overnight. */
+  const [toggled, setToggled] = useState([]);
+  const scroller = React.useRef(null);
 
-  /* Re-read on every keystroke. It is pure text work on a list already in
-     memory — no database, no network — so there is nothing to debounce, and
-     seeing the answer form as you type is what teaches the wording. */
+  useEffect(() => { setChat(loadChat()); }, []);
+
+  /* Down to the newest message on arrival and on load. Not smooth — a slide is
+     for something you are meant to watch, and this is a thing you want to have
+     already happened by the time you look. */
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chat, toggled]);
+
+  /* One instant for the whole box, so a question about "today" and the day
+     headings in the transcript agree with each other. Keyed on the date so a
+     phone left open overnight stops calling yesterday "Today". */
+  const dayStamp = new Date().toDateString();
+  const now = useMemo(() => new Date(), [dayStamp]);
+
+  /* Re-read on every keystroke. It is text work over lists already in memory —
+     no database, no network — so there is nothing to debounce, and watching the
+     reading form as you type is what teaches the wording. */
   const intent = useMemo(
-    () => readCommand(text, { items, categories }),
-    [text, items, categories]
+    () => readInstruction(text, { items, categories, sales, salesReady, now }),
+    [text, items, categories, sales, salesReady, now]
   );
 
+  const isAnswer = intent.kind === "answer";
   const actionable = ["addSection", "renameSection", "setField"].includes(intent.kind);
   /* Adding or renaming a section is an admin job — it changes the shape of the
      whole shop's stock list, and its 3-letter code can never be changed after
      the first part is filed under it. Bulk quantity and price only need edit
-     rights, which is the same permission the Edit Parts screen asks for. */
-  const allowed =
-    intent.kind === "setField" ? canEdit : admin;
+     rights, which is the same permission the Edit Parts screen asks for.
+     Questions need neither: reading what is on the shelf changes nothing. */
+  const allowed = intent.kind === "setField" ? canEdit : admin;
   const blocked = actionable && !allowed;
+
+  const groups = useMemo(() => groupByDay(chat, now.getTime()), [chat, now]);
+  const isOpen = (g) => (toggled.includes(g.key) ? !g.isToday : g.isToday);
+  const flipDay = (key) =>
+    setToggled((t) => (t.includes(key) ? t.filter((k) => k !== key) : [...t, key]));
+
+  /* Stamped out here rather than inside the updater: React runs an updater twice
+     in development to check it is pure, and minting ids in there would hand out
+     two sets. The save is left inside because appending needs the previous list,
+     and writing the same list twice costs nothing. */
+  const push = (msgs) => {
+    const base = Date.now();
+    const stamped = msgs.map((m, i) => ({ id: newId(base + i), ts: base + i, ...m }));
+    setChat((prev) => saveChat([...prev, ...stamped]));
+  };
+
+  /* Ask it. The answer goes into the transcript rather than under the box,
+     because that is where it stays readable while the next thing is typed. */
+  const askIt = () => {
+    const t = text.trim();
+    /* Only a question it actually read is sent. Wording it didn't follow is
+       explained under the box instead and the words are left in the field to be
+       fixed — filing "I didn't follow that" into the day's transcript and
+       emptying the box would lose the sentence and record nothing worth
+       keeping. */
+    if (!t || !isAnswer) return;
+    push([
+      { role: "you", text: t },
+      {
+        role: "shop",
+        kind: "answer",
+        title: intent.title,
+        lines: intent.lines,
+        facts: intent.facts,
+        rows: intent.rows,
+        more: intent.more,
+        footer: intent.footer,
+        go: intent.go,
+        goAlt: intent.goAlt,
+      },
+    ]);
+    setText("");
+    setErr("");
+  };
 
   const run = async () => {
     setBusy(true);
     setErr("");
-    setDone("");
     /* Tracked in a local, not read back off state. `err` inside this function is
        the value from the render that created it — setErr above hasn't landed yet
        — so testing it would have cleared the box on a half-failed change and
        thrown away the wording that needs retrying. */
     let problem = "";
+    let told = "";
+    const typed = intent.raw || text.trim();
     try {
       if (intent.kind === "addSection") {
         await api.addPartCategory(
           { key: intent.key, label: intent.label, shelf: intent.shelf, color: intent.color },
           user
         );
-        setDone(`Section “${intent.label}” created, code ${intent.key}.`);
+        told = `Section “${intent.label}” created, code ${intent.key}.`;
       } else if (intent.kind === "renameSection") {
         await api.updatePartCategory(intent.key, { label: intent.to });
-        setDone(`Renamed to “${intent.to}”. Its code is still ${intent.key}.`);
+        told = `Renamed to “${intent.to}”. Its code is still ${intent.key}.`;
       } else if (intent.kind === "setField") {
-        const reason = `Instruction: ${intent.raw}`;
+        const reason = `Instruction: ${typed}`;
         /* One at a time, and the failures are counted rather than swallowed.
            A bulk change that half-worked and reported success is how a stock
            list stops matching the shelf. */
@@ -2340,7 +2514,7 @@ function CommandBox({ items, categories, user, admin = false, canEdit = false, o
               extra: {
                 name: `${changed.length} part${changed.length === 1 ? "" : "s"} — ${
                   intent.field === "qty" ? "quantity" : "price"
-                } set to ${intent.value} (“${intent.raw}”)`,
+                } set to ${intent.value} (“${typed}”)`,
                 /* On a stock batch `qty` means "this many pieces came in". An
                    adjustment adds nothing, so a number here would be read as
                    stock arriving that never did. The figure is in the summary
@@ -2358,14 +2532,21 @@ function CommandBox({ items, categories, user, admin = false, canEdit = false, o
           problem = `${ok} of ${intent.changes.length} changed. These didn't: ${failed.join(", ")}. Nothing else was touched — read the list again and retry.`;
           setErr(problem);
         } else {
-          setDone(
-            `${ok} part${ok === 1 ? "" : "s"} changed. ${
-              intent.field === "qty" ? "Each one is in the ledger as an adjustment." : ""
-            }`
-          );
+          told = `${ok} part${ok === 1 ? "" : "s"} changed. ${
+            intent.field === "qty" ? "Each one is in the ledger as an adjustment." : ""
+          }`;
         }
       }
       if (onChanged) await onChanged();
+      /* Written into the transcript either way. What was changed on Tuesday, and
+         what half-failed on Wednesday, is exactly what somebody comes back
+         looking for — and a toast that faded an hour ago cannot tell them. */
+      push([
+        { role: "you", text: typed },
+        problem
+          ? { role: "shop", kind: "note", title: "Partly done", lines: [problem] }
+          : { role: "shop", kind: "done", title: "Done", lines: [told] },
+      ]);
       // Keep what was typed when something failed, so it can be retried as-is.
       if (!problem) setText("");
     } catch (e) {
@@ -2379,33 +2560,104 @@ function CommandBox({ items, categories, user, admin = false, canEdit = false, o
     }
   };
 
+  const canSend = isAnswer;
+
   return (
     <div className="mt-6 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
       <div className="flex items-center gap-2 mb-1">
         <Wand2 size={16} className="text-[#2563EB]" />
         <span className="font-bold uppercase tracking-wide text-xs text-[#1B2430]">
-          Tell the system
+          Ask or tell the system
         </span>
+        {chat.length > 0 && (
+          <button
+            onClick={() => { setChat(clearChat()); setToggled([]); }}
+            className="ml-auto text-[10px] text-[#5A6472] flex items-center gap-1"
+          >
+            <Trash2 size={11} /> Clear chat
+          </button>
+        )}
       </div>
       <p className="text-xs text-[#5A6472] mb-2">
-        Type what you want done and it will show you exactly what would change before
-        anything happens. It can add or rename a section, and set quantities or prices
-        across many parts at once.
+        Ask what sold, what is on the shelf or who owes money — or tell it to add a section,
+        set quantities and prices across many parts, or open the screen that makes a report,
+        statement or receipt. Anything that changes stock shows you the full list first.
       </p>
+
+      {/* ---- the conversation, cut into days ----
+           Capped and scrolling, because a day of a busy shop asking things would
+           otherwise push the box itself off the bottom of the phone. It is scrolled
+           to the newest message whenever one arrives — an answer that lands out of
+           sight reads as nothing having happened. */}
+      {groups.length > 0 && (
+        <div ref={scroller} className="mb-3 space-y-2 max-h-[26rem] overflow-y-auto">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <button
+                onClick={() => flipDay(g.key)}
+                className="w-full flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-bold text-[#5A6472] border-b border-[#DEE3E9] pb-1"
+              >
+                {isOpen(g) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {g.label}
+                <span className="font-normal normal-case tracking-normal ml-auto">
+                  {daySummary(g)}
+                </span>
+              </button>
+              {isOpen(g) && (
+                <div className="space-y-2 pt-2">
+                  {g.items.map((m) =>
+                    m.role === "you" ? (
+                      <div key={m.id} className="flex justify-end">
+                        <div className="max-w-[88%] bg-[#2563EB] text-[#F3F5F8] rounded-md rounded-br-none px-2.5 py-1.5 text-xs break-words">
+                          {m.text}
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        key={m.id}
+                        className={`border rounded-md rounded-tl-none p-2.5 ${
+                          m.kind === "done"
+                            ? "border-[#1E9E6A]/40 bg-[#1E9E6A]/[0.06]"
+                            : "border-[#DEE3E9] bg-[#F3F5F8]"
+                        }`}
+                      >
+                        <AnswerBody m={m} onGo={onGo} />
+                        <div className="text-[9px] text-[#5A6472] mt-1">
+                          {new Date(m.ts).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <textarea
         value={text}
-        onChange={(e) => { setText(e.target.value); setDone(""); setErr(""); }}
+        onChange={(e) => { setText(e.target.value); setErr(""); }}
+        onKeyDown={(e) => {
+          /* Enter sends, Shift+Enter makes a new line. A question is one line
+             nine times out of ten, and reaching for a button after every one is
+             what stops people asking a second. */
+          if (e.key === "Enter" && !e.shiftKey && canSend) {
+            e.preventDefault();
+            askIt();
+          }
+        }}
         rows={2}
-        placeholder="e.g. put all quantities as one"
+        placeholder="e.g. what sales were made today"
         className={`${inputCls} resize-none`}
       />
 
       {/* Examples, tappable. A box with no examples gets typed into once,
-          misunderstood once, and never used again. */}
+          misunderstood once, and never used again — so they cover both halves,
+          or it teaches the shop it only does one of them. */}
       {!text.trim() && (
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {EXAMPLES.map((ex) => (
+          {ASK_EXAMPLES.map((ex) => (
             <button
               key={ex}
               onClick={() => setText(ex)}
@@ -2417,7 +2669,10 @@ function CommandBox({ items, categories, user, admin = false, canEdit = false, o
         </div>
       )}
 
-      {/* What it understood. Shown before there is anything to press. */}
+      {/* What an ORDER would do, shown before there is anything to press.
+          Answers are not previewed here — they go into the conversation above
+          when they are asked, so they stay readable while the next thing is
+          typed. */}
       {actionable && (
         <div className="mt-3 border border-[#2563EB]/30 bg-[#2563EB]/[0.04] rounded-md p-2.5">
           <ul className="text-xs text-[#1B2430] space-y-1">
@@ -2501,20 +2756,18 @@ function CommandBox({ items, categories, user, admin = false, canEdit = false, o
           <AlertTriangle size={13} className="mt-0.5 shrink-0" /> <span>{err}</span>
         </div>
       )}
-      {done && (
-        <div className="mt-2 text-xs text-[#1E9E6A] flex gap-1.5">
-          <CheckCircle2 size={13} className="mt-0.5 shrink-0" /> <span>{done}</span>
-        </div>
-      )}
 
-      {actionable && !blocked && (
+      {/* One button, because the person typing does not think of asking and
+          telling as two different tools. Its wording is the difference: "Ask"
+          reads nothing back, and "Change 12 parts" says exactly how many. */}
+      {(canSend || (actionable && !blocked)) && (
         <button
-          onClick={run}
+          onClick={actionable ? run : askIt}
           disabled={busy}
           className="mt-3 w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-2.5 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-60"
         >
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-          {busy ? "Working…" : intent.confirm}
+          {busy ? <Loader2 size={16} className="animate-spin" /> : actionable ? <Check size={16} /> : <Send size={16} />}
+          {busy ? "Working…" : actionable ? intent.confirm : "Ask"}
         </button>
       )}
     </div>
@@ -2522,7 +2775,7 @@ function CommandBox({ items, categories, user, admin = false, canEdit = false, o
 }
 
 /* ======================= ADD ITEM ======================= */
-export function AddItemTab({ items, categories, onAdd, user, admin = false, canEdit = false, onChanged }) {
+export function AddItemTab({ items, categories, sales = [], salesReady = true, onAdd, user, admin = false, canEdit = false, onChanged, onGo }) {
   const [cat, setCat] = useState(categories[0]?.key || "");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -2799,10 +3052,13 @@ export function AddItemTab({ items, categories, onAdd, user, admin = false, canE
       <CommandBox
         items={items}
         categories={categories}
+        sales={sales}
+        salesReady={salesReady}
         user={user}
         admin={admin}
         canEdit={canEdit}
         onChanged={onChanged}
+        onGo={onGo}
       />
     </div>
   );
@@ -2814,7 +3070,7 @@ export function AddItemTab({ items, categories, onAdd, user, admin = false, canE
    a row you can correct before anything is saved. Nothing is written
    to the inventory until the Save button is pressed.
 */
-export function BulkAddTab({ items, categories, onAddMany, onStockMany, user, admin = false, canEdit = false, onChanged }) {
+export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, onStockMany, user, admin = false, canEdit = false, onChanged, onGo }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = still on the paste step
   const [openId, setOpenId] = useState(null); // which row is expanded for editing
@@ -2995,10 +3251,13 @@ export function BulkAddTab({ items, categories, onAddMany, onStockMany, user, ad
         <CommandBox
           items={items}
           categories={categories}
+          sales={sales}
+          salesReady={salesReady}
           user={user}
           admin={admin}
           canEdit={canEdit}
           onChanged={onChanged}
+          onGo={onGo}
         />
       </div>
     );
@@ -4721,10 +4980,18 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
 /* ======================= REPORTS ======================= */
 export function ReportsTab({
   items, notifications, categories, admin = false, onChanged, onNav,
-  salesRegister = [], registerReady = false,
+  salesRegister = [], registerReady = false, initialTarget = null,
 }) {
-  const [range, setRange] = useState("today");
-  const [custom, setCustom] = useState({ from: "", to: "" });
+  /* The assistant can send somebody here already pointed at the window it just
+     answered about — "generate a report for last month" arrives as
+     {range:"lastMonth"}, "sales on 18 august" as a custom range, "who owes us"
+     as {pay:"pending"}. Read once, into the initial state, so the screen opens
+     showing the right figures instead of flashing today's and then changing. */
+  const [range, setRange] = useState(initialTarget?.range || "today");
+  const [custom, setCustom] = useState({
+    from: initialTarget?.from || "",
+    to: initialTarget?.to || "",
+  });
   // Drill-down: the individual sales behind the totals.
   const [showSales, setShowSales] = useState(false);
   const [showGone, setShowGone] = useState(false);
@@ -4734,8 +5001,8 @@ export function ReportsTab({
      still unpaid" were questions the screen couldn't answer, so people added the
      figures up on paper from the feed and got them wrong. Empty = everybody. */
   const [query, setQuery] = useState("");
-  const [people, setPeople] = useState([]);
-  const [payFilter, setPayFilter] = useState("all");
+  const [people, setPeople] = useState(initialTarget?.people || []);
+  const [payFilter, setPayFilter] = useState(initialTarget?.pay || "all");
 
   /* One instant for the whole screen, so the totals, the trend and the printed
      page are all measured against the same moment — recomputing per useMemo can

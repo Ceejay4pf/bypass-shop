@@ -488,7 +488,10 @@ const NOT_YET = [
   { test: /\b(sell|sold|sale)\b/, say: "Recording a sale needs the customer and the payment, so it's on the Sell Item screen — this box doesn't do sales." },
   { test: /\b(delete|remove|get rid of|throw away)\b/, say: "Removing stock asks where it went, which is on Inventory (tick the parts, then Remove). This box won't delete anything." },
   { test: /\badd\b.*\b(bumper|headlight|mirror|door|bonnet|light|part)\b/, say: "Adding a part needs its vehicle and year, so use Add New Item, or paste a whole list into Add a Whole List." },
-  { test: /\b(how many|what did|which parts|show me|report|total)\b/, say: "This box changes things rather than answering questions. The numbers are on Reports, Inventory and Low Stock." },
+  /* There used to be a line here refusing questions outright. Questions are now
+     answered — see ask.js, which is tried before this file — so anything that
+     reaches here is an order, and saying "this box doesn't answer questions"
+     would be untrue. */
 ];
 
 /* ---------- the one entry point ---------- */
@@ -516,7 +519,7 @@ export function readCommand(text, { items = [], categories = [] } = {}) {
 
   return {
     kind: "unknown",
-    why: "I didn't follow that. This box can add or rename a section, and set quantities or prices across many parts at once.",
+    why: "I didn't follow that. I can change things — add or rename a section, set quantities or prices across many parts — and I can answer questions about sales and stock, or open the screen that makes a report, statement or receipt.",
     raw,
   };
 }

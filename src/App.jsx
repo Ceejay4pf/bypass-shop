@@ -434,6 +434,48 @@ function BypassShop({ session }) {
     });
   }, []);
 
+  /* ---------- the assistant sending somebody somewhere ----------
+     "generate a report for last month" opens Reports already set to last month;
+     "who owes us money" opens Credit Accounts; a question about one part offers
+     its ledger or the Sell screen with the part already chosen.
+
+     The assistant does not build the document itself. Reports, Receipt,
+     Quotation and Financial Statements already do it properly, and a second
+     half-built version somewhere else is how two papers for the same sale start
+     to disagree. So the box answers the question and then opens the screen,
+     pointed at the same window the answer measured — an answer that says one
+     thing and a screen that shows another is worse than no button at all.
+
+     Held as one handoff rather than a state per screen, because only one screen
+     is open at a time and each of them reads its opening position once, on
+     mount. The counter is what makes a second handoff to the SAME screen take
+     effect: asking twice must move the screen twice. */
+  const [handoff, setHandoff] = useState(null); // { tab, options, seq }
+  const handoffFor = (id) => (handoff && handoff.tab === id ? handoff.options : null);
+  const assistantGo = (id, options = {}) => {
+    if (!id) return;
+    /* Somebody without the rights for a screen should be told, not shown a blank
+       one. The rules live in NAV, so this can never drift from the menu. */
+    const nav = NAV.find((n) => n.id === id);
+    if (nav && !navItems.some((n) => n.id === id)) {
+      showToast(`${nav.label} isn't open to your account — ask an admin.`, "warn");
+      return;
+    }
+    if (id === "ledger" && options.code) { setHandoff(null); openLedger(options.code); return; }
+    /* Screens that take a part use the same carrier as a long-press in Search,
+       so there is one way a part travels between screens rather than two. */
+    if (options.code && ["sell", "stock", "edit", "quote"].includes(id)) {
+      setPicked({ code: options.code, action: id, tab: id });
+    }
+    setHandoff({ tab: id, options, seq: (handoff?.seq || 0) + 1 });
+    go(id);
+  };
+  /* Forget it once the screen has been left, so reaching that screen from the
+     menu later opens it clean — the same rule as a long-pressed part. */
+  useEffect(() => {
+    if (handoff && tab !== handoff.tab) setHandoff(null);
+  }, [tab, handoff]);
+
   // Make the phone's hardware/gesture back button step back one screen.
   useEffect(() => {
     const onPop = () => goBack();
@@ -574,18 +616,42 @@ function BypassShop({ session }) {
           )}
 
           {tab === "dashboard" && (
-            <DashboardTab items={items} notifications={notifications} categories={CATEGORIES} user={user} onNav={go} onOpenLedger={openLedger} admin={admin} />
+            <DashboardTab
+              items={items}
+              notifications={notifications}
+              categories={CATEGORIES}
+              /* The register, not the feed, so "what did we sell this month"
+                 counts every sale rather than the last 200 things that
+                 happened. */
+              sales={salesRegister}
+              /* Whether the register answered at all. An empty list and a
+                 refused query look the same from inside the assistant, and
+                 "nothing sold today" said about a day that had ten sales is the
+                 worst thing it could say. */
+              salesReady={registerReady}
+              user={user}
+              onNav={go}
+              onOpenLedger={openLedger}
+              admin={admin}
+              canEdit={can("edit")}
+              onChanged={refreshAfterCommand}
+              onGo={assistantGo}
+            />
           )}
           {tab === "quick" && can("quick") && (
             <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
           )}
           {tab === "search" && (
             <SearchTab
+              /* Keyed so a second handoff with different words re-seeds the
+                 field instead of leaving the first search sitting there. */
+              key={`search-${handoff?.seq || 0}`}
               items={items}
               categories={CATEGORIES}
               onDelete={can("delete") ? handleDelete : undefined}
               onPick={handlePick}
               canEdit={can("edit")}
+              initialQuery={handoffFor("search")?.q || ""}
             />
           )}
           {tab === "inventory" && (
@@ -609,23 +675,29 @@ function BypassShop({ session }) {
             <AddItemTab
               items={items}
               categories={CATEGORIES}
+              sales={salesRegister}
+              salesReady={registerReady}
               onAdd={handleAddItem}
               user={user}
               admin={admin}
               canEdit={can("edit")}
               onChanged={refreshAfterCommand}
+              onGo={assistantGo}
             />
           )}
           {tab === "bulk" && can("additem") && (
             <BulkAddTab
               items={items}
               categories={CATEGORIES}
+              sales={salesRegister}
+              salesReady={registerReady}
               onAddMany={handleAddMany}
               onStockMany={handleStockMany}
               user={user}
               admin={admin}
               canEdit={can("edit")}
               onChanged={refreshAfterCommand}
+              onGo={assistantGo}
             />
           )}
           {tab === "edit" && can("edit") && (
@@ -691,6 +763,10 @@ function BypassShop({ session }) {
           {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
           {tab === "reports" && (
             <ReportsTab
+              /* Keyed on the handoff, so being sent here a second time for a
+                 different period actually moves the screen. Without it the
+                 answer would say July and the report would still show today. */
+              key={`reports-${handoff?.seq || 0}`}
               items={items}
               notifications={notifications}
               categories={CATEGORIES}
@@ -699,9 +775,17 @@ function BypassShop({ session }) {
               onNav={go}
               salesRegister={salesRegister}
               registerReady={registerReady}
+              initialTarget={handoffFor("reports")}
             />
           )}
-          {tab === "finance" && <FinanceTab user={user} admin={admin} />}
+          {tab === "finance" && (
+            <FinanceTab
+              key={`finance-${handoff?.seq || 0}`}
+              user={user}
+              admin={admin}
+              initialView={handoffFor("finance")?.view || "statements"}
+            />
+          )}
           {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
           {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
           {tab === "settings" && (
