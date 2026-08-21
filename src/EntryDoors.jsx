@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { ArrowRight, Boxes } from "lucide-react";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { getRolePersonName } from "./lib/roleAccounts.js";
+import SlideShow from "./PartsShow.jsx";
 import {
   alreadyEntered, markEntered, forgetEntry as clearEntryFlags, afterStage,
   showingDoors, doorsMoving, stillCovering, SHUT_MS, ROLL_MS,
@@ -10,10 +11,10 @@ import {
 /* ---------------------------------------------------------
    THE WAY IN — what happens between the password and the system.
 
-   Two shutter doors roll open, then a Next button, then the parts this shop
-   deals in, then the system. Three beats, in that order, because that is how
-   walking into the shop actually goes: the door comes up, you step through, you
-   see the shelves.
+   Two shutter doors roll open, then a Next button, then a slide show of the
+   parts this shop deals in, then the system. Three beats, in that order, because
+   that is how walking into the shop actually goes: the door comes up, you step
+   through, you see the shelves.
 
    IT IS SHOWN ON A LOGIN, NOT ON A RELOAD. The flag lives in sessionStorage
    under this browser tab, so somebody who refreshes mid-shift — or whose phone
@@ -25,18 +26,6 @@ import {
    rolling. By the time somebody taps through, the shelves are already there —
    the animation costs nothing but the animation.
 --------------------------------------------------------- */
-
-/* The same free-to-use photographs the customer's shop window uses — see
-   public/ads/CREDITS.md. Six pictures the shop already ships, so this screen
-   downloads nothing new on a phone that has opened the parts list before. */
-const PARTS = [
-  { image: "/ads/headlights.jpg", label: "Headlights", sub: "Left and right, halogen and LED" },
-  { image: "/ads/taillights.jpg", label: "Tail Lights", sub: "Saloon, hatch and wagon" },
-  { image: "/ads/grilles.jpg", label: "Grilles", sub: "Front grilles and mesh" },
-  { image: "/ads/doors.jpg", label: "Doors", sub: "Front and rear, bare or dressed" },
-  { image: "/ads/mirrors-plain.jpg", label: "Side Mirrors", sub: "Plain, no indicator" },
-  { image: "/ads/mirrors-indicator.jpg", label: "Side Mirrors", sub: "With the indicator lamp" },
-];
 
 /* Called on sign-out and on an admin's force-logout, so the doors belong to a
    login rather than to a phone. The rules are in src/lib/entry.js; this is only
@@ -159,38 +148,15 @@ export default function EntryDoors({ session }) {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {PARTS.map((p) => (
-                <div
-                  key={p.image + p.sub}
-                  className="relative h-32 sm:h-36 rounded-xl overflow-hidden ring-1 ring-white/10"
-                >
-                  <img
-                    src={p.image}
-                    alt={p.label}
-                    loading="lazy"
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                  <div
-                    className="absolute inset-0"
-                    style={{ background: "linear-gradient(to top, rgba(7,11,18,0.92) 0%, rgba(7,11,18,0.15) 60%, rgba(7,11,18,0) 100%)" }}
-                  />
-                  <div className="absolute inset-x-0 bottom-0 p-2.5">
-                    <div className="text-white font-bold text-[13px] leading-tight">{p.label}</div>
-                    <div className="text-[#BFDBFE] text-[10px] leading-tight mt-0.5">{p.sub}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* The show, not a wall of tiles. One part at a time, big enough to
+                actually see, and it says what car each one came off — a grille
+                is only useful when you know which front it fits.
 
-            {/* The pictures are of parts LIKE the shop's, not of its own stock.
-                Said here rather than left to be assumed, because a storekeeper
-                who thinks these are photographs of the shelf will go looking for
-                a red Toyota 86 that was never in the building. */}
-            <p className="text-[#6F8299] text-[11px] text-center mt-4 leading-relaxed">
-              Pictures of the kinds of parts we deal in. A part's own photograph
-              is the one added under Edit Parts.
-            </p>
+                SlideShow also carries the line about these being photographs of
+                parts LIKE the shop's rather than of its own stock: a storekeeper
+                who thinks otherwise will go looking for a red Mazda that was
+                never in the building. */}
+            <SlideShow />
 
             <button
               onClick={finish}

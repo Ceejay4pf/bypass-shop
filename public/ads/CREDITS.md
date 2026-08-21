@@ -29,17 +29,37 @@ Parts, it beats every one of these and it is the shop's own.
 - **mirrors-plain.jpg** (SMN) — “White moth on a wet car side mirror, reflecting a blurred outdoor scene with trees and a road.”, cc0 1.0, mujuonly · wordpress · https://wordpress.org/photos/photo/7756a60509/
 - **mirrors-indicator.jpg** (SMI) — “Close orange car wing mirror”, cc0 1.0, Markus Spiske · rawpixel · https://www.rawpixel.com/image/593189/orange-classic-car
 
-## The staff login board
+## The slide show — other makes
 
-- **login-hero.jpg** — the same Toyota 86 headlamp as `headlights.jpg`, cropped
-  to a 2:1 band and brightened, sharpened and given more colour for the login
-  screen (`src/LoginGate.jsx`). CC0, so a derivative is allowed and owes nobody
-  anything. Its own file rather than a filter over the poster, because the poster
-  on the customer's page must not change when somebody tunes this one.
+These five are not posters on the customer's page. They are the slide show that
+turns over behind the staff login board before anybody signs in and full size on
+the way in afterwards — the list is `SLIDES` in `src/lib/slides.js`, drawn by
+`src/PartsShow.jsx`.
 
-The six posters above are also the pictures shown on the way in after a login
-(`src/EntryDoors.jsx`), which is why that screen costs a phone nothing it has not
-already downloaded.
+Five makes, because the shop deals in more than Toyota and a login screen showing
+one headlamp says the wrong thing. Every one is a **CC0 1.0** photograph from
+Wikimedia Commons, cropped to 800×480 — the same 5:3 as the posters above — down
+onto the grille, headlamp and bumper, then brightened, given more colour and
+sharpened. CC0 allows a derivative and owes nobody anything; the crops are still
+credited because that is the decent thing to do.
+
+- **prado-front.jpg** — “Toyota LAND CRUISER PRADO TX "Argento Cross" 4WD (TRJ150W) front”, CC0 1.0, Tokumeigakarinoaoshima · https://commons.wikimedia.org/wiki/File:Toyota_LAND_CRUISER_PRADO_TX_%22Argento_Cross%22_4WD_(TRJ150W)_front.JPG
+- **lc300-front.jpg** — “2021 Toyota Land Cruieser 300 ZX”, CC0 1.0, TTTNIS · https://commons.wikimedia.org/wiki/File:2021_Toyota_Land_Cruieser_300_ZX.jpg
+- **subaru-impreza-front.jpg** — “Subaru IMPREZA SPORT 2.0i EyeSight (DBA-GP7) front”, CC0 1.0, Tokumeigakarinoaoshima · https://commons.wikimedia.org/wiki/File:Subaru_IMPREZA_SPORT_2.0i_EyeSight_(DBA-GP7)_front.JPG
+- **subaru-forester-front.jpg** — “Subaru FORESTER X-BREAK (DBA-SJ5) front”, CC0 1.0, Tokumeigakarinoaoshima · https://commons.wikimedia.org/wiki/File:Subaru_FORESTER_X-BREAK_(DBA-SJ5)_front.JPG
+- **mazda-cx5-front.jpg** — “Mazda CX-5 XD L Package (KE) front”, CC0 1.0, Tokumeigakarinoaoshima · https://commons.wikimedia.org/wiki/File:Mazda_CX-5_XD_L_Package_(KE)_front.JPG
+
+The six posters above are slides six to eleven of the same show, which is why the
+way-in screen costs a phone nothing it has not already downloaded for the parts
+list. `login-hero.jpg` — a crop of the Toyota 86 headlamp that used to be the one
+still picture on the login board — was deleted when the show replaced it; the
+same headlamp is still there as `headlights.jpg`.
+
+**A slide is only downloaded when the show reaches it.** Eleven photographs at
+roughly 90 kB each would be a megabyte on the login screen, so `isMounted` in
+`src/lib/slides.js` keeps the unreached ones out of the page. If a picture is
+added to `SLIDES`, put it after the five brand shots: whatever is at the top of
+that list is what a phone on mobile data actually pays for.
 
 The three replaced photographs — a Mercedes-Benz B200 tail light, a honeycomb
 grille mesh and a loose headlamp unit — are in this repository's history if

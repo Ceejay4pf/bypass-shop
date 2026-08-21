@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound, Smartphone } from "lucide-react";
+import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound, Smartphone, Camera } from "lucide-react";
 import { Field, inputCls } from "./ui.jsx";
 import {
   signIn, signUp, signInRole, sendEmailCode,
@@ -11,6 +11,8 @@ import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
+import { SlidePictures, useSlideshow } from "./PartsShow.jsx";
+import { SLIDES } from "./lib/slides.js";
 
 /* ---------------------------------------------------------
    REAL LOGIN — backed by Supabase Auth.
@@ -63,6 +65,10 @@ export default function LoginGate() {
   const [rolePass, setRolePass] = useState("");
   const [personName, setPersonName] = useState("");
   const [showHelp, setShowHelp] = useState(false);
+  /* The parts turning over behind the board. Nobody has signed in yet, so this
+     is the one thing on the screen that says what sort of shop this is. */
+  const show = useSlideshow(SLIDES.length);
+  const onShow = SLIDES[show.at] || SLIDES[0];
   /* Signing up is two screens, the way every other app does it:
 
        "form"  - name, email, password
@@ -462,19 +468,19 @@ export default function LoginGate() {
     <div className="min-h-screen bg-gradient-to-br from-[#DCEBFF] via-[#F2F7FF] to-[#D7F4FB] flex items-center justify-center p-4">
       <div className="w-full max-w-sm bp-pop">
         {/* ---------- THE BOARD ----------
-            A photograph of a real part under a blue-to-cyan wash, rather than
-            the flat blue panel that was here before: this is a spare-parts shop
-            and the first screen should say so at a glance. The picture is one of
-            the shop window's own — see public/ads/CREDITS.md — brightened and
-            sharpened for this use and saved as its own file, so the poster on
-            the customer's page is untouched. */}
+            Photographs of real parts under a blue-to-cyan wash, rather than the
+            flat blue panel that was here before: this is a spare-parts shop and
+            the first screen should say so at a glance. They turn over — Prado,
+            LC300, Subaru, Mazda and the rest, see src/lib/slides.js — so the
+            board shows the range rather than one lamp, and the strip at its foot
+            says which part is on screen. The pictures are free to use; every one
+            is credited in public/ads/CREDITS.md.
+
+            THE SHOW ONLY DOWNLOADS WHAT IT REACHES — a slide is put in the page
+            when its turn comes, so a phone on mobile data staring at this screen
+            pays for one photograph every four seconds, not for eleven at once. */}
         <div className="relative overflow-hidden rounded-3xl mb-5 shadow-2xl ring-1 ring-white/50">
-          <img
-            src="/ads/login-hero.jpg"
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
+          <SlidePictures slides={SLIDES} at={show.at} reached={show.reached} decorative />
           {/* The wash. Heavy at the top left so the shop name stays readable
               whatever the picture is doing underneath, thinning to cyan at the
               bottom right so the part itself still shows through. */}
@@ -490,7 +496,7 @@ export default function LoginGate() {
               looking like a sticker. */}
           <div className="bp-sheen absolute top-0 bottom-0 left-0 w-1/4 bg-white/30 blur-lg pointer-events-none" />
 
-          <div className="relative px-6 pt-6 pb-7 text-center">
+          <div className="relative px-6 pt-6 pb-4 text-center">
             <div className="text-[#BFDBFE] text-[11px] font-bold tracking-[0.25em] uppercase">
               Jaspare Auto · Main Shop
             </div>
@@ -512,6 +518,24 @@ export default function LoginGate() {
               <ShieldCheck size={13} className="text-[#A5F3FC]" />
               <span className="text-[11px] font-semibold text-white">
                 Every action is saved under your name
+              </span>
+            </div>
+          </div>
+
+          {/* What is on the picture at this moment. Without it the show is just
+              wallpaper; with it the board is quietly telling somebody standing at
+              the counter that this shop has Prado grilles. Keyed on the slide so
+              the words arrive with their own picture rather than swapping under
+              the one before. */}
+          <div className="relative px-4 pb-4">
+            <div
+              key={onShow?.image}
+              className="bp-fade-up flex items-center justify-center gap-2 rounded-xl bg-black/30 ring-1 ring-white/20 backdrop-blur px-3 py-2"
+            >
+              <Camera size={12} className="text-[#A5F3FC] shrink-0" />
+              <span className="text-[11px] font-semibold text-white truncate">
+                {onShow?.car ? <span className="text-[#A5F3FC]">{onShow.car} · </span> : null}
+                {onShow?.part}
               </span>
             </div>
           </div>

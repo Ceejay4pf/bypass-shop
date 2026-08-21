@@ -84,6 +84,17 @@ body {
   .bp-sheen { animation: none; opacity: 0; }
 }
 
+/* One slide of the parts show. The slides are stacked in one box and only their
+   opacity is touched, so the box never changes size and nothing below it moves
+   as the pictures turn. A slow fade rather than a slide sideways: the point is
+   the part, not the transition. */
+.bp-slide { transition: opacity 900ms ease-in-out; }
+/* Somebody who has asked for less movement still gets every picture — they are
+   the content — but they arrive without the fade. */
+@media (prefers-reduced-motion: reduce) {
+  .bp-slide { transition: none; }
+}
+
 /* =========================================================
    DARK MODE
    ---------------------------------------------------------
