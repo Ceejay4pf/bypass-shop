@@ -5,6 +5,7 @@ import {
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
   Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon, Scale, ClipboardList,
+  Columns2, X,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
 import LoginGate from "./LoginGate.jsx";
@@ -21,6 +22,9 @@ import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js"
 import * as api from "./lib/api.js";
 import { generateCode, isLowStock } from "./data.js";
 import { orderToDraft } from "./lib/receiptDraft.js";
+import {
+  readSplit, writeSplit, readRightTab, writeRightTab, rightScreen, canSplit,
+} from "./lib/split.js";
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab, BulkAddTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
@@ -61,7 +65,11 @@ const NAV = [
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
-export default function App() {
+/* `onLeave` forgets which of the two front doors this device chose, so a phone
+   that answered "I work at the shop" by mistake is not stuck on a sign-in screen
+   forever. Handed down to the sign-in screen, which is where somebody who is not
+   staff will be sitting when they realise. See src/main.jsx. */
+export default function App({ onLeave }) {
   const session = useAuth();
 
   // undefined = auth state still loading; null = signed out.
@@ -72,7 +80,7 @@ export default function App() {
       </div>
     );
   }
-  if (!session) return <LoginGate />;
+  if (!session) return <LoginGate onLeave={onLeave} />;
   /* The doors go OVER the app, not instead of it, so the inventory is being
      fetched while they roll — the animation costs the shop no waiting. */
   return (
@@ -80,6 +88,53 @@ export default function App() {
       <BypassShop session={session} />
       <EntryDoors session={session} />
     </>
+  );
+}
+
+const labelFor = (id) => NAV.find((n) => n.id === id)?.label || "Screen";
+
+/* One half of a split screen.
+
+   The heading is not decoration. Two lists side by side with nothing naming them
+   is how somebody adds stock to the part they were only comparing against — so
+   each pane says what it is, and the second one says it with the picker that
+   changes it, which is also the only way to change it. */
+function Pane({ side, title, value, choices, onPick, onClose, children }) {
+  return (
+    <section className="min-w-0 rounded-lg border border-[#DEE3E9] bg-[#FFFFFF]">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[#DEE3E9] bg-[#EEF2F6] rounded-t-lg">
+        <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#5A6472] shrink-0">
+          {side}
+        </span>
+        {choices ? (
+          <select
+            value={value}
+            onChange={(e) => onPick(e.target.value)}
+            aria-label="Which screen to show beside this one"
+            className="min-w-0 flex-1 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md px-2 py-1 text-sm font-semibold text-[#1B2430]"
+          >
+            {choices.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="min-w-0 flex-1 text-sm font-bold uppercase tracking-wide truncate">
+            {title}
+          </span>
+        )}
+        {onClose && (
+          <button
+            onClick={onClose}
+            title="Close the second screen"
+            aria-label="Close the second screen"
+            className="shrink-0 p-1 rounded-md text-[#5A6472] hover:bg-[#FFFFFF] hover:text-[#DC3B2E]"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+      <div className="p-3">{children}</div>
+    </section>
   );
 }
 
@@ -186,6 +241,26 @@ function BypassShop({ session }) {
     if (n.cap) return can(n.cap);
     return true;
   });
+
+  /* ---- two screens at once ----
+     So a list can be read against another list — what to reorder beside what is
+     on the shelf, a printed stock list beside the parts it came from — instead of
+     tapping back and forth holding a part number in your head.
+
+     Offered from a wide screen only, and the panes stack on anything narrower.
+     Which screen sits on the right is remembered per device; the rules for
+     choosing it, including never showing the same screen twice, are in
+     src/lib/split.js where they can be tested. */
+  const splitOffered = canSplit(navItems);
+  const [splitOn, setSplitOn] = useState(() => readSplit(localStorage));
+  const [rightWant, setRightWant] = useState(() => readRightTab(localStorage));
+  const rightTab = rightScreen({ want: rightWant, left: tab, allowed: navItems });
+  const split = splitOn && splitOffered && Boolean(rightTab);
+  const toggleSplit = () => {
+    setSplitOn((on) => { writeSplit(localStorage, !on); return !on; });
+    setNavOpen(false);
+  };
+  const pickRight = (id) => { writeRightTab(localStorage, id); setRightWant(id); };
 
   // Re-lock when the app goes to the background, so returning asks for biometric again.
   useEffect(() => {
@@ -538,6 +613,215 @@ function BypassShop({ session }) {
     return <PendingGate user={user} onSignOut={handleLogout} />;
   }
 
+  /* ---------- one screen, drawn for whichever pane asked ----------
+     Every screen in the system is in here. It was written inline in <main> when
+     only one could be open at a time; it takes an id now so the split view can
+     ask for two of them. Nothing about a screen changed — only who is asking.
+
+     The screens share the state that carries a part between them (`picked`,
+     `handoff`), because there is one person tapping. Two panes on the same screen
+     would therefore fight over it, which is why src/lib/split.js refuses to put
+     the same screen in both. */
+  const screenFor = (id) => (
+    <>
+      {id === "dashboard" && (
+        <DashboardTab
+          items={items}
+          notifications={notifications}
+          categories={CATEGORIES}
+          user={user}
+          onNav={go}
+          onOpenLedger={openLedger}
+          admin={admin}
+        />
+      )}
+      {id === "quick" && can("quick") && (
+        <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
+      )}
+      {id === "search" && (
+        <SearchTab
+          /* Keyed so a second handoff with different words re-seeds the
+             field instead of leaving the first search sitting there. */
+          key={`search-${handoff?.seq || 0}`}
+          items={items}
+          categories={CATEGORIES}
+          onDelete={can("delete") ? handleDelete : undefined}
+          onPick={handlePick}
+          canEdit={can("edit")}
+          initialQuery={handoffFor("search")?.q || ""}
+        />
+      )}
+      {id === "inventory" && (
+        <InventoryTab
+          items={items}
+          categories={CATEGORIES}
+          onDelete={can("delete") ? handleDelete : undefined}
+          onOpenLedger={openLedger}
+          canEdit={can("edit")}
+          onBulkDelete={can("delete") ? handleBulkDelete : undefined}
+          onBulkAddStock={handleBulkAddStock}
+        />
+      )}
+      {id === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
+      {id === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={can("delete") ? handleDelete : undefined} />}
+      {/* The instruction box lives at the bottom of both adding screens, so
+          it needs who is asking (for the ledger entry), whether they may
+          change a section or many parts, and a way to pull the stock list
+          and the section list back down once it has. */}
+      {id === "add" && can("additem") && (
+        <AddItemTab
+          items={items}
+          categories={CATEGORIES}
+          sales={salesRegister}
+          salesReady={registerReady}
+          onAdd={handleAddItem}
+          user={user}
+          admin={admin}
+          canEdit={can("edit")}
+          onChanged={refreshAfterCommand}
+          onGo={assistantGo}
+        />
+      )}
+      {id === "bulk" && can("additem") && (
+        <BulkAddTab
+          items={items}
+          categories={CATEGORIES}
+          sales={salesRegister}
+          salesReady={registerReady}
+          onAddMany={handleAddMany}
+          onStockMany={handleStockMany}
+          user={user}
+          admin={admin}
+          canEdit={can("edit")}
+          onChanged={refreshAfterCommand}
+          onGo={assistantGo}
+        />
+      )}
+      {id === "edit" && can("edit") && (
+        <EditPartsTab
+          key={pickFor("edit") || pickFor("info") || "edit"}
+          items={items}
+          categories={CATEGORIES}
+          onSave={handleEditItem}
+          onAdjust={handleAdjust}
+          initialCode={pickFor("edit") || pickFor("info")}
+          focusInfo={Boolean(pickFor("info"))}
+        />
+      )}
+      {id === "stock" && (
+        <AddStockTab
+          key={pickFor("stock") || "stock"}
+          items={items}
+          categories={CATEGORIES}
+          onAddStock={handleAddStock}
+          initialCode={pickFor("stock")}
+        />
+      )}
+      {id === "sell" && (
+        <SellTab
+          key={pickFor("sell") || "sell"}
+          items={items}
+          categories={CATEGORIES}
+          onSell={handleSell}
+          /* So a wrong count can be corrected without leaving the sale. It
+             is the same action as Add New Stock, which everybody may use —
+             just reached from where the wrong count actually shows up. */
+          onAddStock={handleAddStock}
+          initialCode={pickFor("sell")}
+        />
+      )}
+      {id === "orders" && (
+        <CustomerOrdersTab user={user} onQuote={quoteFromOrder} onReceipt={receiptFromOrder} />
+      )}
+      {id === "quote" && (
+        /* Keyed on the arrival count as well as the picked part, for the same
+           reason the receipt screen is: a quote arriving from an order must
+           replace what is half-typed here rather than merge into it. */
+        <QuotationTab
+          key={`quote-${quoteSeq}-${pickFor("quote") || ""}`}
+          items={items}
+          user={user}
+          initialCode={pickFor("quote")}
+          draft={quoteDraft}
+          onMakeReceipt={openReceiptFrom}
+        />
+      )}
+      {id === "receipt" && (
+        /* Keyed on the arrival count, so coming from a quote replaces whatever
+           was half-typed on this screen instead of merging into it — a receipt
+           that is half one customer and half another is worse than a blank
+           one. The key does not change when the draft is cleared. */
+        <ReceiptTab
+          key={`receipt-${receiptSeq}`}
+          items={items}
+          user={user}
+          draft={receiptDraft}
+          onDraftUsed={() => setReceiptDraft(null)}
+        />
+      )}
+      {id === "credit" && <CreditAccountsTab user={user} admin={admin} />}
+      {id === "transfers" && <TransfersTab items={items} user={user} />}
+      {id === "feed" && (
+        <StaffFeedTab
+          userId={session.user.id}
+          user={user}
+          admin={admin}
+          /* The assistant pane's half. The register, not the activity feed,
+             so "what did we sell this month" counts every sale rather than
+             the last 200 things that happened — and registerReady so an
+             unreadable register is said out loud instead of read as zero. */
+          items={items}
+          categories={CATEGORIES}
+          sales={salesRegister}
+          salesReady={registerReady}
+          canEdit={can("edit")}
+          onChanged={refreshAfterCommand}
+          onGo={assistantGo}
+        />
+      )}
+      {id === "notify" && admin && (
+        <NotifyTab notifications={notifications} admin={admin} onChanged={refreshAfterUndo} />
+      )}
+      {id === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
+      {id === "reports" && (
+        <ReportsTab
+          /* Keyed on the handoff, so being sent here a second time for a
+             different period actually moves the screen. Without it the
+             answer would say July and the report would still show today. */
+          key={`reports-${handoff?.seq || 0}`}
+          items={items}
+          notifications={notifications}
+          categories={CATEGORIES}
+          admin={admin}
+          onChanged={refreshAfterUndo}
+          onNav={go}
+          salesRegister={salesRegister}
+          registerReady={registerReady}
+          initialTarget={handoffFor("reports")}
+        />
+      )}
+      {id === "finance" && (
+        <FinanceTab
+          key={`finance-${handoff?.seq || 0}`}
+          user={user}
+          admin={admin}
+          initialView={handoffFor("finance")?.view || "statements"}
+        />
+      )}
+      {id === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
+      {id === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
+      {id === "settings" && (
+        <SettingsTab
+          categories={CATEGORIES}
+          user={user}
+          email={session.user.email}
+          admin={admin}
+          onCategoriesChanged={reloadCategories}
+        />
+      )}
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-[#F3F5F8] text-[#1B2430] lg:flex">
       {/* ---------- Sidebar ---------- */}
@@ -618,6 +902,22 @@ function BypassShop({ session }) {
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3 sm:gap-4 shrink-0">
+            {/* Two lists at once. Offered on a wide screen only — the panes do
+                stack on a narrow one, but nobody wants that on a phone, so the
+                button is not put where a thumb will find it by accident. */}
+            {splitOffered && (
+              <button
+                onClick={toggleSplit}
+                aria-pressed={split}
+                className={`hidden lg:block p-2 rounded-md transition-colors ${
+                  split ? "bg-[#2563EB] text-[#F3F5F8]" : "text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#2563EB]"
+                }`}
+                title={split ? "Back to one screen at a time" : "Open a second screen beside this one"}
+                aria-label={split ? "Close the second screen" : "Open a second screen"}
+              >
+                <Columns2 size={18} />
+              </button>
+            )}
             {/* One tap between the bright and dark screen. Settings has the
                 third option (follow the phone's own setting). */}
             <button
@@ -648,7 +948,10 @@ function BypassShop({ session }) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 max-w-3xl w-full mx-auto">
+        {/* One screen keeps its comfortable reading width; two are given the
+            whole window, because half of 3xl is a column too narrow for a table
+            of parts. */}
+        <main className={`flex-1 p-4 w-full mx-auto ${split ? "max-w-[1700px]" : "max-w-3xl"}`}>
           {error && (
             <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-4 flex items-center gap-2">
               <AlertTriangle size={15} /> {error}
@@ -660,200 +963,28 @@ function BypassShop({ session }) {
             </div>
           )}
 
-          {tab === "dashboard" && (
-            <DashboardTab
-              items={items}
-              notifications={notifications}
-              categories={CATEGORIES}
-              user={user}
-              onNav={go}
-              onOpenLedger={openLedger}
-              admin={admin}
-            />
-          )}
-          {tab === "quick" && can("quick") && (
-            <QuickTab items={items} categories={CATEGORIES} onQuick={handleQuick} onOpenLedger={openLedger} />
-          )}
-          {tab === "search" && (
-            <SearchTab
-              /* Keyed so a second handoff with different words re-seeds the
-                 field instead of leaving the first search sitting there. */
-              key={`search-${handoff?.seq || 0}`}
-              items={items}
-              categories={CATEGORIES}
-              onDelete={can("delete") ? handleDelete : undefined}
-              onPick={handlePick}
-              canEdit={can("edit")}
-              initialQuery={handoffFor("search")?.q || ""}
-            />
-          )}
-          {tab === "inventory" && (
-            <InventoryTab
-              items={items}
-              categories={CATEGORIES}
-              onDelete={can("delete") ? handleDelete : undefined}
-              onOpenLedger={openLedger}
-              canEdit={can("edit")}
-              onBulkDelete={can("delete") ? handleBulkDelete : undefined}
-              onBulkAddStock={handleBulkAddStock}
-            />
-          )}
-          {tab === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
-          {tab === "ledger" && <LedgerTab items={items} categories={CATEGORIES} initialCode={ledgerCode} onDelete={can("delete") ? handleDelete : undefined} />}
-          {/* The instruction box lives at the bottom of both adding screens, so
-              it needs who is asking (for the ledger entry), whether they may
-              change a section or many parts, and a way to pull the stock list
-              and the section list back down once it has. */}
-          {tab === "add" && can("additem") && (
-            <AddItemTab
-              items={items}
-              categories={CATEGORIES}
-              sales={salesRegister}
-              salesReady={registerReady}
-              onAdd={handleAddItem}
-              user={user}
-              admin={admin}
-              canEdit={can("edit")}
-              onChanged={refreshAfterCommand}
-              onGo={assistantGo}
-            />
-          )}
-          {tab === "bulk" && can("additem") && (
-            <BulkAddTab
-              items={items}
-              categories={CATEGORIES}
-              sales={salesRegister}
-              salesReady={registerReady}
-              onAddMany={handleAddMany}
-              onStockMany={handleStockMany}
-              user={user}
-              admin={admin}
-              canEdit={can("edit")}
-              onChanged={refreshAfterCommand}
-              onGo={assistantGo}
-            />
-          )}
-          {tab === "edit" && can("edit") && (
-            <EditPartsTab
-              key={pickFor("edit") || pickFor("info") || "edit"}
-              items={items}
-              categories={CATEGORIES}
-              onSave={handleEditItem}
-              onAdjust={handleAdjust}
-              initialCode={pickFor("edit") || pickFor("info")}
-              focusInfo={Boolean(pickFor("info"))}
-            />
-          )}
-          {tab === "stock" && (
-            <AddStockTab
-              key={pickFor("stock") || "stock"}
-              items={items}
-              categories={CATEGORIES}
-              onAddStock={handleAddStock}
-              initialCode={pickFor("stock")}
-            />
-          )}
-          {tab === "sell" && (
-            <SellTab
-              key={pickFor("sell") || "sell"}
-              items={items}
-              categories={CATEGORIES}
-              onSell={handleSell}
-              /* So a wrong count can be corrected without leaving the sale. It
-                 is the same action as Add New Stock, which everybody may use —
-                 just reached from where the wrong count actually shows up. */
-              onAddStock={handleAddStock}
-              initialCode={pickFor("sell")}
-            />
-          )}
-          {tab === "orders" && (
-            <CustomerOrdersTab user={user} onQuote={quoteFromOrder} onReceipt={receiptFromOrder} />
-          )}
-          {tab === "quote" && (
-            /* Keyed on the arrival count as well as the picked part, for the same
-               reason the receipt screen is: a quote arriving from an order must
-               replace what is half-typed here rather than merge into it. */
-            <QuotationTab
-              key={`quote-${quoteSeq}-${pickFor("quote") || ""}`}
-              items={items}
-              user={user}
-              initialCode={pickFor("quote")}
-              draft={quoteDraft}
-              onMakeReceipt={openReceiptFrom}
-            />
-          )}
-          {tab === "receipt" && (
-            /* Keyed on the arrival count, so coming from a quote replaces whatever
-               was half-typed on this screen instead of merging into it — a receipt
-               that is half one customer and half another is worse than a blank
-               one. The key does not change when the draft is cleared. */
-            <ReceiptTab
-              key={`receipt-${receiptSeq}`}
-              items={items}
-              user={user}
-              draft={receiptDraft}
-              onDraftUsed={() => setReceiptDraft(null)}
-            />
-          )}
-          {tab === "credit" && <CreditAccountsTab user={user} admin={admin} />}
-          {tab === "transfers" && <TransfersTab items={items} user={user} />}
-          {tab === "feed" && (
-            <StaffFeedTab
-              userId={session.user.id}
-              user={user}
-              admin={admin}
-              /* The assistant pane's half. The register, not the activity feed,
-                 so "what did we sell this month" counts every sale rather than
-                 the last 200 things that happened — and registerReady so an
-                 unreadable register is said out loud instead of read as zero. */
-              items={items}
-              categories={CATEGORIES}
-              sales={salesRegister}
-              salesReady={registerReady}
-              canEdit={can("edit")}
-              onChanged={refreshAfterCommand}
-              onGo={assistantGo}
-            />
-          )}
-          {tab === "notify" && admin && (
-            <NotifyTab notifications={notifications} admin={admin} onChanged={refreshAfterUndo} />
-          )}
-          {tab === "print" && <PrintStockTab items={items} categories={CATEGORIES} />}
-          {tab === "reports" && (
-            <ReportsTab
-              /* Keyed on the handoff, so being sent here a second time for a
-                 different period actually moves the screen. Without it the
-                 answer would say July and the report would still show today. */
-              key={`reports-${handoff?.seq || 0}`}
-              items={items}
-              notifications={notifications}
-              categories={CATEGORIES}
-              admin={admin}
-              onChanged={refreshAfterUndo}
-              onNav={go}
-              salesRegister={salesRegister}
-              registerReady={registerReady}
-              initialTarget={handoffFor("reports")}
-            />
-          )}
-          {tab === "finance" && (
-            <FinanceTab
-              key={`finance-${handoff?.seq || 0}`}
-              user={user}
-              admin={admin}
-              initialView={handoffFor("finance")?.view || "statements"}
-            />
-          )}
-          {tab === "permissions" && !admin && <MyPermissionsTab userId={session.user.id} />}
-          {tab === "approvals" && admin && <ApprovalsTab currentUserId={session.user.id} />}
-          {tab === "settings" && (
-            <SettingsTab
-              categories={CATEGORIES}
-              user={user}
-              email={session.user.email}
-              admin={admin}
-              onCategoriesChanged={reloadCategories}
-            />
+          {split ? (
+            /* Side by side from lg up, one under the other below it — two
+               half-width lists on a phone are two lists nobody can read. */
+            <div className="grid lg:grid-cols-2 gap-4 items-start">
+              <Pane side="This screen" title={labelFor(tab)}>
+                {screenFor(tab)}
+              </Pane>
+              <Pane
+                side="Second screen"
+                title={labelFor(rightTab)}
+                value={rightTab}
+                /* Not the screen already on the left: two of the same screen
+                   would be two halves of one form pulling against each other. */
+                choices={navItems.filter((n) => n.id !== tab)}
+                onPick={pickRight}
+                onClose={toggleSplit}
+              >
+                {screenFor(rightTab)}
+              </Pane>
+            </div>
+          ) : (
+            screenFor(tab)
           )}
         </main>
       </div>

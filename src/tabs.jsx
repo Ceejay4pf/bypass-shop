@@ -39,6 +39,13 @@ import {
 import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { publicLink } from "./lib/publicRoute.js";
+/* How tightly a printed stock list packs its rows, and the stamp that goes on
+   every page. Pure, so the page count promised on screen is worked out by the
+   same code that sets the row height — see src/lib/printLayout.js. */
+import {
+  DENSITIES, densityByKey, densityChoices, autoDensity, fitDensity, estimatePages,
+  densityCss, watermarkCss, watermarkHtml, stampSvg, isStacked, WATERMARKS_PER_PAGE,
+} from "./lib/printLayout.js";
 import {
   isBiometricSupported, isLockEnabled, enableLock, disableLock,
 } from "./lib/appLock.js";
@@ -423,29 +430,24 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
       </div>
       )}
 
-      {/* Recent activity — who sold, added or adjusted what. Admin-only. */}
+      {/* Recent Activity used to sit here. It is in Reports now — the Dashboard
+          is the shop's figures at a glance, and a record of who did what is a
+          report. This is the way to it, so an admin who came here looking for it
+          is not left hunting. */}
       {admin && (
-      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
-            <Bell size={15} className="text-[#2563EB]" /> Recent Activity
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-[#7C5CD6] bg-[#7C5CD622] rounded px-1.5 py-0.5">
-              Admin only
+        <button
+          onClick={() => onNav("reports")}
+          className="w-full bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 flex items-center gap-3 text-left hover:border-[#2563EB] transition-colors"
+        >
+          <Bell size={17} className="text-[#2563EB] shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-bold uppercase tracking-wide">Recent Activity</span>
+            <span className="block text-xs text-[#5A6472] leading-snug mt-0.5">
+              Who sold, added or adjusted what — now at the foot of Reports.
             </span>
-            <button onClick={() => onNav("notify")} className="text-xs text-[#2563EB] font-semibold">
-              View all
-            </button>
-          </div>
-        </div>
-        {notifications.length === 0 && <div className="text-[#5A6472] text-sm italic">No activity yet.</div>}
-        <div className="space-y-2">
-          {notifications.slice(0, 5).map((n) => (
-            <NotifRow key={n.id} n={n} compact />
-          ))}
-        </div>
-      </div>
+          </span>
+          <ChevronRight size={18} className="text-[#5A6472] shrink-0" />
+        </button>
       )}
 
       {/* The instruction box used to sit here. It lives in Staff Feed now, next
@@ -1509,6 +1511,72 @@ export function PrintStockTab({ items, categories }) {
   const countFor = (key) => items.filter((i) => i.cat === key && inDate(i)).length;
   const countForKeys = (keys) => items.filter((i) => keys.includes(i.cat) && inDate(i)).length;
 
+  /* The paper, block by block, worked out ONCE and used twice: to say how many
+     sheets the job comes to and to build the pages themselves. Two copies of
+     this is how a screen ends up promising nine pages and printing fifteen.
+
+     Doors and bumpers get a block per end of the car. A car has four doors and
+     the first thing anybody needs off the page is which end — "Front" sitting
+     inside a Side column a hundred rows down is not something a person finds
+     while a customer waits. So the end becomes the heading and the hand stays in
+     the column. Anything with no end recorded gets its own block at the bottom,
+     named for what it is rather than quietly filed under front. */
+  const printBlocks = useMemo(() => {
+    const out = [];
+    for (const c of chosenCats) {
+      const list = filtered
+        .filter((i) => i.cat === c.key)
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+      if (!list.length) continue;
+      if (POSITIONED_CATS.includes(c.key)) {
+        const parts = POSITION_ORDER
+          .map((pos) => ({ pos, rows: list.filter((i) => splitSide(c.key, i.side).position === pos) }))
+          .filter((p) => p.rows.length);
+        if (parts.length) {
+          for (const p of parts)
+            out.push({
+              cat: c,
+              head: p.pos ? `${c.label} — ${p.pos}` : `${c.label} — end of car not recorded`,
+              rows: p.rows,
+            });
+          continue;
+        }
+      }
+      out.push({ cat: c, head: c.label, rows: list });
+    }
+    return out;
+  }, [chosenCats, filtered]);
+
+  /* How tightly to pack the pages.
+
+       "auto" - decided by how many parts there are. A short list prints big; the
+                whole shop prints packed. Nobody has to think about it.
+       "fit"  - somebody says how many sheets they are willing to carry and the
+                size is chosen backwards from that.
+       else   - a look picked by hand.
+
+     The rules and the page arithmetic are in src/lib/printLayout.js. */
+  const [packMode, setPackMode] = useState("auto");
+  const [targetPages, setTargetPages] = useState(9);
+  /* Five faint stamps on every sheet plus one solid at the foot. On by default:
+     this list leaves the building, and a page with the shop's mark on it is
+     harder to pass off as somebody else's. */
+  const [stampOn, setStampOn] = useState(true);
+
+  const rowCount = filtered.length;
+  const blockCount = printBlocks.length;
+  const wanted = Math.max(1, Math.min(200, Math.floor(Number(targetPages) || 1)));
+  // null when even the tightest look cannot do it — said out loud, not hidden.
+  const fitted = packMode === "fit" ? fitDensity(rowCount, blockCount, wanted) : null;
+  const density =
+    packMode === "auto"
+      ? autoDensity(rowCount, blockCount)
+      : packMode === "fit"
+      ? fitted || DENSITIES[DENSITIES.length - 1]
+      : densityByKey(packMode);
+  const pages = estimatePages(rowCount, blockCount, density);
+  const choices = useMemo(() => densityChoices(rowCount, blockCount), [rowCount, blockCount]);
+
   /* What the printed list calls itself. With a few picked it names them, so the
      page in someone's hand says what it is. Past that, naming eight categories
      would be a paragraph rather than a heading, so it counts them instead.
@@ -1577,48 +1645,55 @@ export function PrintStockTab({ items, categories }) {
             .join("")}</tbody>
         </table>`;
 
-    const sections = chosenCats
-      .map((c) => {
-        const list = filtered
-          .filter((i) => i.cat === c.key)
-          .sort((a, b) => String(a.code).localeCompare(String(b.code)));
-        if (list.length === 0) return "";
-        const shelf = `<span class="sechn">${list.length} item(s) · Shelf ${escapeHtml(c.shelf || "—")}</span>`;
-
-        /* Doors get printed as two lists, not one. A car has four doors and the
-           first thing anybody needs off the page is which end of the car —
-           "Front" sitting inside a Side column, a hundred rows down, is not
-           something a person finds while a customer waits. So the end of the car
-           becomes the heading and the hand stays in the column: the page reads
-           DOORS - FRONT, then Left, Left, Right. Which is the order the question
-           is actually asked in.
-
-           Anything with no end recorded gets its own block at the bottom, named
-           for what it is rather than quietly filed under front. */
-        if (POSITIONED_CATS.includes(c.key)) {
-          const blocks = POSITION_ORDER.map((pos) => {
-            const part = list.filter((i) => splitSide(c.key, i.side).position === pos);
-            if (!part.length) return "";
-            const head = pos ? `${c.label} — ${pos}` : `${c.label} — end of car not recorded`;
-            return `<div class="sec">
-                <div class="sech">${escapeHtml(head)} <span class="sechn">${part.length} item(s) · Shelf ${escapeHtml(c.shelf || "—")}</span></div>
-                ${tableFor(part, c.key)}
-              </div>`;
-          }).join("");
-          if (blocks) return blocks;
-        }
-
-        return `<div class="sec">
-            <div class="sech">${escapeHtml(c.label)} ${shelf}</div>
-            ${tableFor(list, c.key)}
+    /* The two-column look. A table cannot flow across a column break, so each
+       part becomes one small block instead: the code and the name on one line,
+       everything else known about it underneath. Every field the table prints is
+       still printed — it is stacked, not dropped. */
+    const stackFor = (list, cat) =>
+      `<div class="stack">${list
+        .map((i, idx) => {
+          const { hand } = splitSide(cat, i.side);
+          const rest = [hand || i.side || "", i.color || "", i.location || "", fmtAdded(i)]
+            .filter(Boolean)
+            .join(" · ");
+          return `<div class="r">
+            <div><span class="c1">${escapeHtml(i.code)}</span> <span class="c2">${escapeHtml(
+              i.name || `${i.brand || ""} ${i.model || ""}`
+            )}</span></div>
+            ${rest ? `<div class="c3">${idx + 1}. ${escapeHtml(rest)}</div>` : ""}
           </div>`;
-      })
+        })
+        .join("")}</div>`;
+
+    const stacked = isStacked(density);
+    const sections = printBlocks
+      .map(
+        (b) => `<div class="sec">
+            <div class="sech">${escapeHtml(b.head)} <span class="sechn">${b.rows.length} item(s) · Shelf ${escapeHtml(
+          b.cat.shelf || "—"
+        )}</span></div>
+            ${stacked ? stackFor(b.rows, b.cat.key) : tableFor(b.rows, b.cat.key)}
+          </div>`
+      )
       .join("");
 
     const totalItems = filtered.length;
     const title = dateMode === "all" ? headline() : `${headline()} · ${dateLabel()}`;
 
-    const body = sections || `<div class="empty">No items match this category / date.</div>`;
+    const body = sections
+      ? `<div class="body">${sections}</div>`
+      : `<div class="empty">No items match this category / date.</div>`;
+
+    /* The shop's mark. One stamp drawn once and used six times — five faint on
+       every sheet, one solid at the foot of the document — so they cannot end up
+       saying different things. */
+    const stamp = (opts = {}) =>
+      stampSvg({
+        shop: "JASPARE AUTO · BYPASS",
+        line: "BRANCH STOCK",
+        date: today.toUpperCase(),
+        ...opts,
+      });
 
     const html = `<!doctype html><html><head><meta charset="utf-8">
 <title>${escapeHtml(title)}</title>
@@ -1632,26 +1707,42 @@ export function PrintStockTab({ items, categories }) {
   .doc { text-align:right; }
   .doc .t { font-size:16px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:1px; }
   .doc .m { color:#5A6472; font-size:12px; margin-top:3px; }
-  .sec { margin-top:18px; }
-  .sech { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:1px; background:#2563EB; color:#fff; padding:7px 10px; border-radius:4px; }
-  .sechn { font-weight:600; text-transform:none; letter-spacing:0; font-size:11px; opacity:.85; margin-left:8px; }
-  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:12px; }
-  th { background:#EEF2F6; text-align:left; padding:7px 8px; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; border-bottom:1px solid #DEE3E9; }
-  td { padding:6px 8px; border-bottom:1px solid #EEF2F6; }
+  .sec { margin-top:14px; break-inside:auto; }
+  .sech { font-weight:800; text-transform:uppercase; letter-spacing:1px; background:#2563EB; color:#fff; border-radius:4px; }
+  .sechn { font-weight:600; text-transform:none; letter-spacing:0; opacity:.85; margin-left:8px; }
   th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
   td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
   .empty { color:#5A6472; padding:40px; text-align:center; }
-  .foot { margin-top:28px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px; }
+  .foot { margin-top:22px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px;
+          display:flex; align-items:center; gap:14px; justify-content:space-between; }
+  .foot .words { flex:1; }
+  /* The solid stamp at the foot, the one somebody looks for to see the page is
+     the shop's. Big enough to read, small enough not to be the document. */
+  .foot .seal { width:96px; height:96px; flex:0 0 auto; opacity:.9; }
   tr { break-inside: avoid; }
-  @media print { body { padding:0; } .wrap { max-width:none; } .sech { -webkit-print-color-adjust:exact; print-color-adjust:exact; } th { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+  /* A heading must not be the last thing on a sheet with its rows overleaf. */
+  .sech { break-after: avoid; }
+  ${densityCss(density)}
+  ${stampOn ? watermarkCss() : ""}
+  @media print {
+    body { padding:0; }
+    .wrap { max-width:none; }
+    .sech, th, .foot .seal { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    @page { margin: 12mm 10mm; }
+  }
 </style></head>
-<body><div class="wrap">
+<body>
+${stampOn ? watermarkHtml(stamp, WATERMARKS_PER_PAGE) : ""}
+<div class="wrap">
   <div class="head">
     <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
     <div class="doc"><div class="t">${escapeHtml(title)}</div><div class="m">${today}</div><div class="m">${totalItems} item(s)</div></div>
   </div>
   ${body}
-  <div class="foot">Generated from Bypass Shop cloud inventory on ${today}. A list of parts held — ask the shop for prices and availability.</div>
+  <div class="foot">
+    <div class="words">Generated from Bypass Shop cloud inventory on ${today}. A list of parts held — ask the shop for prices and availability.</div>
+    ${stampOn ? `<div class="seal">${stamp({ id: "seal" })}</div>` : ""}
+  </div>
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;
@@ -1774,6 +1865,95 @@ export function PrintStockTab({ items, categories }) {
         </Field>
       )}
 
+      {/* ---------- HOW MANY SHEETS ----------
+          The whole shop used to print at one size, which for 600 parts is a
+          stack nobody carries round a yard. The row height is now a choice, and
+          the number of sheets is worked out before anything is printed so the
+          choice can be made against a number instead of a guess. */}
+      <Field
+        label="How tightly to pack the pages"
+        hint="Left alone, a short list prints big and a long one prints small. The page counts are close estimates — the printer's own margins decide the last row."
+      >
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setPackMode("auto")}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+              packMode === "auto" ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+            }`}
+          >
+            Decide for me
+            {packMode === "auto" && <span className="opacity-80"> · ~{pages}p</span>}
+          </button>
+          {choices.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => setPackMode(c.key)}
+              title={c.note}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+                packMode === c.key ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+              }`}
+            >
+              {c.label} <span className="opacity-70">~{c.pages}p</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setPackMode("fit")}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+              packMode === "fit" ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+            }`}
+          >
+            Fit it into
+          </button>
+          <input
+            type="number"
+            min="1"
+            max="200"
+            value={targetPages}
+            onChange={(e) => { setTargetPages(e.target.value); setPackMode("fit"); }}
+            className="w-16 border border-[#DEE3E9] rounded-md px-2 py-1.5 text-sm text-center bg-[#FFFFFF]"
+          />
+          <span className="text-xs text-[#5A6472]">page{wanted === 1 ? "" : "s"}</span>
+        </div>
+
+        {/* Asking for three pages of six hundred parts is not possible, and a
+            screen that quietly printed nineteen instead would be worse than one
+            that says so. */}
+        {packMode === "fit" && !fitted && rowCount > 0 && (
+          <p className="text-xs text-[#B25E14] mt-2 leading-relaxed">
+            {rowCount} parts will not go on {wanted} page{wanted === 1 ? "" : "s"} at any readable size.
+            Printing at the smallest — about {pages} page{pages === 1 ? "" : "s"}.
+          </p>
+        )}
+        <p className="text-xs text-[#5A6472] mt-2 leading-relaxed">
+          {density.note}
+        </p>
+      </Field>
+
+      <Field label="Stamp">
+        <button
+          onClick={() => setStampOn((v) => !v)}
+          className={`w-full text-left px-3 py-2.5 rounded-md border flex items-center gap-2.5 text-sm ${
+            stampOn ? "bg-[#2563EB0A] border-[#2563EB]" : "bg-[#FFFFFF] border-[#DEE3E9]"
+          }`}
+        >
+          <span className={stampOn ? "text-[#2563EB]" : "text-[#5A6472]"}>
+            {stampOn ? <CheckSquare size={17} /> : <Square size={17} />}
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className={`block ${stampOn ? "font-semibold text-[#1B2430]" : "text-[#5A6472]"}`}>
+              Stamp every page
+            </span>
+            <span className="block text-[11px] text-[#5A6472] leading-snug">
+              {WATERMARKS_PER_PAGE} faint shop stamps behind the rows on every sheet, and one
+              solid stamp at the foot of the list.
+            </span>
+          </span>
+        </button>
+      </Field>
+
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4 text-sm">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[#5A6472] shrink-0">Printing</span>
@@ -1782,6 +1962,12 @@ export function PrintStockTab({ items, categories }) {
         <div className="flex items-center justify-between mt-1">
           <span className="text-[#5A6472]">Items to be listed</span>
           <span className="font-bold text-[#2563EB]">{filtered.length}</span>
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[#5A6472]">Sheets of paper</span>
+          <span className="font-bold text-[#2563EB]">
+            about {pages} <span className="font-normal text-[#5A6472] text-xs">at {density.label.toLowerCase()}</span>
+          </span>
         </div>
         <div className="flex items-center justify-between mt-1">
           <span className="text-[#5A6472]">Filter</span>
@@ -6370,6 +6556,53 @@ export function ReportsTab({
           </>
         )}
       </div>
+
+      {/* ---------- RECENT ACTIVITY ----------
+          This used to sit at the bottom of the Dashboard. It belongs here: the
+          Dashboard is the shop's figures at a glance and this is a record of who
+          did what, which is a report. It also stops the home screen being the
+          only place an admin could glance at the last few movements while the
+          screen for reading records had none of them.
+
+          Admin-only, the same as it was, and the same rows the Notifications
+          screen shows — this is the top of that list, not a second version of
+          it. */}
+      {admin && (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
+              <Bell size={15} className="text-[#2563EB]" /> Recent Activity
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-[#7C5CD6] bg-[#7C5CD622] rounded px-1.5 py-0.5">
+                Admin only
+              </span>
+              {onNav && (
+                <button onClick={() => onNav("notify")} className="text-xs text-[#2563EB] font-semibold">
+                  View all
+                </button>
+              )}
+            </div>
+          </div>
+          {/* Deliberately NOT narrowed to the period above. The figures on this
+              screen answer "what did we take in July"; this answers "what has
+              just happened", and a feed that emptied itself whenever somebody
+              looked at last month would be read as nothing having happened. */}
+          <p className="text-[11px] text-[#5A6472] -mt-2 mb-2.5">
+            The last {Math.min(8, notifications.length) || 8} things that happened in the shop, whatever
+            period is chosen above.
+          </p>
+          {notifications.length === 0 ? (
+            <div className="text-[#5A6472] text-sm italic">No activity yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {notifications.slice(0, 8).map((n) => (
+                <NotifRow key={n.id} n={n} compact />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -743,7 +743,11 @@ export default function Shopfront() {
           <div className="mt-1">We stock parts for {shop.makes}.</div>
           {/* No link to the shop's own system from here, deliberately. This page
               is handed to strangers; the sign-in screen is not part of what they
-              were given, and staff know their own address. */}
+              were given, and staff know their own address.
+
+              That holds even now the front door asks which you are: a staff phone
+              that answered "customer" by mistake is not stuck, because /system
+              beats a remembered answer. See frontDoor in src/lib/publicRoute.js. */}
         </div>
       </div>
 

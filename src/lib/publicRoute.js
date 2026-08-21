@@ -17,6 +17,11 @@
      2. A hostname whose first label is spares / parts / catalogue / store.
      3. One of the paths below, so a link works today with no setup at all.
 
+   AND THE FRONT DOOR, for anybody who arrives at the bare address without one of
+   those paths. Rather than guessing, it asks: customer, or working here? The
+   answer is kept on that device, so a storekeeper answers once and never again
+   and the shop's own link behaves exactly as it always did. See `frontDoor`.
+
    Pure and testable: it is handed a host and a path rather than reading the
    browser, because getting this wrong in either direction is serious — staff
    locked out of their own system, or the system handed to the street.
@@ -24,8 +29,17 @@
 
 /* The canonical customer path is first; the rest are kept working because links
    get written on paper and forwarded on WhatsApp, and a dead link is a lost
-   customer. */
-export const PUBLIC_PATHS = ["/spares", "/shop", "/parts", "/catalogue", "/store"];
+   customer.
+
+   `/jaspare` leads because it is the one to hand out: it says the shop's name
+   rather than naming a drawer in the shop's system, and it shares no word with
+   the staff address, so a customer holding it has no obvious next thing to try. */
+export const PUBLIC_PATHS = ["/jaspare", "/spares", "/shop", "/parts", "/catalogue", "/store"];
+
+/* Straight to the sign-in screen, past the front door. For a staff bookmark, and
+   for the shortcut on a counter phone — somebody opening the system to key in a
+   sale should not be asked who they are first. */
+export const STAFF_PATHS = ["/system", "/staff", "/office"];
 
 /* Matched against the FIRST label of the hostname only, and only when there is a
    dot — so spares.jaspareauto.co.ke is the public list while bypass-shop.vercel.app
@@ -66,4 +80,46 @@ export function isPublicRequest({ host = "", path = "", publicHost = "" } = {}) 
   if (label && PUBLIC_HOST_LABELS.includes(label)) return true;
 
   return PUBLIC_PATHS.includes(cleanPath(path));
+}
+
+/* ---------------------------------------------------------
+   THE FRONT DOOR
+
+   Which of the two the visitor gets, or whether to ask. Three answers:
+
+     "customer" - the parts list, no sign-in
+     "staff"    - the shop's own system
+     "choose"   - neither is known, so put the question on the screen
+
+   A LINK ALWAYS WINS OVER A REMEMBERED ANSWER. Somebody sent /jaspare on
+   WhatsApp gets the parts list even if that phone once chose "staff" — the link
+   is what the sender meant, and it is the newer instruction of the two.
+--------------------------------------------------------- */
+
+export const DOOR_KEY = "bp_front_door";
+export const DOORS = ["customer", "staff"];
+
+export function frontDoor({ host = "", path = "", publicHost = "", remembered = "" } = {}) {
+  if (isPublicRequest({ host, path, publicHost })) return "customer";
+  if (STAFF_PATHS.includes(cleanPath(path))) return "staff";
+  return DOORS.includes(remembered) ? remembered : "choose";
+}
+
+/* The device's answer. A storage object is passed in rather than reached for, so
+   this is testable and so a phone with storage switched off is a caller's problem
+   rather than a crash — it simply gets asked again, which is harmless. */
+export function readDoor(store) {
+  try {
+    const v = store && store.getItem(DOOR_KEY);
+    return DOORS.includes(v) ? v : "";
+  } catch { return ""; }
+}
+
+export function rememberDoor(store, which) {
+  if (!DOORS.includes(which)) return false;
+  try { store && store.setItem(DOOR_KEY, which); return true; } catch { return false; }
+}
+
+export function forgetDoor(store) {
+  try { store && store.removeItem(DOOR_KEY); return true; } catch { return false; }
 }

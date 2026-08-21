@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound, Smartphone, Camera } from "lucide-react";
+import { Boxes, Lock, User, AlertTriangle, ArrowRight, ArrowLeft, Loader2, CheckCircle2, ShieldCheck, HelpCircle, Mail, KeyRound, Smartphone, Camera, ShoppingBag } from "lucide-react";
 import { Field, inputCls } from "./ui.jsx";
 import {
   signIn, signUp, signInRole, sendEmailCode,
@@ -47,7 +47,7 @@ const primaryBtn =
   "shadow-lg shadow-[#2563EB40] active:scale-[0.99] transition-transform " +
   "disabled:opacity-50 disabled:shadow-none";
 
-export default function LoginGate() {
+export default function LoginGate({ onLeave }) {
   // Which login method: the 4 shared role logins, or a personal account.
   const [tab, setTab] = useState("role");      // role | own
   const [mode, setMode] = useState("signin"); // signin | signup
@@ -1067,6 +1067,20 @@ export default function LoginGate() {
             </button>
           )}
         </div>
+
+        {/* For whoever answered "I work at the shop" and meant the other one, and
+            for the customer who was handed the plain link. Small and at the
+            bottom: it is the way out of a wrong turn, not an invitation to leave
+            a screen somebody meant to be on. */}
+        {onLeave && (
+          <button
+            onClick={onLeave}
+            className="mx-auto mt-4 flex items-center gap-1.5 text-[12px] text-[#9FB3CC] hover:text-[#67E8F9] transition-colors"
+          >
+            <ShoppingBag size={13} />
+            <span>Not staff? Looking for a part — see what the shop has</span>
+          </button>
+        )}
 
         <p className="text-center text-[11px] text-[#5A6472] mt-4">
           Developed by <span className="font-semibold text-[#1B2430]">Josphat Mbugua Kagiri</span>
