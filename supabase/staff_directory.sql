@@ -28,26 +28,23 @@ create policy "staff_contacts_read" on public.staff_contacts
   for select to authenticated using (true);
 
 -- Only admins can add / edit / remove entries.
+--
+-- Through public.is_admin(), not its own copy of the list. This file used to name
+-- two addresses by hand and left out management@bypassshop.co, which is_admin()
+-- includes — so that admin would have been able to open the directory and then
+-- silently fail to save an edit to it. A second copy of an access list is a
+-- second chance to disagree with the first.
 drop policy if exists "staff_contacts_insert" on public.staff_contacts;
 create policy "staff_contacts_insert" on public.staff_contacts
-  for insert to authenticated with check (
-    (select lower(email) from auth.users where id = auth.uid())
-      in ('admin@bypassshop.co', 'addamsjmk@gmail.com')
-  );
+  for insert to authenticated with check (public.is_admin());
 
 drop policy if exists "staff_contacts_update" on public.staff_contacts;
 create policy "staff_contacts_update" on public.staff_contacts
-  for update to authenticated using (
-    (select lower(email) from auth.users where id = auth.uid())
-      in ('admin@bypassshop.co', 'addamsjmk@gmail.com')
-  );
+  for update to authenticated using (public.is_admin());
 
 drop policy if exists "staff_contacts_delete" on public.staff_contacts;
 create policy "staff_contacts_delete" on public.staff_contacts
-  for delete to authenticated using (
-    (select lower(email) from auth.users where id = auth.uid())
-      in ('admin@bypassshop.co', 'addamsjmk@gmail.com')
-  );
+  for delete to authenticated using (public.is_admin());
 
 -- Keep the directory live across devices.
 do $$

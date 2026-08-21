@@ -9,6 +9,11 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Helpful, explicit error instead of a cryptic crash if keys are missing.
 export const isConfigured = Boolean(url && anonKey);
+
+/* The project's own address, for the one screen that needs to send somebody to
+   the Supabase dashboard — see setupNeeded.js. Not the key, just the URL, which
+   is in every request the app makes anyway. */
+export const projectUrl = url || "";
 if (!isConfigured) {
   console.warn(
     "[Bypass Shop] Supabase keys missing. Create a .env file from .env.example."

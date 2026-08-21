@@ -357,6 +357,21 @@ export async function forgetDevice(deviceId) {
   return true;
 }
 
+/* Every account, and whether a code could actually reach it.
+
+   The counts in deviceOtpStatus() say "19 accounts can never receive a code".
+   This says WHICH — and without the names there is nothing an admin can act on.
+   Admin-only and read-only, decided inside the database, not here: it returns no
+   rows at all to anybody else, and there is nothing in it that could change an
+   account. Only the person themselves can put a real address on their own login,
+   from Settings, which is the way round it has to be — an address nobody can
+   read is worse than an invented one everybody knows is invented. */
+export async function staffReachability() {
+  const { data, error } = await supabase.rpc("staff_reachability");
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
 /* ---- ROLE LOGIN (the 4 shared accounts) ----
    Sign in to one of the fixed role accounts (admin / management / sales /
    staff). The person also types their own name, which is saved as the
@@ -459,4 +474,54 @@ export async function getProfileName(userId, fallback = "") {
 export async function updateMyName(userId, fullName) {
   await supabase.from("profiles").update({ full_name: fullName }).eq("id", userId);
   await supabase.auth.updateUser({ data: { full_name: fullName } });
+}
+
+/* ---------------------------------------------------------
+   AN ADDRESS THAT CAN ACTUALLY BE REACHED
+
+   Most accounts on this shop were made from a name, so their login address is
+   an invention — josphat.kamau@bypassshop.co, with no inbox anywhere behind it.
+   toLoginEmail() above is what makes them, and it had to: Supabase will not
+   create an account without an email, and these accounts were created for people
+   who did not give one.
+
+   The cost only shows up later, and it shows up badly. A forgotten password
+   cannot be reset. The code sign-in cannot be used. The new-phone code cannot
+   protect the account, because a code sent there goes nowhere — which is why
+   login_needs_code deliberately skips those accounts rather than locking them
+   out (see supabase/device_otp.sql).
+
+   So: let the person put a real one on. Nothing else in this system can fix it
+   for them — an admin cannot change somebody else's login address from the
+   browser, and should not be able to.
+--------------------------------------------------------- */
+
+/* An address with nothing behind it. The domain is the tell: it is the one
+   toLoginEmail invents, and it has never had a mail server. */
+export function isInventedEmail(email) {
+  return /@bypassshop\.co$/i.test(String(email || "").trim());
+}
+
+/* Put a real address on this account.
+
+   Supabase does NOT change it here and now — it emails a confirmation link to
+   the new address, and the change only happens when that link is opened. That
+   is the right way round: it means an address can never be set to one the person
+   cannot actually read, which is the entire failure being fixed.
+
+   Returns the address the link went to, so the screen can name it. */
+export async function changeMyEmail(newEmail) {
+  const email = String(newEmail || "").trim().toLowerCase();
+  if (!email.includes("@") || !/\.[a-z]{2,}$/i.test(email)) {
+    throw new Error("That does not look like an email address.");
+  }
+  if (isInventedEmail(email)) {
+    throw new Error(
+      "That is one of the shop's made-up addresses — no mail can reach it. " +
+      "Use a real one, like a Gmail address."
+    );
+  }
+  const { error } = await supabase.auth.updateUser({ email });
+  if (error) throw error;
+  return email;
 }

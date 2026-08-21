@@ -35,10 +35,13 @@ import {
   changeRolePassword, deviceOtpStatus, setDeviceOtp, myDevices, forgetDevice,
   sendLoginCode, verifyLoginCode,
   otpLoginAvailable, startOtpLogin, setOtpLogin, checkEmailCode,
+  isInventedEmail, changeMyEmail, staffReachability,
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { publicLink } from "./lib/publicRoute.js";
+import { setupFor } from "./lib/setupNeeded.js";
+import SetupNotice from "./SetupNotice.jsx";
 /* How tightly a printed stock list packs its rows, and the stamp that goes on
    every page. Pure, so the page count promised on screen is worked out by the
    same code that sets the row height — see src/lib/printLayout.js. */
@@ -6998,9 +7001,21 @@ function StaffDirectoryCardInner({ admin }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  /* The table this reads may never have been created — see src/SetupNotice.jsx.
+     Held apart from `err`, because "one file has not been pasted yet" is not the
+     same thing as "something went wrong". */
+  const [setup, setSetup] = useState(null);
+  const [lastErr, setLastErr] = useState(null);
+
   const load = async () => {
-    try { setContacts(await api.fetchStaffContacts()); setErr(""); }
-    catch (e) { setErr(e.message || "Couldn't load the directory. Did you run supabase/staff_directory.sql?"); setContacts([]); }
+    try { setContacts(await api.fetchStaffContacts()); setErr(""); setSetup(null); }
+    catch (e) {
+      const s = setupFor(e, "staff_contacts");
+      setLastErr(e);
+      setSetup(s);
+      setErr(s ? "" : e.message || "Couldn't load the directory.");
+      setContacts([]);
+    }
   };
   useEffect(() => {
     // The directory is admin-only, so don't fetch it for regular staff.
@@ -7039,7 +7054,7 @@ function StaffDirectoryCardInner({ admin }) {
     <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm font-bold uppercase tracking-wide">Staff Directory</div>
-        {admin && (
+        {admin && !setup && (
           <button
             onClick={() => { setShowAdd((v) => !v); setErr(""); }}
             className="flex items-center gap-1 text-xs font-semibold text-[#2563EB] bg-[#2563EB22] rounded-md px-2.5 py-1.5 hover:bg-[#2563EB] hover:text-white transition-colors"
@@ -7055,6 +7070,10 @@ function StaffDirectoryCardInner({ admin }) {
         </div>
       )}
 
+      {/* No form and no empty list while the table is missing — a contact typed
+          into a form that cannot save is a contact somebody thinks is saved. */}
+      {setup ? <SetupNotice step={setup} admin={admin} error={lastErr} /> : (
+      <>
       {admin && showAdd && (
         <div className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 mb-3 space-y-2">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" className={inputCls} />
@@ -7112,6 +7131,8 @@ function StaffDirectoryCardInner({ admin }) {
           ))}
         </div>
       )}
+      </>
+      )}
     </div>
   );
 }
@@ -7153,6 +7174,155 @@ function StaffDirectoryCardInner({ admin }) {
    shop has watched one arrive, that promise is a person standing at the counter
    tapping a button and getting nothing — so the switch is behind a real code
    landing on the admin's own address. */
+
+/* ---------------------------------------------------------
+   YOUR OWN ADDRESS — the loose end behind all three cards below.
+
+   Most accounts here were made from a name, so their address is one the app
+   invented (see toLoginEmail): josphat.kamau@bypassshop.co, with no inbox
+   anywhere behind it. That is why every card under this one has a line saying
+   it cannot be used on this account, and why the new-phone code deliberately
+   skips such accounts rather than locking them out.
+
+   Only the person themselves can fix it, so this is where it is fixed. It sits
+   ABOVE the three cards it unblocks, because reading "you need a real address"
+   three times and finding nowhere to put one is the current experience.
+
+   The change is not made here. Supabase emails a confirmation link to the new
+   address and the change happens when that link is opened — which is exactly
+   right: an address can never be set to one the person cannot actually read. */
+function MyEmailCard({ email }) {
+  const invented = isInventedEmail(email);
+  const [open, setOpen] = useState(false);
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // {ok, text}
+
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const to = await changeMyEmail(next);
+      setMsg({
+        ok: true,
+        text: `A confirmation link has been sent to ${to}. Open it from that inbox and the change is done. Nothing changes until you do.`,
+      });
+      setNext("");
+      setOpen(false);
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || "Couldn't change the address." });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Mail size={15} className="text-[#2563EB]" />
+        <div className="text-sm font-bold uppercase tracking-wide">Your Email Address</div>
+        {invented ? (
+          <span className="ml-auto text-[10px] font-bold uppercase tracking-wide bg-[#FBEAE8] text-[#DC3B2E] rounded px-1.5 py-0.5">
+            Can't receive mail
+          </span>
+        ) : (
+          <span className="ml-auto text-[10px] font-bold uppercase tracking-wide bg-[#E6F6EF] text-[#15926A] rounded px-1.5 py-0.5">
+            Real address
+          </span>
+        )}
+      </div>
+
+      <div className="font-mono text-sm text-[#1B2430] bg-[#EEF2F6] border border-[#DEE3E9] rounded-md px-3 py-2 break-all">
+        {email || "—"}
+      </div>
+
+      {invented ? (
+        /* Said in full, once, because every consequence of it is invisible until
+           the day it matters — and on that day the person is locked out. */
+        <div className="mt-3 text-xs text-[#7A5A00] bg-[#FFF7E6] border border-[#E0A100] rounded-md p-3 leading-relaxed">
+          <span className="font-bold">Nothing can be sent to this address.</span> It
+          was made up from your name when the account was created, and there is no
+          inbox behind it. So today:
+          <ul className="list-disc list-inside mt-1.5 space-y-0.5">
+            <li>If you forget your password, it cannot be reset.</li>
+            <li>You cannot be emailed a code to sign in with.</li>
+            <li>Your account cannot be protected on a new phone.</li>
+          </ul>
+          <span className="block mt-1.5">
+            Put a real address on it — your own Gmail is fine — and all three start
+            working.
+          </span>
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-[#5A6472] leading-relaxed">
+          Mail can reach this address, so your password can be reset, you can be
+          sent a code to sign in with, and your account can be protected on a new
+          phone.
+        </p>
+      )}
+
+      {msg && (
+        <div
+          className={`mt-3 rounded-md p-2.5 text-xs flex items-start gap-2 ${
+            msg.ok
+              ? "bg-[#E6F6EF] border border-[#15926A] text-[#15926A]"
+              : "bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E]"
+          }`}
+        >
+          {msg.ok ? <Check size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+          <span className="leading-relaxed">{msg.text}</span>
+        </div>
+      )}
+
+      {open ? (
+        <div className="mt-3 space-y-2">
+          <Field label="A real email address you can open">
+            <input
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="you@gmail.com"
+              className={inputCls}
+            />
+          </Field>
+          {/* The one consequence somebody would otherwise discover at the login
+              screen tomorrow morning. */}
+          <p className="text-[11px] text-[#7A5A00] bg-[#FFF7E6] border border-[#E0A100] rounded-md p-2.5 leading-relaxed">
+            <span className="font-bold">From then on you sign in with this address,
+            not your name.</span> Your password does not change.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={save}
+              disabled={busy || !next.trim()}
+              className="flex-1 bg-[#2563EB] text-white font-semibold rounded-md py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
+              {busy ? "Sending…" : "Send the confirmation link"}
+            </button>
+            <button
+              onClick={() => { setOpen(false); setMsg(null); }}
+              className="border border-[#DEE3E9] rounded-md px-3 text-sm font-semibold text-[#5A6472] hover:bg-[#EEF2F6]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => { setOpen(true); setMsg(null); }}
+          className={`mt-3 w-full rounded-md py-2.5 text-sm font-semibold flex items-center justify-center gap-2 ${
+            invented
+              ? "bg-[#2563EB] text-white"
+              : "border border-[#DEE3E9] text-[#5A6472] hover:bg-[#EEF2F6]"
+          }`}
+        >
+          <Mail size={15} /> {invented ? "Put a real address on this account" : "Change it"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function OtpLoginCard({ email, user, admin }) {
   const [on, setOn] = useState(null);      // null = still reading
   const [busy, setBusy] = useState(false);
@@ -7651,6 +7821,203 @@ function DeviceOtpCard({ email, user, admin }) {
   );
 }
 
+/* ---------------------------------------------------------
+   WHO CAN BE SENT A CODE  (admin only)
+
+   The card above this one says "19 of 24 accounts can never receive a code".
+   A number is not something anybody can act on. This says which.
+
+   It reads public.staff_reachability() — admin-only and read-only inside the
+   database, so a staff phone gets no rows at all rather than a hidden button.
+   And there is nothing to press on a row, on purpose: an admin CANNOT put a real
+   address on somebody else's login from here, and shouldn't be able to. An
+   address is a way in; whoever can set yours can take your account. So the one
+   thing this offers is the sentence to send that person, because the fix is
+   theirs to do — Settings → My Email Address, on their own phone.
+--------------------------------------------------------- */
+function ReachabilityCard({ admin }) {
+  const [rows, setRows] = useState(null);      // null = not loaded yet
+  const [setup, setSetup] = useState(null);
+  const [lastErr, setLastErr] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!admin) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await staffReachability();
+        if (alive) { setRows(r); setSetup(null); }
+      } catch (e) {
+        if (!alive) return;
+        // A missing function here is "the setup file hasn't been pasted", not a
+        // fault — and it must not be shown as a red error on the admin's own
+        // Settings screen the way it was.
+        setLastErr(e);
+        setSetup(setupFor(e, "staff_reachability"));
+        setRows([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [admin]);
+
+  if (!admin) return null;
+
+  if (setup) {
+    return (
+      <div className="mb-4">
+        <SetupNotice step={setup} admin={admin} error={lastErr} />
+      </div>
+    );
+  }
+
+  const stuck = (rows || []).filter((r) => !r.reachable);
+  const fine = (rows || []).filter((r) => r.reachable);
+  const shown = open ? [...stuck, ...fine] : stuck.slice(0, 6);
+
+  const ADVICE =
+    "Your login on the shop system uses an address we made up, so no email can " +
+    "reach it. That means your password can't be reset and you can't be emailed " +
+    "a code. Please open the app, go to Settings, and under \"My Email Address\" " +
+    "put in your real one (a Gmail is fine). You'll get a link on that address — " +
+    "open it, and from then on you sign in with the address instead of your name. " +
+    "Your password does not change.";
+
+  const copyAdvice = () => {
+    try {
+      navigator.clipboard.writeText(ADVICE);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* nothing to do — the words are on the screen to read out */ }
+  };
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="text-sm font-bold uppercase tracking-wide mb-1 flex items-center gap-2">
+        <Mail size={15} className="text-[#2563EB]" /> Who Can Be Sent A Code
+        {rows && (
+          <span className="ml-auto text-[10px] font-bold uppercase rounded px-1.5 py-0.5 bg-[#EEF2F6] text-[#5A6472]">
+            {fine.length}/{rows.length} reachable
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-[#5A6472] mb-3 leading-relaxed">
+        Every account on this shop, and whether an email could actually arrive at
+        it. Nothing here can be changed from this screen — an address is a way
+        into an account, so only the person themselves can set their own.
+      </p>
+
+      {rows === null ? (
+        <div className="text-xs text-[#5A6472] flex items-center gap-2">
+          <Loader2 size={13} className="animate-spin" /> Reading the accounts…
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-xs text-[#5A6472] bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5">
+          No accounts came back.
+        </div>
+      ) : (
+        <>
+          {stuck.length === 0 ? (
+            <div className="text-xs text-[#15926A] bg-[#15926A11] border border-[#15926A55] rounded-md p-2.5 leading-relaxed flex items-start gap-1.5">
+              <CheckCircle2 size={13} className="mt-0.5 shrink-0" />
+              Every account has an address a code can reach. The new-phone code can
+              be switched on above and it will cover the whole shop.
+            </div>
+          ) : (
+            <div className="bg-[#FEF6E7] border border-[#E0A93B] rounded-md p-2.5 text-[11px] text-[#6B5417] leading-relaxed mb-3">
+              <span className="font-bold">
+                {stuck.length} account{stuck.length === 1 ? "" : "s"} cannot be sent
+                anything.
+              </span>{" "}
+              Their address ends <span className="font-mono">@bypassshop.co</span>,
+              which has never had an inbox. Until that changes, those people cannot
+              reset a forgotten password and cannot be protected on a new phone.
+              They still sign in normally on a password — the policy above leaves
+              them alone rather than shutting them out.
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {shown.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-start gap-2.5 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5"
+              >
+                {r.reachable
+                  ? <UserCheck size={14} className="text-[#15926A] shrink-0 mt-0.5" />
+                  : <UserX size={14} className="text-[#B45309] shrink-0 mt-0.5" />}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate">{r.name || "—"}</div>
+                  <div className="text-[10px] text-[#5A6472] font-mono truncate">
+                    {r.email || "no address at all"}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {r.reachable ? (
+                    <span
+                      className={`text-[9px] font-bold uppercase rounded px-1.5 py-0.5 ${
+                        r.proved
+                          ? "bg-[#15926A22] text-[#15926A]"
+                          : "bg-[#EEF2F6] text-[#5A6472] border border-[#DEE3E9]"
+                      }`}
+                    >
+                      {/* "Real" and "proved" are different facts. A gmail address
+                          can receive a code; only actually typing one back proves
+                          the person reads that inbox, and the switch above needs
+                          the second, not the first. */}
+                      {r.proved ? "Code proved" : "Not tried yet"}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold uppercase rounded px-1.5 py-0.5 bg-[#E0A93B33] text-[#B45309]">
+                      No inbox
+                    </span>
+                  )}
+                  {Number(r.devices) > 0 && (
+                    <span className="text-[9px] text-[#5A6472]">
+                      {r.devices} phone{Number(r.devices) === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {(stuck.length > 6 || fine.length > 0) && (
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="mt-2 w-full text-[11px] font-bold uppercase tracking-wide text-[#2563EB] flex items-center justify-center gap-1 py-1.5"
+            >
+              {open
+                ? "Show fewer"
+                : `Show all ${rows.length} accounts`}
+              <ChevronDown size={12} className={open ? "rotate-180" : ""} />
+            </button>
+          )}
+
+          {stuck.length > 0 && (
+            <div className="border-t border-[#DEE3E9] mt-3 pt-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472] mb-1.5">
+                What to send them
+              </div>
+              <p className="text-[11px] text-[#5A6472] leading-relaxed bg-[#F8FAFC] border border-[#DEE3E9] rounded-md p-2.5">
+                {ADVICE}
+              </p>
+              <button
+                onClick={copyAdvice}
+                className="mt-2 w-full border border-[#2563EB] text-[#2563EB] text-xs font-bold uppercase tracking-wide rounded-md py-2 hover:bg-[#2563EB] hover:text-white transition-colors flex items-center justify-center gap-1.5"
+              >
+                {copied ? <Check size={13} /> : <MessageCircle size={13} />}
+                {copied ? "Copied" : "Copy this message"}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /* Role Passwords — the admin's control panel for the 4 shared logins.
    Each role starts on "<role>123"; the admin can set anything else here.
    The change runs on a throwaway Supabase client, so the admin stays
@@ -8004,6 +8371,8 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
         </p>
       </div>
 
+      <MyEmailCard email={email} />
+
       <AppearanceCard />
 
       <BiometricCard email={email} />
@@ -8011,6 +8380,10 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
       <OtpLoginCard email={email} user={user} admin={admin} />
 
       <DeviceOtpCard email={email} user={user} admin={admin} />
+
+      {/* Directly under the switch, because it is the list the switch's own
+          warning is about. */}
+      <ReachabilityCard admin={admin} />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Login Alerts</div>
@@ -9890,17 +10263,26 @@ function CreditStatement({ account, user, admin, onBack, onChanged }) {
 /* ======================= BRANCH TRANSFERS =======================
    A plain log of stock moving between branches — taken to another
    branch, or received from one. LOG ONLY: does not change stock counts. */
-export function TransfersTab({ items, user }) {
+export function TransfersTab({ items, user, admin }) {
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  /* Set when the table this screen writes into has never been created. Kept
+     apart from `err` because it is not an error — see src/SetupNotice.jsx. */
+  const [setup, setSetup] = useState(null);
+  const [lastErr, setLastErr] = useState(null);
   const [form, setForm] = useState({ direction: "out", otherBranch: "", code: "", item: "", qty: "1", note: "" });
 
   const load = () =>
     api.fetchTransfers()
-      .then((t) => { setRows(t); setErr(""); })
-      .catch((e) => setErr(e.message || String(e)))
+      .then((t) => { setRows(t); setErr(""); setSetup(null); })
+      .catch((e) => {
+        const s = setupFor(e, "transfers");
+        setLastErr(e);
+        setSetup(s);
+        setErr(s ? "" : e.message || String(e));
+      })
       .finally(() => setLoading(false));
 
   useEffect(() => {
@@ -9917,7 +10299,11 @@ export function TransfersTab({ items, user }) {
       setAdding(false);
       load();
     } catch (e) {
-      alert("Could not save transfer: " + (e.message || e) + "\n(Did you run supabase/transfers.sql?)");
+      /* If the table isn't there, say the one useful thing instead of a raw
+         Postgres message — and let the screen redraw as the setup notice. */
+      const s = setupFor(e, "transfers");
+      if (s) { setLastErr(e); setSetup(s); setAdding(false); return; }
+      alert("Could not save transfer: " + (e.message || e));
     }
   };
 
@@ -9941,6 +10327,13 @@ export function TransfersTab({ items, user }) {
         }
       />
 
+      {/* The setup step takes the whole screen. Showing the form above a table
+          that cannot be written to just means the first record typed into it is
+          lost. */}
+      {setup ? (
+        <SetupNotice step={setup} admin={admin} error={lastErr} />
+      ) : (
+      <>
       <div className="bg-[#FFF7E6] border border-[#E0A400] text-[#8A6400] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
         <AlertTriangle size={14} className="mt-0.5 shrink-0" />
         This is a record only — it does <b className="mx-1">not</b> change your stock counts. Use “Sell” or “Add Stock” to adjust quantities.
@@ -9949,7 +10342,7 @@ export function TransfersTab({ items, user }) {
       {err && (
         <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 mb-4 text-xs flex items-start gap-2">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          Couldn't load transfers. Run <span className="font-mono mx-1">supabase/transfers.sql</span> once, then reload.
+          Couldn't load transfers — {err}
         </div>
       )}
 
@@ -10038,6 +10431,8 @@ export function TransfersTab({ items, user }) {
             );
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   );

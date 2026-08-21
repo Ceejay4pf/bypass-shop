@@ -760,7 +760,7 @@ function BypassShop({ session }) {
         />
       )}
       {id === "credit" && <CreditAccountsTab user={user} admin={admin} />}
-      {id === "transfers" && <TransfersTab items={items} user={user} />}
+      {id === "transfers" && <TransfersTab items={items} user={user} admin={admin} />}
       {id === "feed" && (
         <StaffFeedTab
           userId={session.user.id}
