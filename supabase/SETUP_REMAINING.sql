@@ -189,8 +189,74 @@ grant execute on function public.staff_reachability() to authenticated;
 
 
 -- ------------------------------------------------------------
+-- 4) A CUSTOMER CHECKING THEIR OWN ORDER — public.order_lookup()
+--
+-- The customer page has no login, and public.customer_orders has no anon read
+-- policy at all, deliberately: without one, a stranger cannot read anybody's
+-- order. That also meant a customer could not read their OWN. They sent a basket,
+-- got a reference, and then had nothing but the phone.
+--
+-- So: one function, and it needs BOTH the reference AND the phone number the
+-- order was placed with. The reference alone is not enough — ENQ-2026-0001 counts
+-- upwards and anybody could try the next one, which would hand out a stranger's
+-- name, number and shopping list. Two facts that only the customer has, and the
+-- phone is compared with the digits only so "+254768553182" and "0768 553182"
+-- both work.
+--
+-- It returns one order or nothing. It cannot list, cannot search, and cannot
+-- change anything.
+-- ------------------------------------------------------------
+create or replace function public.order_lookup(p_ref text, p_phone text)
+returns jsonb
+language plpgsql stable security definer
+set search_path = public as $$
+declare
+  v_ref   text := upper(btrim(coalesce(p_ref, '')));
+  v_dig   text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  v_row   public.customer_orders;
+begin
+  -- Nothing half-given. Both or nothing, so this can never degenerate into
+  -- "show me the order with this reference".
+  if v_ref = '' or length(v_dig) < 7 then
+    return null;
+  end if;
+
+  select * into v_row
+    from public.customer_orders
+   where upper(ref) = v_ref
+     -- The last 9 digits, so a number saved with 0, with 254, or with +254 all
+     -- match the same phone. Kenyan numbers are 9 digits after the leading zero.
+     and right(regexp_replace(phone, '\D', '', 'g'), 9) = right(v_dig, 9)
+   limit 1;
+
+  if v_row.id is null then
+    return null;
+  end if;
+
+  -- Named one by one rather than to_jsonb(v_row), so a column added to the table
+  -- later cannot start leaking through this function by accident. handled_by is
+  -- left out on purpose: which member of staff picked it up is the shop's
+  -- business, not the customer's.
+  return jsonb_build_object(
+    'ref',      v_row.ref,
+    'ts',       v_row.ts,
+    'customer', v_row.customer,
+    'note',     v_row.note,
+    'items',    v_row.items,
+    'pieces',   v_row.pieces,
+    'total',    v_row.total,
+    'status',   v_row.status
+  );
+end $$;
+
+revoke all on function public.order_lookup(text, text) from public;
+grant execute on function public.order_lookup(text, text) to anon, authenticated;
+
+
+-- ------------------------------------------------------------
 -- Done. Go back to the app and reload it.
 --   Branch Transfers            works
 --   Settings → Staff Directory  works
 --   Settings → Who can be sent a code   works
+--   Customer page → My Orders → Check for the shop's reply   works
 -- ------------------------------------------------------------

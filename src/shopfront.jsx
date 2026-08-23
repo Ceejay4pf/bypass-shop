@@ -51,7 +51,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, ShoppingCart, Plus, Minus, X, Send, Loader2, AlertTriangle, Phone,
   CheckCircle2, MessageCircle, MapPin, PackageSearch, ChevronRight, ChevronLeft,
-  Trash2, ArrowLeft,
+  Trash2, ArrowLeft, ClipboardList, Megaphone,
 } from "lucide-react";
 import * as api from "./lib/api.js";
 import { isConfigured } from "./lib/supabase.js";
@@ -65,6 +65,8 @@ import {
   addToCart, setCartQty, removeFromCart, cartTotals, cartFull, MAX_PER_LINE,
   loadCart, saveCart, clearCart, matchesQuery, yearText, priceText,
 } from "./lib/cart.js";
+import { MyOrders, Adverts } from "./CustomerPages.jsx";
+import { addOrder, orderRecord } from "./lib/myOrders.js";
 
 const shop = SHOP_INFO.branch;
 
@@ -287,6 +289,12 @@ function Row({ item, section, inCart, onAdd, onStep, highlight = false }) {
 }
 
 export default function Shopfront({ onLeave }) {
+  /* WHICH OF THE THREE PAGES IS SHOWING.
+     The parts list, the orders this phone has sent, and a few pages of what the
+     shop deals in. The basket is deliberately NOT one of them — it stays the
+     overlay it has always been, reachable from all three by the bar along the
+     bottom. A basket you have to navigate to is a basket you lose your place in. */
+  const [page, setPage] = useState("shop");
   const [items, setItems] = useState(null);      // null = still loading
   const [sections, setSections] = useState(DEFAULT_CATEGORIES);
   const [err, setErr] = useState("");
@@ -449,7 +457,7 @@ export default function Shopfront({ onLeave }) {
   useEffect(() => { setShown(30); }, [query, cat, make, model]);
   /* Back to the top when the screen changes. Landing halfway down a new list is
      disorienting on a phone. */
-  useEffect(() => { window.scrollTo({ top: 0 }); }, [cat, make, model, searching]);
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [cat, make, model, searching, page]);
 
   const totals = cartTotals(cart);
   const lineFor = (code) => cart.find((l) => l.code === code) || null;
@@ -496,6 +504,12 @@ export default function Shopfront({ onLeave }) {
     setErr("");
     try {
       const res = await api.placeCustomerOrder({ customer: name, phone, note, items: cart });
+      /* Written to this phone BEFORE the basket is emptied, so the reference
+         survives the screen it is shown on. Everything after this point in the
+         customer's day — "what was my number again" — depends on this line. */
+      addOrder(window.localStorage, orderRecord({
+        ref: res?.ref, phone, name, lines: cart, at: Date.now(),
+      }));
       setSent(res);
       setCart(clearCart());
       setNote("");
@@ -531,9 +545,60 @@ export default function Shopfront({ onLeave }) {
             </a>
           </div>
         </div>
+
+        {/* ---- the three pages ----
+            In the dark header rather than along the bottom of the screen,
+            because the bottom of the screen belongs to the basket. Three words,
+            no icons-only guessing: "my orders" is the one nobody would find if
+            it were a symbol. */}
+        <div className="max-w-3xl mx-auto px-4 flex gap-1 -mb-px">
+          {[
+            { key: "shop",   label: "Parts",       Icon: PackageSearch },
+            { key: "orders", label: "My orders",   Icon: ClipboardList },
+            { key: "ads",    label: "What we do",  Icon: Megaphone },
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setPage(t.key)}
+              className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-3 py-2.5 rounded-t-md border-b-2 transition-colors ${
+                page === t.key
+                  ? "bg-[#F3F5F8] text-[#1B2430] border-[#F3F5F8]"
+                  : "text-[#9BB7F0] border-transparent hover:text-[#F3F5F8]"
+              }`}
+            >
+              <t.Icon size={13} /> {t.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-4 pb-28">
+        {/* Outside the three pages on purpose: sending a basket can fail while the
+            customer is looking at the adverts, and a message drawn only on the
+            parts page would never be read. */}
+        {err && (
+          <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3 flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+            <div>
+              {err}
+              <div className="mt-1 text-[11px]">Or call {shop.phone}.</div>
+            </div>
+          </div>
+        )}
+
+        {page === "orders" ? (
+          <MyOrders reload={sent?.ref || ""} />
+        ) : page === "ads" ? (
+          <Adverts
+            sections={sections}
+            /* A poster is only worth tapping if it lands on the shelf it shows.
+               It moves to the parts page as well as opening the section — leaving
+               the customer on the adverts wondering what happened would be worse
+               than not offering the button. */
+            onPickSection={(key) => { setPage("shop"); openSection(key); }}
+          />
+        ) : (
+        <>
         {/* ---- search, on every screen ---- */}
         <div className="relative mb-3">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6472]" />
@@ -549,16 +614,6 @@ export default function Shopfront({ onLeave }) {
             </button>
           )}
         </div>
-
-        {err && (
-          <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3 flex items-start gap-2">
-            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-            <div>
-              {err}
-              <div className="mt-1 text-[11px]">Or call {shop.phone}.</div>
-            </div>
-          </div>
-        )}
 
         {items === null ? (
           <div className="flex items-center gap-2 text-[#5A6472] text-sm py-10 justify-center">
@@ -736,6 +791,8 @@ export default function Shopfront({ onLeave }) {
             )}
           </>
         )}
+        </>
+        )}
 
         <div className="mt-8 pt-4 border-t border-[#DEE3E9] text-[11px] text-[#5A6472] leading-relaxed">
           <div className="font-semibold text-[#1B2430]">{shop.name}</div>
@@ -810,15 +867,26 @@ export default function Shopfront({ onLeave }) {
                 <p className="text-xs text-[#5A6472] mt-2">
                   How many of each we can supply is confirmed on that call.
                 </p>
+                {/* It is now also saved on this phone, so the reference is no
+                    longer something they have to write down before closing the
+                    screen. Said plainly, because a customer who does not know it
+                    was kept will still write it on their hand. */}
                 <p className="text-xs text-[#5A6472] mt-3">
-                  Keep {sent.ref} to hand — quoting it saves explaining the whole order again.
+                  {sent.ref} is saved on this phone under <span className="font-semibold">My orders</span>,
+                  where you can also see the shop&apos;s reply once it has been priced.
                 </p>
                 <div className="flex flex-col gap-2 mt-4">
                   <a href={telLink} className="flex items-center justify-center gap-1.5 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide text-xs rounded-md py-2.5">
                     <Phone size={14} /> Call the shop now
                   </a>
                   <button
-                    onClick={() => { setSent(null); setBasketOpen(false); }}
+                    onClick={() => { setSent(null); setBasketOpen(false); setPage("orders"); }}
+                    className="flex items-center justify-center gap-1.5 border border-[#2563EB] bg-[#FFFFFF] text-[#2563EB] rounded-md py-2.5 text-xs font-bold uppercase tracking-wide"
+                  >
+                    <ClipboardList size={14} /> See my orders
+                  </button>
+                  <button
+                    onClick={() => { setSent(null); setBasketOpen(false); setPage("shop"); }}
                     className="border border-[#DEE3E9] bg-[#FFFFFF] rounded-md py-2.5 text-xs font-bold uppercase tracking-wide text-[#5A6472]"
                   >
                     Back to the list

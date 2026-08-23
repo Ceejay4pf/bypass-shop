@@ -18,9 +18,8 @@
      3. One of the paths below, so a link works today with no setup at all.
 
    AND THE FRONT DOOR, for anybody who arrives at the bare address without one of
-   those paths. Rather than guessing, it asks: customer, or working here? The
-   answer is kept on that device, so a storekeeper answers once and never again
-   and the shop's own link behaves exactly as it always did. See `frontDoor`.
+   those paths. Rather than guessing, it asks: customer, or working here? It asks
+   EVERY time — see `frontDoor`.
 
    Pure and testable: it is handed a host and a path rather than reading the
    browser, because getting this wrong in either direction is serious — staff
@@ -91,35 +90,43 @@ export function isPublicRequest({ host = "", path = "", publicHost = "" } = {}) 
      "staff"    - the shop's own system
      "choose"   - neither is known, so put the question on the screen
 
-   A LINK ALWAYS WINS OVER A REMEMBERED ANSWER. Somebody sent /jaspare on
-   WhatsApp gets the parts list even if that phone once chose "staff" — the link
-   is what the sender meant, and it is the newer instruction of the two.
+   A LINK ALWAYS WINS. /jaspare is the parts list and /system is the sign-in
+   screen, on any device, without being asked anything: somebody who sent a link
+   has already answered the question on the visitor's behalf, and a shortcut on a
+   counter phone must not stop to ask every morning.
+
+   THE BARE ADDRESS ASKS EVERY TIME, AND KEEPS NOTHING.
+   It used to answer once and remember, so a phone went straight through
+   afterwards. That was fewer taps and it was wrong: a phone that answered
+   "customer" once was on the customer page for good, and the way out was a path
+   nobody had been told about. One tap on arrival is a much smaller price than
+   being unable to reach the sign-in screen at all — and a shop phone that wants
+   no question can be given /system, which is what a home-screen shortcut should
+   point at anyway.
+
+   Nothing about the visitor is stored, which is also one less thing on somebody's
+   phone to explain.
 --------------------------------------------------------- */
 
-export const DOOR_KEY = "bp_front_door";
 export const DOORS = ["customer", "staff"];
 
-export function frontDoor({ host = "", path = "", publicHost = "", remembered = "" } = {}) {
+/* Kept only so old saves can be cleared off phones that answered under the
+   previous behaviour — see main.jsx. Nothing writes it any more. */
+export const DOOR_KEY = "bp_front_door";
+
+export function frontDoor({ host = "", path = "", publicHost = "" } = {}) {
   if (isPublicRequest({ host, path, publicHost })) return "customer";
   if (STAFF_PATHS.includes(cleanPath(path))) return "staff";
-  return DOORS.includes(remembered) ? remembered : "choose";
+  return "choose";
 }
 
-/* The device's answer. A storage object is passed in rather than reached for, so
-   this is testable and so a phone with storage switched off is a caller's problem
-   rather than a crash — it simply gets asked again, which is harmless. */
-export function readDoor(store) {
-  try {
-    const v = store && store.getItem(DOOR_KEY);
-    return DOORS.includes(v) ? v : "";
-  } catch { return ""; }
-}
+/* A storage object is passed in rather than reached for, so a phone with storage
+   switched off is a caller's problem rather than a crash.
 
-export function rememberDoor(store, which) {
-  if (!DOORS.includes(which)) return false;
-  try { store && store.setItem(DOOR_KEY, which); return true; } catch { return false; }
-}
-
+   True means "the old answer is gone from this phone". No storage is not that, so
+   it is false: the one thing this must never do is report a clean-up it did not
+   perform. */
 export function forgetDoor(store) {
-  try { store && store.removeItem(DOOR_KEY); return true; } catch { return false; }
+  if (!store) return false;
+  try { store.removeItem(DOOR_KEY); return true; } catch { return false; }
 }

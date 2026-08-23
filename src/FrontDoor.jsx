@@ -11,14 +11,15 @@ import { SLIDES } from "./lib/slides.js";
    address alone does not say which — somebody typed the bare link, or tapped the
    installed app for the first time — this asks instead of guessing.
 
-   IT IS ASKED ONCE PER DEVICE. The answer is kept in localStorage (see
-   `rememberDoor` in src/lib/publicRoute.js), so a storekeeper taps "I work here"
-   on their first morning and the shop's link behaves exactly as it always did
-   from then on. A customer taps the other one and never sees a sign-in screen.
+   IT ASKS EVERY TIME AND KEEPS NOTHING. It used to answer once per device and
+   remember, which was fewer taps and meant a phone that tapped "customer" once
+   could no longer reach the sign-in screen at all — the way out was a path nobody
+   had been told about. One tap on opening is the smaller price.
 
-   A LINK STILL BEATS THIS. /jaspare goes straight to the parts list and /system
-   straight to the sign-in, whatever this device answered — which is why the link
-   handed to a customer is the one that matters, not this screen.
+   A LINK STILL BEATS THIS, and that is the answer for anybody who resents the
+   tap: /jaspare goes straight to the parts list and /system straight to the
+   sign-in, no question asked. A shop phone's home-screen shortcut belongs on
+   /system, and the link handed to a customer belongs on /jaspare.
 --------------------------------------------------------- */
 
 export default function FrontDoor({ onPick }) {
@@ -99,9 +100,9 @@ export default function FrontDoor({ onPick }) {
         {/* Said plainly, because a screen that silently remembers an answer is a
             screen somebody thinks is broken when it stops appearing. */}
         <p className="text-[#6F8299] text-[11px] text-center mt-4 leading-relaxed">
-          This phone will remember your answer and go straight there next time.
-          Both pages have a small link at the bottom that brings you back here, so
-          a wrong answer costs one tap.
+          Nothing is saved and nothing is remembered — you&apos;ll be asked again next
+          time you open it. Both pages have a small link at the bottom that brings
+          you straight back here.
         </p>
       </div>
     </div>

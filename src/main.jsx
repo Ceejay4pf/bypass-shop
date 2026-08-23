@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import Shopfront from "./shopfront.jsx";
 import FrontDoor from "./FrontDoor.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
-import { frontDoor, readDoor, rememberDoor, forgetDoor } from "./lib/publicRoute.js";
+import { frontDoor, forgetDoor } from "./lib/publicRoute.js";
 import "./index.css";
 
 /* Two front doors on one build: the public parts list, and the shop's own
@@ -12,44 +12,36 @@ import "./index.css";
    it can be tested — sending staff to the customer page, or the customer page
    to the street, are both serious.
 
-   THE SHOP'S LINK DID NOT CHANGE. https://bypass-shop.vercel.app still opens the
-   sign-in screen on any device that has answered "I work at the shop" once, and
-   /system opens it on any device at all. What is new is that a device which has
-   never answered is asked, instead of being dropped on a sign-in screen it may
-   have no business seeing. */
+   THE LINKS DID NOT CHANGE. /jaspare is still the parts list and /system is still
+   the sign-in screen, both without a question — a link is somebody having already
+   answered on the visitor's behalf.
+
+   What the bare address does is ask, every time, and keep nothing. It used to
+   remember the answer and go straight through afterwards, which was fewer taps
+   and left a phone that once tapped "customer" unable to reach the sign-in screen
+   at all. One tap on opening is the smaller price. A counter phone that should
+   never be asked belongs on /system. */
 function Root() {
   const [door, setDoor] = useState(() =>
     frontDoor({
       host: window.location.hostname,
       path: window.location.pathname,
       publicHost: import.meta.env.VITE_PUBLIC_HOST || "",
-      remembered: readDoor(window.localStorage),
     })
   );
 
-  /* Remembered, so the question is asked once per device and not once per visit.
-     A storekeeper's phone answers on the first morning and behaves like the old
-     link forever after. */
-  const pick = useCallback((which) => {
-    rememberDoor(window.localStorage, which);
-    setDoor(which);
-  }, []);
+  const pick = useCallback((which) => setDoor(which), []);
 
-  /* The way back for a phone that answered wrong, and it is on BOTH pages.
-
-     It was on the sign-in screen only to begin with, on the reasoning that the
-     parts list gets handed to strangers and /system was enough of a back door for
-     a staff phone. That was wrong in practice: nobody tells a storekeeper to type
-     a path they have never seen, so a phone that tapped "customer" once was on
-     the customer page for good. It is a discreet line at the very bottom of the
-     parts page — see the note there.
-
-     Both routes forget the answer and ask again rather than jumping to the other
-     page, so whichever is picked is what the phone remembers from then on. */
+  /* Back to the question, from either page. Also clears the answer saved by the
+     old behaviour, so a phone that chose once under the previous build isn't
+     carrying a setting nothing reads any more. */
   const reset = useCallback(() => {
     forgetDoor(window.localStorage);
     setDoor("choose");
   }, []);
+
+  /* Same clean-up on arrival, for the phones that never press the back link. */
+  useEffect(() => { forgetDoor(window.localStorage); }, []);
 
   if (door === "choose") return <FrontDoor onPick={pick} />;
   if (door === "customer") return <Shopfront onLeave={reset} />;

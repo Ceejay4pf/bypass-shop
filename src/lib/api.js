@@ -1529,6 +1529,39 @@ export async function placeCustomerOrder({ customer, phone, note, items }) {
   return data;
 }
 
+/* A customer reading their own order back, with no account.
+
+   Needs BOTH the reference and the phone it was placed with, and the checking is
+   done inside the database (order_lookup, in supabase/SETUP_REMAINING.sql) —
+   customer_orders has no anon read policy at all, so there is no way to ask this
+   question any other way. The reference alone would not be enough: they count
+   upwards, and anybody could try the next one.
+
+   Returns the order, or null for "no such order" — which is deliberately the same
+   answer as "wrong number for that reference", because saying which of the two it
+   was would turn this into a way of confirming that a reference exists.
+
+   Throws { setup: true } when the function has not been created yet, so the
+   screen can say "not available yet, please call" instead of showing a customer a
+   Postgres error. */
+export async function lookupCustomerOrder(ref, phone) {
+  const { data, error } = await supabase.rpc("order_lookup", {
+    p_ref: String(ref || "").trim(),
+    p_phone: String(phone || "").trim(),
+  });
+  if (error) {
+    const code = String(error.code || "");
+    const msg = String(error.message || "");
+    if (code === "42883" || code === "PGRST202" || /could not find the function/i.test(msg)) {
+      const e = new Error("Checking an order isn't switched on yet.");
+      e.setup = true;
+      throw e;
+    }
+    throw new Error(msg || "That couldn't be checked. Please call the shop.");
+  }
+  return data || null;
+}
+
 /* ---- the staff side of the same thing ---- */
 function rowToCustomerOrder(r) {
   return {
