@@ -21,6 +21,7 @@ import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
 import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
 import * as api from "./lib/api.js";
 import { generateCode, isLowStock } from "./data.js";
+import { cacheAge } from "./lib/stockCache.js";
 import { orderToDraft } from "./lib/receiptDraft.js";
 import {
   readSplit, writeSplit, readRightTab, writeRightTab, rightScreen, canSplit,
@@ -148,7 +149,7 @@ function useClock() {
 }
 
 function BypassShop({ session }) {
-  const { items, loading: itemsLoading, error, reload: reloadItems } = useInventory();
+  const { items, loading: itemsLoading, error, reload: reloadItems, stale } = useInventory();
   const { notifications, reload: reloadNotifications } = useNotifications();
   /* The full sales register, for Reports. The activity feed above is capped at
      200 rows so it loads fast, which makes it the wrong source for a month or a
@@ -952,11 +953,26 @@ function BypassShop({ session }) {
             whole window, because half of 3xl is a column too narrow for a table
             of parts. */}
         <main className={`flex-1 p-4 w-full mx-auto ${split ? "max-w-[1700px]" : "max-w-3xl"}`}>
-          {error && (
+          {/* When the phone's saved copy of the stock list is what's on screen,
+              this replaces the red error rather than joining it. Both at once
+              would say "broken" about a screen that is full of usable stock —
+              but saying nothing would be worse, because every quantity below is
+              as old as the timestamp and somebody is about to sell from it. */}
+          {stale ? (
+            <div className="bg-[#FEF6E7] border border-[#E0A93B] text-[#6B5417] rounded-md p-3 text-sm mb-4 flex items-start gap-2">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                <span className="font-bold">No connection — this is what this phone last saw.</span>{" "}
+                Taken {cacheAge(stale.at, Date.now())}. Quantities and prices may
+                have changed since, and nothing can be sold or edited until the
+                shop is back online.
+              </div>
+            </div>
+          ) : error ? (
             <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-4 flex items-center gap-2">
               <AlertTriangle size={15} /> {error}
             </div>
-          )}
+          ) : null}
           {itemsLoading && (
             <div className="flex items-center gap-2 text-[#5A6472] text-sm mb-4">
               <Loader2 size={14} className="animate-spin" /> Loading shared inventory from the cloud…

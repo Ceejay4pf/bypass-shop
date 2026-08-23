@@ -11,6 +11,7 @@ import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
+import { InstallNudge } from "./InstallApp.jsx";
 import { SlidePictures, useSlideshow } from "./PartsShow.jsx";
 import { SLIDES } from "./lib/slides.js";
 
@@ -1066,6 +1067,13 @@ export default function LoginGate({ onLeave }) {
               Still failing? Reset the app
             </button>
           )}
+        </div>
+
+        {/* "Put this on the home screen" — under the login card, not over it.
+            It draws nothing at all unless there is one tap to gain, and it closes
+            for good, because nothing may come between somebody and signing in. */}
+        <div className="mt-3">
+          <InstallNudge />
         </div>
 
         {/* For whoever answered "I work at the shop" and meant the other one, and

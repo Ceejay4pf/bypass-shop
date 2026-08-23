@@ -41,6 +41,7 @@ import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { publicLink } from "./lib/publicRoute.js";
 import { setupFor } from "./lib/setupNeeded.js";
+import { InstallCard } from "./InstallApp.jsx";
 import SetupNotice from "./SetupNotice.jsx";
 /* How tightly a printed stock list packs its rows, and the stamp that goes on
    every page. Pure, so the page count promised on screen is worked out by the
@@ -8370,6 +8371,8 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
             : "You're signed in as staff: you can view stock, sell, and make quotations. Adding, editing or deleting stock is admin-only."}
         </p>
       </div>
+
+      <InstallCard />
 
       <MyEmailCard email={email} />
 

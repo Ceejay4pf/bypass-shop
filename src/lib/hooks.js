@@ -13,12 +13,20 @@ import {
   fetchPartCategories, subscribePartCategories, fetchSales, rowToSale,
 } from "./api.js";
 import { DEFAULT_CATEGORIES, mergeCategories } from "../data.js";
+import { readCache, writeCache } from "./stockCache.js";
 
-/* Live inventory. Returns { items, loading, error, reload }. */
+/* Live inventory. Returns { items, loading, error, reload, stale }.
+
+   `stale` is null in the ordinary case. It is set only when the read failed and
+   this phone's saved copy of the list was shown instead — see
+   lib/stockCache.js — and it carries when that copy was taken, so the screen can
+   say so out loud. A cached quantity presented as a live one is how a part gets
+   sold twice. */
 export function useInventory() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [stale, setStale] = useState(null);
 
   const reload = useCallback(async () => {
     try {
@@ -27,7 +35,12 @@ export function useInventory() {
       const list = await fetchInventory();
       setItems(list);
       setError(null);
+      setStale(null);
       setLoading(false);
+
+      // Keep it on the phone, so a dead spot shows the shop's stock rather than
+      // an empty list. Photos are stripped inside writeCache.
+      writeCache(window.localStorage, list, Date.now());
 
       // Then the photos, merged in as they arrive. A slow or failed photo
       // fetch never stops staff from seeing and selling stock.
@@ -42,6 +55,17 @@ export function useInventory() {
     } catch (e) {
       setError(e.message || String(e));
       setLoading(false);
+
+      /* Fall back to the phone's copy — but only to fill an empty screen. If
+         stock is already showing, from a read that worked earlier in this
+         session, replacing it with something older would be a step backwards. */
+      setItems((prev) => {
+        if (prev.length) return prev;
+        const saved = readCache(window.localStorage);
+        if (!saved) return prev;
+        setStale({ at: saved.at });
+        return saved.items;
+      });
     }
   }, []);
 
@@ -66,7 +90,7 @@ export function useInventory() {
     return () => supabase.removeChannel(channel);
   }, [reload]);
 
-  return { items, loading, error, reload };
+  return { items, loading, error, reload, stale };
 }
 
 /* The category list: the built-in sections plus whatever the shop has added.

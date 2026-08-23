@@ -1,11 +1,23 @@
 /* Bypass Shop — minimal service worker.
    Caches the app shell so it opens fast and survives a flaky connection.
    Live inventory data still comes from Supabase over the network. */
-const CACHE = "bypass-shop-v34";
-const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
+const CACHE = "bypass-shop-v35";
+const SHELL = [
+  "/", "/index.html", "/manifest.webmanifest",
+  "/icon.svg", "/icon-192.png", "/icon-512.png",
+  "/icon-maskable-512.png", "/apple-touch-icon.png",
+];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches
+      .open(CACHE)
+      // One at a time, not addAll: addAll is all-or-nothing, so a single icon
+      // that 404s after a rename would leave the app with no cache at all and
+      // nothing working offline. A missing icon should cost that icon only.
+      .then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {}))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
