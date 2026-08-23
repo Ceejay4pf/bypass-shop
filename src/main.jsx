@@ -35,21 +35,24 @@ function Root() {
     setDoor(which);
   }, []);
 
-  /* The way back for a phone that answered wrong. Offered on the SIGN-IN screen
-     only: a customer who ended up there needs a way out, and the parts list is
-     nothing to hide.
+  /* The way back for a phone that answered wrong, and it is on BOTH pages.
 
-     Not offered on the parts list, because that page gets handed to strangers and
-     a button to the shop's own system is not part of what they were given. A
-     staff phone that answered "customer" is still not stuck — /system beats any
-     remembered answer. */
+     It was on the sign-in screen only to begin with, on the reasoning that the
+     parts list gets handed to strangers and /system was enough of a back door for
+     a staff phone. That was wrong in practice: nobody tells a storekeeper to type
+     a path they have never seen, so a phone that tapped "customer" once was on
+     the customer page for good. It is a discreet line at the very bottom of the
+     parts page — see the note there.
+
+     Both routes forget the answer and ask again rather than jumping to the other
+     page, so whichever is picked is what the phone remembers from then on. */
   const reset = useCallback(() => {
     forgetDoor(window.localStorage);
     setDoor("choose");
   }, []);
 
   if (door === "choose") return <FrontDoor onPick={pick} />;
-  if (door === "customer") return <Shopfront />;
+  if (door === "customer") return <Shopfront onLeave={reset} />;
   return <App onLeave={reset} />;
 }
 

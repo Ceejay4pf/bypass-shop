@@ -286,7 +286,7 @@ function Row({ item, section, inCart, onAdd, onStep, highlight = false }) {
   );
 }
 
-export default function Shopfront() {
+export default function Shopfront({ onLeave }) {
   const [items, setItems] = useState(null);      // null = still loading
   const [sections, setSections] = useState(DEFAULT_CATEGORIES);
   const [err, setErr] = useState("");
@@ -741,13 +741,34 @@ export default function Shopfront() {
           <div className="font-semibold text-[#1B2430]">{shop.name}</div>
           <div>{shop.location} · {shop.phone}</div>
           <div className="mt-1">We stock parts for {shop.makes}.</div>
-          {/* No link to the shop's own system from here, deliberately. This page
-              is handed to strangers; the sign-in screen is not part of what they
-              were given, and staff know their own address.
 
-              That holds even now the front door asks which you are: a staff phone
-              that answered "customer" by mistake is not stuck, because /system
-              beats a remembered answer. See frontDoor in src/lib/publicRoute.js. */}
+          {/* THE WAY BACK.
+
+              This page used to offer none, on the reasoning that it gets handed
+              to strangers and the shop's sign-in screen is not part of what they
+              were given — /system was the way back for a staff phone that
+              answered wrong. That reasoning was worth less than it cost: nobody
+              tells a storekeeper to type a path they have never seen, so in
+              practice a phone that tapped "customer" once was on the customer
+              page for good.
+
+              So it is here, but as small as it can be and last on the page,
+              under the shop's own address: a customer scrolling to find the phone
+              number is not being invited anywhere.
+
+              It goes back to the QUESTION, not straight to the sign-in screen.
+              Answering it again is what replaces the remembered "customer" with
+              "staff" — landing on sign-in directly would leave the phone opening
+              the customer page tomorrow morning all over again. */}
+          {onLeave && (
+            <button
+              onClick={onLeave}
+              className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-[#5A6472] hover:text-[#2563EB] transition-colors"
+            >
+              <ArrowLeft size={12} />
+              <span>Shop staff? Go back and sign in</span>
+            </button>
+          )}
         </div>
       </div>
 

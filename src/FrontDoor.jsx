@@ -100,7 +100,8 @@ export default function FrontDoor({ onPick }) {
             screen somebody thinks is broken when it stops appearing. */}
         <p className="text-[#6F8299] text-[11px] text-center mt-4 leading-relaxed">
           This phone will remember your answer and go straight there next time.
-          The sign-in screen has a way back to the parts list.
+          Both pages have a small link at the bottom that brings you back here, so
+          a wrong answer costs one tap.
         </p>
       </div>
     </div>
