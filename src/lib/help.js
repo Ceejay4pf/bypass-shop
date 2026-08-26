@@ -220,7 +220,12 @@ export const HELP_TOPICS = [
   },
   {
     key: "credit",
-    test: /\b(credit|owe|owing|debt|debtors?|unpaid|pending payment|on account)\b/,
+    /* "owes" and "owed" are here because of the third line below. The topic told
+       people to ask "who owes us money" and that exact sentence found nothing:
+       the word in the list was "owe", and \b after it cannot match the s. The
+       data answer (ask.js) has always read all four forms, so what failed was
+       only the how-do-I path — which is the one that prints this advice. */
+    test: /\b(credit|owe[sd]?|owing|debt|debtors?|unpaid|pending payment|on account)\b/,
     title: "Money owed to the shop",
     lines: [
       "A sale saved as unpaid stays counted as a sale and stays owed. Credit Accounts groups what is owed by customer, with their number, so it can be chased.",

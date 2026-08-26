@@ -8683,6 +8683,9 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
   const [shortOf] = useState(draft?.shortOf || []);
   const [orderNote] = useState(draft?.note || "");
   const [savedNumber, setSavedNumber] = useState(""); // set after a successful save
+  /* What was on the form at the moment it saved, so a second tap on Save cannot
+     write the same quotation twice under a second number. See `sig` below. */
+  const [savedSig, setSavedSig] = useState("");
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
   const [showPast, setShowPast] = useState(false);
@@ -8705,13 +8708,27 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
 
   const filledLines = lines.filter((l) => l.desc.trim() && lineTotal(l) > 0);
 
+  /* Everything that ends up on the document, as one string. Compared with what
+     was saved so the Save button can go quiet once it has nothing new to write —
+     and come back the moment a figure is edited. */
+  const sig = JSON.stringify([customer, phone, discount, filledLines]);
+  const alreadySaved = Boolean(savedNumber) && sig === savedSig;
+
+  /* Emptying the form is now something a person does, not something that happens
+     to them. It used to be neither: the banner announced "starting a fresh quote
+     below" and this was never called from anywhere, so the figures stayed put and
+     the sentence was simply untrue. Wiring it into the save would have been the
+     wrong repair — PDF / Print and Send on WhatsApp below both build the document
+     from these same lines, so clearing them at save is a quotation that cannot be
+     printed or sent, which is most of the reason for writing one. */
   const resetForm = () => {
     setCustomer(""); setPhone(""); setDiscount("");
     setLines([{ desc: "", qty: "1", price: "" }]);
+    setSavedNumber(""); setSavedSig("");
   };
 
   const saveQuote = async () => {
-    if (filledLines.length === 0 || saving) return;
+    if (filledLines.length === 0 || saving || alreadySaved) return;
     setSaving(true);
     try {
       const q = await api.saveQuote(
@@ -8719,6 +8736,7 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
         user
       );
       setSavedNumber(q.number);
+      setSavedSig(sig);
       openPdf(q.number); // open the PDF straight away with the assigned number
       if (showPast) api.fetchQuotes().then(setPast).catch(() => {});
     } catch (e) {
@@ -8839,9 +8857,26 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
         <PastQuotes past={past} onMakeReceipt={onMakeReceipt} />
       ) : (
       <>
+      {/* What actually happened, rather than what used to be claimed. The figures
+          stay on screen after a save because printing and sending both work off
+          them — so the banner says so, and offers the button that empties the
+          form instead of pretending it already did. */}
       {savedNumber && (
-        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-center gap-2">
-          <Check size={15} /> Saved as <span className="font-bold font-mono">{savedNumber}</span>. Starting a fresh quote below.
+        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-start gap-2">
+          <Check size={15} className="mt-0.5 shrink-0" />
+          <div className="flex-1">
+            Saved as <span className="font-bold font-mono">{savedNumber}</span>.
+            {" "}It is still on screen below, so you can print it or send it again.
+            {alreadySaved
+              ? " Change a figure and Save writes a new one."
+              : " Save again to issue a new quotation with these changes."}
+            <button
+              onClick={resetForm}
+              className="mt-2 block font-bold uppercase tracking-wide text-xs border border-[#15926A] rounded-md px-3 py-1.5"
+            >
+              Start a fresh quote
+            </button>
+          </div>
         </div>
       )}
 
@@ -8940,10 +8975,11 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
 
       <button
         onClick={saveQuote}
-        disabled={filledLines.length === 0 || saving}
+        disabled={filledLines.length === 0 || saving || alreadySaved}
         className="w-full mt-4 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform"
       >
-        <FileText size={16} /> {saving ? "Saving…" : "Save quote (get number)"}
+        <FileText size={16} />{" "}
+        {saving ? "Saving…" : alreadySaved ? `Saved as ${savedNumber}` : "Save quote (get number)"}
       </button>
 
       <div className="flex gap-3 mt-3">
@@ -9000,6 +9036,9 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
   const [shortOf] = useState(draft?.shortOf || []);
   const [orderNote] = useState(draft?.note || "");
   const [savedNumber, setSavedNumber] = useState("");
+  /* What was on the form at the moment it saved, so a second tap on Save cannot
+     hand the same customer two receipts for one payment. See `sig` below. */
+  const [savedSig, setSavedSig] = useState("");
   const [saving, setSaving] = useState(false);
   const [past, setPast] = useState([]);
   const [showPast, setShowPast] = useState(false);
@@ -9208,10 +9247,26 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
 
   const filledLines = lines.filter((l) => l.desc.trim() && lineTotal(l) > 0);
 
+  /* Everything that ends up on the document, as one string. Compared with what
+     was saved so Save goes quiet once there is nothing new to write — and comes
+     back the moment a figure is edited. Two receipts under two numbers for one
+     payment is the mistake this stops, and the banner below used to stop it by
+     accident: it said the form had been emptied, which it had not. */
+  const sig = JSON.stringify([customer, phone, discount, paid, method, docType, customerType, filledLines]);
+  const alreadySaved = Boolean(savedNumber) && sig === savedSig;
+
+  /* Emptying the form is something a person does, not something that happens to
+     them. It used to be neither — the banner announced "starting a fresh receipt
+     below" and nothing called this, so the figures stayed where they were and the
+     sentence was untrue. Calling it from the save would have been the wrong
+     repair: PDF / Print and Send on WhatsApp below both build the document out of
+     these same lines, so clearing them at save is a receipt that cannot be
+     reprinted for the customer standing at the counter. */
   const resetForm = () => {
     setCustomer(""); setPhone(""); setDiscount(""); setPaid(""); setMethod("Cash");
     setLines([{ desc: "", qty: "1", price: "" }]);
     setDocType("Receipt"); setCustomerType("Walk-in");
+    setSavedNumber(""); setSavedSig("");
     /* The source goes with the figures. A blank form that still remembers it came
        from QT-2026-0014 would stamp that quote Converted against a receipt for
        something else entirely. */
@@ -9220,7 +9275,7 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
   };
 
   const saveReceipt = async () => {
-    if (filledLines.length === 0 || saving) return;
+    if (filledLines.length === 0 || saving || alreadySaved) return;
     setSaving(true);
     try {
       const rc = await api.saveReceipt(
@@ -9237,6 +9292,7 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
         user
       );
       setSavedNumber(rc.number);
+      setSavedSig(sig);
       /* The quote is stamped Converted only now — after the receipt has actually
          saved. Doing it when the button was tapped would leave a quote marked
          Converted against a receipt that failed, and nobody would ever quote from
@@ -9428,9 +9484,26 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
         <PastReceipts past={past} />
       ) : (
       <>
+      {/* What actually happened, rather than what used to be claimed. The figures
+          stay on screen after a save because printing and sending both work off
+          them — so the banner says so, and offers the button that empties the
+          form instead of pretending it already did. */}
       {savedNumber && (
-        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-center gap-2">
-          <Check size={15} /> Saved as <span className="font-bold font-mono">{savedNumber}</span>. Starting a fresh receipt below.
+        <div className="bg-[#E6F6EF] border border-[#15926A] text-[#15926A] rounded-md p-3 mb-4 text-sm flex items-start gap-2">
+          <Check size={15} className="mt-0.5 shrink-0" />
+          <div className="flex-1">
+            Saved as <span className="font-bold font-mono">{savedNumber}</span>.
+            {" "}It is still on screen below, so you can print it or send it again.
+            {alreadySaved
+              ? " Nothing more is saved until you change something."
+              : " Save again to issue a second receipt with these changes."}
+            <button
+              onClick={resetForm}
+              className="mt-2 block font-bold uppercase tracking-wide text-xs border border-[#15926A] rounded-md px-3 py-1.5"
+            >
+              Start a fresh receipt
+            </button>
+          </div>
         </div>
       )}
 
@@ -9954,10 +10027,11 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
 
       <button
         onClick={saveReceipt}
-        disabled={filledLines.length === 0 || saving}
+        disabled={filledLines.length === 0 || saving || alreadySaved}
         className="w-full mt-3 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform"
       >
-        <FileText size={16} /> {saving ? "Saving…" : "Save receipt (get number)"}
+        <FileText size={16} />{" "}
+        {saving ? "Saving…" : alreadySaved ? `Saved as ${savedNumber}` : "Save receipt (get number)"}
       </button>
 
       <div className="flex gap-3 mt-3">

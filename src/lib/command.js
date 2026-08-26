@@ -59,11 +59,26 @@ const INSTRUCTION_WORDS = new Set([
   ...Object.keys(NUMBER_WORDS),
 ]);
 
+/* Anything written as hyphen-joined pieces: a part code (FBM-MZD-AXL-18-0001), a
+   shelf address (A-R03-S02-B05), a date. Three pieces at least, so an ordinary
+   hyphenated word like "side-mirror" and a range like "9000-9500" are not caught. */
+const HYPHENATED = /\b[a-z0-9]+(?:-[a-z0-9]+){2,}\b/gi;
+
+/* Of those, the ones shaped like a part code: letters, then up to five pieces,
+   then a serial. Used to tell a mistyped code from a word that merely has
+   hyphens in it, because the two need different answers. */
+const CODE_SHAPED = /^[a-z]{2,4}(?:-[a-z0-9]{1,4}){1,5}-\d{1,5}$/;
+
 /* Read a number, written either way. Returns null when there isn't one, which
    the caller turns into a question rather than a default — guessing a quantity
    is guessing about stock. */
 export function readNumber(text) {
-  const t = String(text || "").toLowerCase();
+  /* Hyphenated codes come out first, or the digit match below reads the middle of
+     one. "set FBM-MZD-AXL-18-0001 to 4" answered "that's a negative number, which
+     can't be a quantity or a price" — minus eighteen, out of the year slot of a
+     code, about a number nobody typed and with no clue as to where it came from.
+     A code, a shelf address and a date are none of them ever the figure asked for. */
+  const t = String(text || "").toLowerCase().replace(HYPHENATED, " ");
   // Digits first, commas and all: "9,500" is one number, not two.
   const digits = t.match(/-?\d[\d,]*(?:\.\d+)?/);
   if (digits) {
@@ -94,6 +109,44 @@ export function selectParts(text, items = [], categories = []) {
   for (const w of ALL_WORDS) low = low.replace(new RegExp(`\\b${w}\\b`, "g"), " ");
   low = low.replace(/\s{2,}/g, " ").trim();
   const terms = [];
+
+  /* A PART CODE, pulled out before anything else is matched.
+
+     Before this, an instruction naming one part could not be read at all. The
+     middle pieces of a code are the three-letter section, make and model codes,
+     and the search below counts a hyphen as a word boundary — so a code left in
+     the sentence can match on its own initials, and whatever it doesn't match
+     survives into the leftover words as three fragments the reader has never
+     heard of. "set FBM-MZD-AXL-18-0001 to 4" came back "I don't know fbm mzd
+     axl", which is the code the person was reading off the shelf label.
+
+     A code names one physical part, and it is the only filter in here somebody
+     can get wrong in a way the confirmation screen cannot show them — a list of
+     one part looks the same whichever part it is. So a code no part answers to
+     selects NOTHING and is read back to them, digit for digit. */
+  const byCode = new Map(items.map((i) => [String(i.code || "").toLowerCase(), i]));
+  const named = new Set();
+  const missingCodes = [];
+  low = low
+    .replace(HYPHENATED, (m) => {
+      const hit = byCode.get(m);
+      if (hit) {
+        named.add(hit.code);
+        terms.push({ kind: "part", label: hit.code, word: hit.code });
+        return " ";
+      }
+      if (CODE_SHAPED.test(m)) {
+        missingCodes.push(m.toUpperCase());
+        return " ";
+      }
+      /* Hyphenated but not a code — a shelf address, or a word somebody wrote
+         with hyphens in it. Left exactly where it was on purpose: this reader
+         has no filter for either, and taking it out would leave a sentence that
+         looks like it named nothing, which is read as "everything in the shop". */
+      return m;
+    })
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
   /* Category, by any name the shop calls it, including sections it added.
 
@@ -180,7 +233,12 @@ export function selectParts(text, items = [], categories = []) {
     }
   }
 
-  const said = { cats: cats.size > 0, model: Boolean(model), brand: Boolean(brand) };
+  const said = {
+    parts: named.size > 0,
+    cats: cats.size > 0,
+    model: Boolean(model),
+    brand: Boolean(brand),
+  };
 
   /* Words left over after everything the reader understood is taken out. If any
      remain, the instruction named something this file doesn't know, and the one
@@ -198,12 +256,19 @@ export function selectParts(text, items = [], categories = []) {
     .filter(Boolean)
     .filter((w) => !INSTRUCTION_WORDS.has(w));
 
-  const everything = !said.cats && !said.model && !said.brand && !unknownWords.length;
+  const everything =
+    !said.parts && !said.cats && !said.model && !said.brand &&
+    !unknownWords.length && !missingCodes.length;
 
-  const codes = unknownWords.length && !said.cats && !said.model && !said.brand
+  const codes = missingCodes.length ||
+    (unknownWords.length && !said.parts && !said.cats && !said.model && !said.brand)
     ? []
     : items
     .filter((i) => {
+      /* A named code narrows like every other term rather than overriding them.
+         "set the FBM-… bumper price to 9000" where FBM-… is a mirror should come
+         back with nothing to change, not quietly price the mirror. */
+      if (said.parts && !named.has(i.code)) return false;
       if (said.cats && !cats.has(i.cat)) return false;
       if (model && String(i.model || "").toLowerCase() !== model.toLowerCase()) return false;
       if (brand && String(i.brand || "").toLowerCase() !== brand.toLowerCase()) return false;
@@ -215,13 +280,17 @@ export function selectParts(text, items = [], categories = []) {
     })
     .map((i) => i.code);
 
-  const describe = everything
+  /* The code comes first when there is one, so a caller that only prints this —
+     ask.js does — still says which code it was rather than "matches “”". */
+  const describe = missingCodes.length
+    ? `the code ${missingCodes.join(" or ")}`
+    : everything
     ? "every part in the shop"
     : terms.length
     ? terms.map((t) => t.label).join(" · ")
     : `“${unknownWords.join(" ")}”`;
 
-  return { codes, describe, terms, everything, unknownWords };
+  return { codes, describe, terms, everything, unknownWords, missingCodes };
 }
 
 /* ---------- reading the instruction ---------- */
@@ -411,11 +480,22 @@ function readBulk(low, raw, items, categories) {
     };
   }
 
-  const { codes, describe, everything, unknownWords } = selectParts(raw, items, categories);
+  const { codes, describe, everything, unknownWords, missingCodes } = selectParts(raw, items, categories);
   if (!codes.length) {
     /* Naming the word is the whole point of the message. "Nothing matches" sends
        somebody hunting through the stock list; "I don't know the word
        lamborghini" tells them to check the spelling or the section name. */
+    if (missingCodes?.length) {
+      /* A mistyped code gets its own answer rather than the unknown-word one. The
+         person is reading a label, not choosing words, so the only useful thing to
+         say is which code was looked up and that no part has it — the first three
+         pieces are the section, make and model, so the digits are where it went
+         wrong. */
+      return {
+        kind: "unknown",
+        why: `No part in stock has the code ${missingCodes.join(" or ")}. Check it against the label on the part — the last four digits are the ones that differ between two of the same thing.`,
+      };
+    }
     if (unknownWords?.length) {
       return {
         kind: "unknown",
