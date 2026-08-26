@@ -153,15 +153,100 @@ html.dark .border-\[\#DEE3E9\] { border-color: #2A333F; }
 html.dark .border-\[\#EEF2F6\] { border-color: #1E2631; }
 html.dark .border-\[\#F3F5F8\] { border-color: #0F141B; }
 
-/* ---- blue (the system accent) ---- */
-html.dark .text-\[\#2563EB\]   { color: #7FA9FF; }
-html.dark .border-\[\#2563EB\] { border-color: #3E6BC7; }
-html.dark .bg-\[\#EAF1FF\]     { background-color: #17223A; }
-html.dark .bg-\[\#2563EB22\]   { background-color: #2563EB38; }
-html.dark .bg-\[\#2563EB18\],
-html.dark .bg-\[\#2563EB11\],
-html.dark .bg-\[\#2563EB0F\],
-html.dark .bg-\[\#2563EB0A\]   { background-color: #2563EB26; }
+/* ---- THE ACCENT ----
+   Was a block of dark-mode overrides for one blue. It is now four custom properties,
+   for one reason: a second shop wears a different colour and would otherwise need
+   its own copy of every rule below, in light and in dark, forever.
+
+   So the RULES are written once and read a variable; only the VALUES are per shop
+   and per mode. Adding a third shop is four lines of values and no new rules — and
+   nothing can go orange in light mode and stay blue in dark, because there is only
+   one rule doing the colouring.
+
+   `--ac` is the accent as a fill, `--ac-ink` the same colour as text (lifted in dark,
+   where a mid-tone is unreadable), `--ac-line` as a border, `--ac-tint` the pale wash
+   behind a highlighted card. The names are short because they appear a lot.
+
+   Which shop is wearing which is decided in src/lib/shopSkin.js, from the slug in
+   the address bar. */
+html {
+  --ac:      #2563EB;
+  --ac-ink:  #2563EB;
+  --ac-line: #2563EB;
+  --ac-tint: #EAF1FF;
+  --ac-soft: #2563EB22;   /* the translucent chip behind an icon */
+  --ac-wash: #2563EB18;   /* a row tinted to say "this one" */
+}
+html.dark {
+  --ac-ink:  #7FA9FF;
+  --ac-line: #3E6BC7;
+  --ac-tint: #17223A;
+  --ac-soft: #2563EB38;
+  --ac-wash: #2563EB26;
+}
+
+/* SURE FIT AUTO SPARES LTD — burnt orange. */
+html[data-shop-skin="orange"] {
+  --ac:      #EA580C;
+  --ac-ink:  #C2410C;   /* a step darker than the fill: #EA580C as small text on
+                           white is under the contrast a price needs to be read */
+  --ac-line: #EA580C;
+  --ac-tint: #FFF1E7;
+  --ac-soft: #EA580C22;
+  --ac-wash: #EA580C18;
+}
+html.dark[data-shop-skin="orange"] {
+  --ac-ink:  #FFA366;
+  --ac-line: #B4551F;
+  --ac-tint: #351F10;
+  --ac-soft: #EA580C3D;
+  --ac-wash: #EA580C2B;
+}
+
+/* The one rule set, reading the values above.
+
+   Every selector is prefixed `html`, and that is not decoration. Tailwind emits
+   its hover: and focus: variants in a layer AFTER this file, so an override with
+   the same specificity loses to them on source order — which showed up as buttons
+   that were orange until the mouse touched them and then went blue. `html .x` beats
+   `.x` on specificity and therefore wins from anywhere in the file. */
+html .bg-\[\#2563EB\]                 { background-color: var(--ac); }
+html .text-\[\#2563EB\]               { color: var(--ac-ink); }
+html .fill-\[\#2563EB\]               { fill: var(--ac-ink); }
+html .border-\[\#2563EB\]             { border-color: var(--ac-line); }
+html .ring-\[\#2563EB\]               { --tw-ring-color: var(--ac-line); }
+html .accent-\[\#2563EB\]             { accent-color: var(--ac); }
+html .bg-\[\#EAF1FF\]                 { background-color: var(--ac-tint); }
+html .bg-\[\#2563EB22\]               { background-color: var(--ac-soft); }
+html .bg-\[\#2563EB18\],
+html .bg-\[\#2563EB11\],
+html .bg-\[\#2563EB0F\],
+html .bg-\[\#2563EB0D\],
+html .bg-\[\#2563EB0A\]               { background-color: var(--ac-wash); }
+html .border-\[\#2563EB55\],
+html .border-\[\#2563EB33\]           { border-color: var(--ac-line); }
+/* Only the near end of the gradient. Deliberately NOT the `--tw-gradient-to` and
+   `--tw-gradient-stops` that Tailwind's own from-* rule also sets: this block sits
+   after the utilities, so re-declaring them here would land later than `to-[#06B6D4]`
+   and reset the far end of every gradient button to transparent. */
+html .from-\[\#2563EB\]               { --tw-gradient-from: var(--ac) var(--tw-gradient-from-position); }
+html .hover\:bg-\[\#2563EB\]:hover     { background-color: var(--ac); }
+html .hover\:text-\[\#2563EB\]:hover   { color: var(--ac-ink); }
+html .hover\:border-\[\#2563EB\]:hover { border-color: var(--ac-line); }
+html .hover\:bg-\[\#2563EB11\]:hover   { background-color: var(--ac-wash); }
+html .focus\:border-\[\#2563EB\]:focus { border-color: var(--ac-line); }
+
+/* The cyan half of the big gradient buttons — the sign-in button, the two front
+   doors, the shop tiles. Orange running to cyan is not a gradient, it is a
+   collision, so the far end moves with the near end. */
+html[data-shop-skin="orange"] .to-\[\#06B6D4\] {
+  --tw-gradient-to: #F59E0B var(--tw-gradient-to-position);
+}
+/* The wordmark's blue-to-green fade. Green under orange reads as a third colour, so
+   for an orange shop it fades to amber and stays one idea. */
+html[data-shop-skin="orange"] .to-\[\#15926A\] {
+  --tw-gradient-to: #B45309 var(--tw-gradient-to-position);
+}
 
 /* ---- green (money in, in stock) ---- */
 html.dark .text-\[\#15926A\]   { color: #4CCB9A; }
@@ -196,17 +281,13 @@ html.dark .bg-\[\#6B748022\]   { background-color: #98A3B22E; }
 
 /* ---- hover & focus states ---- */
 html.dark .hover\:bg-\[\#EEF2F6\]:hover     { background-color: #222B38; }
-html.dark .hover\:bg-\[\#2563EB11\]:hover   { background-color: #2563EB2E; }
 html.dark .hover\:bg-\[\#15926A11\]:hover   { background-color: #15926A2E; }
 html.dark .hover\:text-\[\#1B2430\]:hover   { color: #E8EDF4; }
-html.dark .hover\:text-\[\#2563EB\]:hover   { color: #9CBCFF; }
 html.dark .hover\:text-\[\#DC3B2E\]:hover   { color: #F0857A; }
 html.dark .hover\:text-\[\#7C5CD6\]:hover   { color: #B49CF5; }
-html.dark .hover\:border-\[\#2563EB\]:hover { border-color: #4E7BD8; }
 html.dark .hover\:border-\[\#DC3B2E\]:hover { border-color: #96453B; }
 html.dark .hover\:border-\[\#7C5CD6\]:hover { border-color: #6B52A8; }
 html.dark .hover\:border-\[\#C2CAD3\]:hover { border-color: #3B4653; }
-html.dark .focus\:border-\[\#2563EB\]:focus { border-color: #5B8DEF; }
 
 /* The pale wash behind the login and "waiting for approval" screens
    becomes a dark one. Setting the whole stop list here also cancels the
@@ -219,8 +300,37 @@ html.dark .from-\[\#EAF1FF\] {
 
 /* The "Bypass Shop" wordmark is gradient-filled text - brighten both
    ends so it still reads against the dark sidebar. */
-html.dark .from-\[\#2563EB\] { --tw-gradient-from: #7FA9FF var(--tw-gradient-from-position); }
 html.dark .to-\[\#15926A\]   { --tw-gradient-to: #4CCB9A var(--tw-gradient-to-position); }
+/* ...but on an orange shop that brightened green is the wrong far end, and the rule
+   above has the same specificity as the orange one further up while sitting later in
+   the file, so it would win. Both conditions in one selector, and the argument is
+   settled: an orange wordmark running to green reads as two logos overlapping. */
+html.dark[data-shop-skin="orange"] .to-\[\#15926A\] {
+  --tw-gradient-to: #F59E0B var(--tw-gradient-to-position);
+}
+
+/* The pale blues ON the login hero — the eyebrow line, the caption, the ring round
+   the emblem, the little icons. They are tints of the wash behind them, so when the
+   wash goes orange these have to follow or the masthead reads as two brands stacked.
+   Warm equivalents at the same lightness, so nothing gets harder to read. */
+html[data-shop-skin="orange"] .text-\[\#BFDBFE\] { color: #FED7AA; }
+html[data-shop-skin="orange"] .text-\[\#E6F6FF\] { color: #FFF3E6; }
+html[data-shop-skin="orange"] .text-\[\#A5F3FC\] { color: #FCD9A5; }
+html[data-shop-skin="orange"] .ring-\[\#67E8F9\]\/60 { --tw-ring-color: #FBBF2499; }
+html[data-shop-skin="orange"] .hover\:text-\[\#67E8F9\]:hover { color: #FBBF24; }
+
+/* The pale wash down the top of the "waiting for approval" screen (src/PendingGate.jsx).
+   Not covered by the accent rules above, because `from-` is a gradient stop rather than
+   a colour — and it is the first thing a new member of staff at Sure Fit ever sees, so a
+   blue one there is the whole problem in one screen. */
+html[data-shop-skin="orange"] .from-\[\#EAF1FF\] {
+  --tw-gradient-from: #FFF1E7 var(--tw-gradient-from-position);
+}
+html.dark[data-shop-skin="orange"] .from-\[\#EAF1FF\] {
+  --tw-gradient-from: #2B1A0E var(--tw-gradient-from-position);
+  --tw-gradient-to: #0F141B var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
 
 /* Native form controls follow color-scheme, but the calendar icon on a
    dark input needs a nudge to stay visible. */

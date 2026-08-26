@@ -2,7 +2,8 @@ import React from "react";
 import { ShoppingBag, Boxes, ArrowRight } from "lucide-react";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { SlidePictures, useSlideshow } from "./PartsShow.jsx";
-import { SLIDES } from "./lib/slides.js";
+import { slidesFor } from "./lib/slides.js";
+import { currentShopSlug } from "./lib/shopScope.js";
 
 /* ---------------------------------------------------------
    THE FRONT DOOR — customer, or working here?
@@ -32,15 +33,18 @@ export default function FrontDoor({ onPick, shop, onChooseShop }) {
   /* The same show as the login board and the way in. Behind the two doors here
      because a customer who has just tapped a WhatsApp link has no idea what this
      shop sells until something shows them. */
-  const show = useSlideshow(SLIDES.length);
-  const onShow = SLIDES[show.at] || SLIDES[0];
+  /* This shop's cars. Same photographs at both shops, different opening — see
+     src/lib/slides.js. */
+  const slides = slidesFor(currentShopSlug());
+  const show = useSlideshow(slides.length);
+  const onShow = slides[show.at] || slides[0];
 
   return (
     <div className="min-h-screen bg-[#070B12] flex items-center justify-center p-4">
       <div className="w-full max-w-md bp-pop">
         {/* ---------- THE SHOP ---------- */}
         <div className="relative overflow-hidden rounded-3xl shadow-2xl ring-1 ring-white/15 mb-4">
-          <SlidePictures slides={SLIDES} at={show.at} reached={show.reached} decorative />
+          <SlidePictures slides={slides} at={show.at} reached={show.reached} decorative />
           <div
             className="absolute inset-0"
             style={{

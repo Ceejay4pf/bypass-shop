@@ -17,6 +17,8 @@
    because it's about the screen in your hand, not who you are.
 --------------------------------------------------------- */
 import { useEffect, useState } from "react";
+import { accentFor } from "./shopSkin.js";
+import { currentShopSlug } from "./shopScope.js";
 
 const KEY = "bypass-theme";
 
@@ -26,8 +28,13 @@ export const THEME_CHOICES = [
   { key: "system", label: "Match my device", hint: "Follows your phone or laptop setting" },
 ];
 
-/* The colour behind the phone's status bar, so the notch area matches. */
-const BAR_COLOR = { light: "#2563EB", dark: "#0F141B" };
+/* The colour behind the phone's status bar, so the notch area matches.
+
+   In light mode this is the shop's accent, read live rather than baked in: an
+   installed app showing a blue notch above an orange masthead is the one part of the
+   screen that cannot be styled by CSS, so it has to be told. Dark mode stays the
+   page colour for both shops — the notch is meant to disappear there. */
+const barColor = (mode) => (mode === "dark" ? "#0F141B" : accentFor(currentShopSlug()));
 
 function readStored() {
   try {
@@ -60,7 +67,7 @@ export function applyTheme(choice) {
   root.classList.toggle("dark", mode === "dark");
   root.dataset.theme = mode;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", BAR_COLOR[mode]);
+  if (meta) meta.setAttribute("content", barColor(mode));
   return mode;
 }
 

@@ -36,6 +36,7 @@ import {
 } from "./tabs.jsx";
 import { QuickTab, LedgerTab } from "./quick.jsx";
 import { FinanceTab } from "./finance.jsx";
+import ShopMark from "./ShopMark.jsx";
 
 // `admin: true` = admin-only screen. `cap: "<key>"` = needs that capability
 // (admins always have every capability; staff need it granted).
@@ -985,7 +986,7 @@ function BypassShop({ session, shop }) {
         <div className="p-4 border-b border-[#DEE3E9]">
           <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">{SHOP_INFO.eyebrow}</div>
           <div className="flex items-center gap-2 mt-0.5">
-            <Boxes size={20} className="text-[#2563EB]" />
+            <ShopMark size={20} fallback={<Boxes size={20} className="text-[#2563EB]" />} />
             <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">{shopTitle}</span>
           </div>
         </div>

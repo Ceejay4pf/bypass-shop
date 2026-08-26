@@ -9,12 +9,15 @@ import {
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
 import { shopName, SHOP_INFO } from "./lib/shopInfo.js";
-import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
+import { rolesFor, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
+import { currentShopSlug } from "./lib/shopScope.js";
+import { skinFor } from "./lib/shopSkin.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
 import { InstallNudge } from "./InstallApp.jsx";
 import { SlidePictures, useSlideshow } from "./PartsShow.jsx";
-import { SLIDES } from "./lib/slides.js";
+import { slidesFor } from "./lib/slides.js";
+import ShopMark from "./ShopMark.jsx";
 
 /* ---------------------------------------------------------
    REAL LOGIN — backed by Supabase Auth.
@@ -24,8 +27,22 @@ import { SLIDES } from "./lib/slides.js";
    self-typed name. Passwords are hashed server-side by Supabase;
    the app never sees or stores them.
 --------------------------------------------------------- */
+/* The colour laid over the photograph at the top of this screen. Not a Tailwind
+   class, so index.css cannot re-point it — it has to be asked for.
+
+   Three stops rather than two, and the darkest is at the top left: the shop's name
+   is white text sitting on a photograph, and a mid-tone behind it is the difference
+   between a masthead and a caption you have to squint at. The alpha values are the
+   same at both shops so the picture shows through by the same amount; only the hue
+   moves. */
+const HERO_WASH = {
+  blue: "linear-gradient(135deg, rgba(14,35,120,0.93) 0%, rgba(37,99,235,0.82) 48%, rgba(6,182,212,0.55) 100%)",
+  orange: "linear-gradient(135deg, rgba(88,28,7,0.93) 0%, rgba(234,88,12,0.82) 48%, rgba(245,158,11,0.55) 100%)",
+};
+const heroWash = (slug) => HERO_WASH[skinFor(slug)] || HERO_WASH.blue;
+
 /* A spare-part emblem — a cog/gear with a piston, drawn in white so it sits
-   cleanly on the blue hero. */
+   cleanly on the coloured hero. */
 function SparePartIcon() {
   return (
     <svg width="38" height="38" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -73,8 +90,11 @@ export default function LoginGate({ onLeave, shop }) {
   const [showHelp, setShowHelp] = useState(false);
   /* The parts turning over behind the board. Nobody has signed in yet, so this
      is the one thing on the screen that says what sort of shop this is. */
-  const show = useSlideshow(SLIDES.length);
-  const onShow = SLIDES[show.at] || SLIDES[0];
+  /* This shop's cars. Same photographs at both shops, different opening — see
+     src/lib/slides.js. */
+  const slides = slidesFor(currentShopSlug());
+  const show = useSlideshow(slides.length);
+  const onShow = slides[show.at] || slides[0];
   /* Signing up is two screens, the way every other app does it:
 
        "form"  - name, email, password
@@ -123,7 +143,11 @@ export default function LoginGate({ onLeave, shop }) {
     return () => { alive = false; };
   }, []);
 
-  const chosenRole = ROLE_ACCOUNTS.find((r) => r.key === roleKey) || null;
+  /* The logins THIS shop offers. Jaspare has four; Sure Fit has Keziah and Admin.
+     Read from the slug rather than held in state, because the slug is settled before
+     this screen is drawn and cannot change while somebody is looking at it. */
+  const roles = rolesFor(currentShopSlug());
+  const chosenRole = roles.find((r) => r.key === roleKey) || null;
 
   /* An invented address can never receive anything. Accounts made from a name
      get one (josphat.kamau@bypassshop.co), and so do the four shared role
@@ -486,16 +510,13 @@ export default function LoginGate({ onLeave, shop }) {
             when its turn comes, so a phone on mobile data staring at this screen
             pays for one photograph every four seconds, not for eleven at once. */}
         <div className="relative overflow-hidden rounded-3xl mb-5 shadow-2xl ring-1 ring-white/50">
-          <SlidePictures slides={SLIDES} at={show.at} reached={show.reached} decorative />
+          <SlidePictures slides={slides} at={show.at} reached={show.reached} decorative />
           {/* The wash. Heavy at the top left so the shop name stays readable
               whatever the picture is doing underneath, thinning to cyan at the
               bottom right so the part itself still shows through. */}
           <div
             className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(14,35,120,0.93) 0%, rgba(37,99,235,0.82) 48%, rgba(6,182,212,0.55) 100%)",
-            }}
+            style={{ background: heroWash(currentShopSlug()) }}
           />
           {/* One band of light crossing the picture. The only movement on this
               screen, and it is what stops a photograph under a flat colour
@@ -509,7 +530,10 @@ export default function LoginGate({ onLeave, shop }) {
 
             {/* Spare-part emblem (gear + piston) */}
             <div className="mx-auto my-3 w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center ring-1 ring-[#67E8F9]/60 shadow-lg">
-              <SparePartIcon />
+              {/* The shop's own logo once it exists; the drawn emblem until then.
+                  See src/ShopMark.jsx — dropping public/logo-<slug>.png in is the
+                  whole job. */}
+              <ShopMark size={38} fallback={<SparePartIcon />} />
             </div>
 
             <h1
@@ -745,9 +769,9 @@ export default function LoginGate({ onLeave, shop }) {
                 <ShieldCheck size={16} className="text-[#2563EB]" /> Pick your role
               </div>
 
-              {/* The four shared logins. */}
+              {/* This shop's shared logins, in the order the shop wants them. */}
               <div className="grid grid-cols-2 gap-2 mb-4">
-                {ROLE_ACCOUNTS.map((r) => {
+                {roles.map((r) => {
                   const active = roleKey === r.key;
                   return (
                     <button

@@ -36,7 +36,7 @@ const digits = (v) => String(v || "").replace(/\D/g, "");
    no-database fallback, and copied into Jaspare's row by step 08 so the database is
    the single source once the migration has run. */
 const JASPARE = {
-  name: "Jaspare Auto Bypass Shop",
+  name: "Bypass Shop Jaspare Branch",
   tagline: "Dealers in spare parts — Japanese cars",
   location: "Near Total Northlands",
   poBox: "",

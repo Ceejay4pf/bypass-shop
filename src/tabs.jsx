@@ -30,7 +30,7 @@ import {
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
-import { ROLE_ACCOUNTS, defaultRolePassword } from "./lib/roleAccounts.js";
+import { rolesFor, defaultRolePassword } from "./lib/roleAccounts.js";
 import {
   changeRolePassword, deviceOtpStatus, setDeviceOtp, myDevices, forgetDevice,
   sendLoginCode, verifyLoginCode,
@@ -47,6 +47,7 @@ import { publicLink } from "./lib/publicRoute.js";
 import {
   priceGroups, findGroups, planPrices, priceProgress, readPrice, badPrice,
 } from "./lib/pricing.js";
+import { shopAccent } from "./lib/shopSkin.js";
 import { setupFor } from "./lib/setupNeeded.js";
 import { InstallCard } from "./InstallApp.jsx";
 import SetupNotice from "./SetupNotice.jsx";
@@ -854,7 +855,8 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
               label: "Add to a quotation",
               desc: "Open Quotation with this part as the first line.",
               icon: FileText,
-              color: "#2563EB",
+              /* Inline, so index.css cannot re-point it — asked for directly. */
+              color: shopAccent(),
               run: () => onPick?.("quote", held),
             },
             {
@@ -1299,7 +1301,7 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
   th { background:#EEF2F6; text-align:left; padding:7px 8px; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; border-bottom:1px solid #DEE3E9; }
   td { padding:6px 8px; border-bottom:1px solid #EEF2F6; }
   th.c, td.c { text-align:center; }
-  td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
+  td.mono { font-family: ui-monospace, monospace; color:${shopAccent()}; white-space:nowrap; }
   td.out { color:#DC3B2E; font-weight:800; }
   .empty { color:#5A6472; padding:40px; text-align:center; }
   .foot { margin-top:28px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px; }
@@ -1714,17 +1716,17 @@ export function PrintStockTab({ items, categories }) {
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:28px; }
   .wrap { max-width: 900px; margin:0 auto; }
-  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563EB; padding-bottom:12px; margin-bottom:6px; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${shopAccent()}; padding-bottom:12px; margin-bottom:6px; }
   .brand { font-size:22px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
   .sub { color:#5A6472; font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
   .doc { text-align:right; }
-  .doc .t { font-size:16px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:1px; }
+  .doc .t { font-size:16px; font-weight:800; color:${shopAccent()}; text-transform:uppercase; letter-spacing:1px; }
   .doc .m { color:#5A6472; font-size:12px; margin-top:3px; }
   .sec { margin-top:14px; break-inside:auto; }
-  .sech { font-weight:800; text-transform:uppercase; letter-spacing:1px; background:#2563EB; color:#fff; border-radius:4px; }
+  .sech { font-weight:800; text-transform:uppercase; letter-spacing:1px; background:${shopAccent()}; color:#fff; border-radius:4px; }
   .sechn { font-weight:600; text-transform:none; letter-spacing:0; opacity:.85; margin-left:8px; }
   th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
-  td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
+  td.mono { font-family: ui-monospace, monospace; color:${shopAccent()}; white-space:nowrap; }
   .empty { color:#5A6472; padding:40px; text-align:center; }
   .foot { margin-top:22px; color:#5A6472; font-size:11px; border-top:1px solid #DEE3E9; padding-top:10px;
           display:flex; align-items:center; gap:14px; justify-content:space-between; }
@@ -3736,7 +3738,7 @@ function BulkRow({ row, categories, items, plan = null, forcedNew = false, onFor
       <button onClick={onToggle} className="w-full text-left px-3 py-2.5 flex items-start gap-2">
         <span
           className="w-1.5 self-stretch rounded-full shrink-0"
-          style={{ background: bad ? "#DC3B2E" : known ? "#2563EB" : cat?.color || "#DEE3E9" }}
+          style={{ background: bad ? "#DC3B2E" : known ? shopAccent() : cat?.color || "#DEE3E9" }}
         />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-[#1B2430] truncate">
@@ -6027,11 +6029,11 @@ export function ReportsTab({
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:28px; }
   .wrap { max-width: 980px; margin:0 auto; }
-  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563EB; padding-bottom:12px; margin-bottom:10px; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${shopAccent()}; padding-bottom:12px; margin-bottom:10px; }
   .brand { font-size:22px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
   .sub { color:#5A6472; font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
   .doc { text-align:right; }
-  .doc .t { font-size:16px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:1px; }
+  .doc .t { font-size:16px; font-weight:800; color:${shopAccent()}; text-transform:uppercase; letter-spacing:1px; }
   .doc .m { color:#5A6472; font-size:12px; margin-top:3px; }
   .scope { font-size:12px; color:#5A6472; margin-bottom:4px; }
   .scope b { color:#1B2430; }
@@ -6044,7 +6046,7 @@ export function ReportsTab({
   th { background:#EEF2F6; text-align:left; padding:6px 7px; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#5A6472; border-bottom:1px solid #DEE3E9; }
   td { padding:5px 7px; border-bottom:1px solid #EEF2F6; }
   th.c, td.c { text-align:center; } th.r, td.r { text-align:right; }
-  td.mono { font-family: ui-monospace, monospace; color:#2563EB; white-space:nowrap; }
+  td.mono { font-family: ui-monospace, monospace; color:${shopAccent()}; white-space:nowrap; }
   td.ok { color:#15926A; font-weight:700; } td.due { color:#DC3B2E; font-weight:700; }
   .up { color:#15926A; font-size:10px; font-weight:700; } .down { color:#DC3B2E; font-size:10px; font-weight:700; }
   .note { font-size:10px; color:#5A6472; font-style:italic; margin-top:3px; }
@@ -8114,13 +8116,13 @@ function RolePasswordsCard({ admin }) {
         <Lock size={15} className="text-[#2563EB]" /> Role Passwords
       </div>
       <p className="text-xs text-[#5A6472] mb-3 leading-relaxed">
-        The four shared logins. Anyone who knows a role password can log in with
+        This shop's shared logins. Anyone who knows a role password can log in with
         it and then types their own name, so work is still stamped to the person.
         If someone forgets a password, reset it here.
       </p>
 
       <div className="space-y-2">
-        {ROLE_ACCOUNTS.map((r) => {
+        {rolesFor(currentShopSlug()).map((r) => {
           const isOpen = openKey === r.key;
           return (
             <div key={r.key} className="border border-[#DEE3E9] rounded-md overflow-hidden">
@@ -8652,11 +8654,11 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:32px; }
   .wrap { max-width: 720px; margin:0 auto; }
-  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563EB; padding-bottom:14px; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${shopAccent()}; padding-bottom:14px; }
   .brand { font-size:24px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#1B2430; }
   .sub { color:#5A6472; font-size:12px; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
   .doc { text-align:right; }
-  .doc .t { font-size:20px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:2px; }
+  .doc .t { font-size:20px; font-weight:800; color:${shopAccent()}; text-transform:uppercase; letter-spacing:2px; }
   .doc .m { color:#5A6472; font-size:13px; margin-top:4px; }
   .meta { display:flex; justify-content:space-between; margin:20px 0; font-size:14px; }
   .meta .lbl { color:#5A6472; font-size:11px; text-transform:uppercase; letter-spacing:1px; }
@@ -8666,7 +8668,7 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
   td { padding:10px; border-bottom:1px solid #DEE3E9; }
   .totals { margin-top:16px; margin-left:auto; width:280px; font-size:14px; }
   .totals div { display:flex; justify-content:space-between; padding:6px 0; }
-  .totals .grand { border-top:2px solid #1B2430; margin-top:6px; padding-top:10px; font-size:18px; font-weight:800; color:#2563EB; }
+  .totals .grand { border-top:2px solid #1B2430; margin-top:6px; padding-top:10px; font-size:18px; font-weight:800; color:${shopAccent()}; }
   .foot { margin-top:40px; color:#5A6472; font-size:12px; border-top:1px solid #DEE3E9; padding-top:12px; }
   .sign { margin-top:36px; display:flex; justify-content:space-between; font-size:13px; color:#5A6472; }
   .sign span { border-top:1px solid #1B2430; padding-top:6px; width:200px; text-align:center; }
@@ -9201,15 +9203,15 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#1B2430; margin:0; padding:32px; }
   .wrap { max-width: 720px; margin:0 auto; }
-  .head { text-align:center; border-bottom:3px solid #2563EB; padding-bottom:14px; }
+  .head { text-align:center; border-bottom:3px solid ${shopAccent()}; padding-bottom:14px; }
   .brand { font-size:26px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:#1B2430; }
-  .loc { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:#2563EB; margin-top:2px; }
+  .loc { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:${shopAccent()}; margin-top:2px; }
   .tag { color:#1B2430; font-size:12px; font-weight:600; margin-top:5px; }
   .makes { color:#5A6472; font-size:11px; margin-top:2px; }
   .parts { color:#5A6472; font-size:11px; margin-top:1px; }
   .contacts { color:#5A6472; font-size:12px; margin-top:5px; }
   .doc { display:flex; justify-content:space-between; align-items:center; margin:18px 0; }
-  .doc .t { font-size:20px; font-weight:800; color:#2563EB; text-transform:uppercase; letter-spacing:2px; }
+  .doc .t { font-size:20px; font-weight:800; color:${shopAccent()}; text-transform:uppercase; letter-spacing:2px; }
   .doc .m { color:#5A6472; font-size:13px; text-align:right; }
   .meta { font-size:14px; margin-bottom:10px; }
   .meta .lbl { color:#5A6472; font-size:11px; text-transform:uppercase; letter-spacing:1px; }
@@ -9219,7 +9221,7 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
   td { padding:10px; border-bottom:1px solid #DEE3E9; }
   .totals { margin-top:16px; margin-left:auto; width:300px; font-size:14px; }
   .totals div { display:flex; justify-content:space-between; padding:6px 0; }
-  .totals .grand { border-top:2px solid #1B2430; margin-top:6px; padding-top:10px; font-size:18px; font-weight:800; color:#2563EB; }
+  .totals .grand { border-top:2px solid #1B2430; margin-top:6px; padding-top:10px; font-size:18px; font-weight:800; color:${shopAccent()}; }
   .paidbox { margin-top:6px; background:#E6F6EF; border:1px solid #15926A; border-radius:8px; padding:8px 12px; }
   .paidbox div { display:flex; justify-content:space-between; padding:3px 0; font-size:13px; }
   .foot { margin-top:34px; color:#5A6472; font-size:12px; border-top:1px solid #DEE3E9; padding-top:12px; text-align:center; }
@@ -10117,11 +10119,11 @@ function CreditStatement({ account, user, admin, onBack, onChanged }) {
 <style>
   body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1B2430;margin:0;padding:32px;}
   .wrap{max-width:760px;margin:0 auto;}
-  .head{text-align:center;border-bottom:3px solid #2563EB;padding-bottom:12px;}
+  .head{text-align:center;border-bottom:3px solid ${shopAccent()};padding-bottom:12px;}
   .brand{font-size:24px;font-weight:800;text-transform:uppercase;letter-spacing:1px;}
   .contacts{color:#5A6472;font-size:12px;margin-top:4px;}
   .doc{display:flex;justify-content:space-between;align-items:center;margin:16px 0;}
-  .doc .t{font-size:18px;font-weight:800;color:#2563EB;text-transform:uppercase;letter-spacing:2px;}
+  .doc .t{font-size:18px;font-weight:800;color:${shopAccent()};text-transform:uppercase;letter-spacing:2px;}
   .doc .m{color:#5A6472;font-size:12px;text-align:right;}
   table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px;}
   th{background:#EEF2F6;text-align:left;padding:8px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#5A6472;}
@@ -10166,7 +10168,7 @@ function CreditStatement({ account, user, admin, onBack, onChanged }) {
 <style>
   body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1B2430;margin:0;padding:28px;}
   .wrap{max-width:420px;margin:0 auto;}
-  .brand{font-size:20px;font-weight:800;text-transform:uppercase;text-align:center;letter-spacing:1px;border-bottom:2px solid #2563EB;padding-bottom:10px;}
+  .brand{font-size:20px;font-weight:800;text-transform:uppercase;text-align:center;letter-spacing:1px;border-bottom:2px solid ${shopAccent()};padding-bottom:10px;}
   .t{font-size:16px;font-weight:800;color:${isPay ? "#15926A" : "#DC3B2E"};text-transform:uppercase;letter-spacing:2px;text-align:center;margin:14px 0;}
   .row{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px dashed #DEE3E9;}
   .lbl{color:#5A6472;}

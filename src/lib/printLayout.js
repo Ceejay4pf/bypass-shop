@@ -109,6 +109,11 @@ export const DEFAULT_DENSITY = "auto";
    size lands just inside it. */
 export const AUTO_PAGE_CAP = 9;
 
+/* The shop's accent, read at the moment a page is built. A printed page has no
+   stylesheet of ours to inherit from — the whole document is written into a new
+   window — so the colour has to be put into the string. */
+import { shopAccent } from "./shopSkin.js";
+
 export function densityByKey(key) {
   return DENSITIES.find((d) => d.key === key) || DENSITIES[1];
 }
@@ -182,7 +187,7 @@ const esc = (s) =>
    The name is set on a semicircle, and text set on a path that runs off the end of
    the path is not drawn short — it is simply not drawn. So a long name loses its
    last few letters silently: "SURE FIT AUTO SPARES LTD" printed as "SURE FIT AUTO
-   SPARES L", and "JASPARE AUTO BYPASS SHOP" the same. A stamp that clips the name
+   SPARES L", and "BYPASS SHOP JASPARE BRANCH" the same. A stamp that clips the name
    is a document that does not say which shop it came from, which is the one thing a
    stamp is for.
 
@@ -220,7 +225,9 @@ export function stampTextFit(text, { max = 15, min = 8.5, spacing = 1.2 } = {}) 
    `id` is threaded through because the same stamp is put on the page six times —
    five faint and one solid — and two SVGs sharing one path id is how the curved
    text ends up on top of itself. */
-export function stampSvg({ shop = "", line = "", date = "", id = "s", tone = "#2563EB" } = {}) {
+export function stampSvg({ shop = "", line = "", date = "", id = "s", tone = null } = {}) {
+  /* A stamp inked in the other shop's colour is a stamp that says the wrong shop. */
+  tone = tone || shopAccent();
   const fit = stampTextFit(shop);
   const top = `arc-${id}`;
   const bottom = `arcb-${id}`;
@@ -301,7 +308,7 @@ export function densityCss(d) {
      column break — so each part becomes one small block instead. */
   .stack { font-size:${d.font}px; line-height:1.2; }
   .stack .r { padding:${d.pad}px 0; border-bottom:1px solid #EEF2F6; break-inside:avoid; }
-  .stack .c1 { font-family: ui-monospace, monospace; color:#2563EB; font-weight:600; }
+  .stack .c1 { font-family: ui-monospace, monospace; color:${shopAccent()}; font-weight:600; }
   .stack .c2 { color:#1B2430; }
   .stack .c3 { color:#5A6472; font-size:${Math.max(6.5, d.font - 1)}px; }` : ""}`;
 }

@@ -10,6 +10,7 @@ import {
   KNOWN_SHOPS, resolveRoute, pathFor, mergeShops, findShop,
 } from "./lib/shopRoute.js";
 import { setShop } from "./lib/shopScope.js";
+import { applyShopSkin } from "./lib/shopSkin.js";
 import { fetchShops } from "./lib/api.js";
 import "./index.css";
 
@@ -93,6 +94,12 @@ function Root() {
        slug always wins — route.slug is what the address bar says, and that is the
        shop whose rows are about to be read. */
     setShop({ ...(route.shop || {}), slug: route.slug || "", name: route.shop?.name || "" });
+    /* And the colour it wears, from the slug rather than the row. The row is what
+       says the shop's NAME, and it arrives a moment later; the colour cannot wait
+       that long, because a page that is blue while you start reading it and orange
+       once the database answers looks like a fault. Re-applied on every change of
+       address so walking between the two shops repaints. */
+    applyShopSkin(route.slug || "");
   }, [route.slug, route.shop]);
 
   /* Moving between the views is a real navigation: the address changes, and the

@@ -44,7 +44,7 @@ import { PUBLIC_PATHS, STAFF_PATHS, PUBLIC_HOST_LABELS } from "./publicRoute.js"
 export const KNOWN_SHOPS = [
   {
     slug: "jaspare-auto",
-    name: "Jaspare Auto",
+    name: "Bypass Shop Jaspare Branch",
     phone: "+254729695400",
     tagline: "Main shop — body parts, lights, mirrors and glass",
     ready: true,

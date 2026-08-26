@@ -91,6 +91,48 @@ export const SLIDES = [
   },
 ];
 
+/* ---- WHICH SHOP SEES WHICH CARS FIRST ----
+
+   Two shops sharing one login screen is two shops advertising the same five cars in
+   the same order, and the owner is right that it reads as one business. So the shops
+   do not share an opening.
+
+   They DO share the photographs, and that is deliberate rather than lazy. The rule a
+   few paragraphs up is the reason: a slide is only downloaded once somebody reaches
+   it, so what matters is not how many pictures exist but which ones come first. A
+   second set of eleven files would double what is in the repository to change
+   something only the first ten seconds ever shows.
+
+   So Sure Fit's list is the same list in a different order — it opens on the Mazda
+   and the Forester where Jaspare opens on the Prado and the LC300 — and anybody who
+   watches the whole show still sees every part the shop sells.
+
+   Named by image path rather than by index, so re-ordering the list above cannot
+   silently change what this picks. */
+const SUREFIT_OPENERS = [
+  "/ads/mazda-cx5-front.jpg",
+  "/ads/subaru-forester-front.jpg",
+  "/ads/grilles.jpg",
+  "/ads/taillights.jpg",
+  "/ads/mirrors-indicator.jpg",
+];
+
+const OPENERS_BY_SLUG = {
+  "surefit-autoparts": SUREFIT_OPENERS,
+};
+
+export function slidesFor(slug) {
+  const first = OPENERS_BY_SLUG[String(slug || "").toLowerCase()];
+  if (!first) return SLIDES;
+  const picked = first
+    .map((img) => SLIDES.find((s) => s.image === img))
+    .filter(Boolean);
+  /* Everything not named above keeps its original order behind them, so the list
+     stays complete even if a path here is misspelled or a photograph is removed. */
+  const rest = SLIDES.filter((s) => !picked.includes(s));
+  return [...picked, ...rest];
+}
+
 /* Long enough to actually look at the part, short enough that somebody typing a
    password sees more than one. */
 export const SLIDE_MS = 4200;

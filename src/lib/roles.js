@@ -1,6 +1,12 @@
 /* ---------------------------------------------------------
    Roles — who is allowed to change stock.
 
+   Note that this list is NOT per shop. An admin email is an admin
+   wherever they sign in. That is deliberate for the two accounts that
+   run the businesses, and it is also why the DATA is fenced off
+   separately, by shop_id, in src/lib/supabase.js — being an admin does
+   not let you see the other shop's stock, it lets you change your own.
+
    Admins can do everything (add items, add stock, sell, adjust,
    delete). Everyone else is view + sell + quotation only.
 
@@ -12,6 +18,7 @@
 const ADMIN_EMAILS = [
   "admin@bypassshop.co",       // role login "Admin"
   "management@bypassshop.co",  // role login "Management"
+  "keziah@bypassshop.co",      // role login "Keziah" — runs Sure Fit, unrestricted
   "addamsjmk@gmail.com",       // owner
 ];
 
@@ -20,13 +27,14 @@ export function isAdmin(session) {
   return ADMIN_EMAILS.includes(email);
 }
 
-// The four shared role accounts are pre-trusted: they never sit in the
+// The shared role accounts are pre-trusted: they never sit in the
 // approval queue, since the password itself is the authorisation.
 const ROLE_EMAILS = [
   "admin@bypassshop.co",
   "management@bypassshop.co",
   "sales@bypassshop.co",
   "staff@bypassshop.co",
+  "keziah@bypassshop.co",
 ];
 
 export function isRoleAccount(session) {
