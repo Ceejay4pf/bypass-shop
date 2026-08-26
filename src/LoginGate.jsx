@@ -493,6 +493,23 @@ export default function LoginGate({ onLeave, shop }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#DCEBFF] via-[#F2F7FF] to-[#D7F4FB] flex items-center justify-center p-4">
       <div className="w-full max-w-sm bp-pop">
+        {/* ---------- THE WAY BACK ----------
+            At the top, where a back button belongs and where a thumb looks for it.
+            The link at the foot of this card says "not staff?" and is for a customer
+            who was handed the staff address; this one is for the storekeeper who
+            opened the WRONG SHOP's sign-in — which is a different mistake, made by
+            somebody who does work here, and who was reading past the sentence about
+            not being staff. It goes back to this shop's front page, where the shop
+            list is. */}
+        {onLeave && (
+          <button
+            onClick={onLeave}
+            className="mb-3 flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wide text-[#2563EB] hover:text-[#1B2430] transition-colors"
+          >
+            <ArrowLeft size={14} /> Back
+          </button>
+        )}
+
         {/* ---------- THE BOARD ----------
             Photographs of real parts under a blue-to-cyan wash, rather than the
             flat blue panel that was here before: this is a spare-parts shop and

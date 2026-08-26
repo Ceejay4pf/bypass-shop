@@ -5,7 +5,7 @@ import {
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
   Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon, Scale, ClipboardList,
-  Columns2, X, DollarSign,
+  Columns2, X, DollarSign, Store,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
@@ -101,7 +101,10 @@ export default function App({ onLeave, onChooseShop, shop }) {
      fetched while they roll — the animation costs the shop no waiting. */
   return (
     <ShopGate session={session} shop={shop} onChooseShop={onChooseShop}>
-      <BypassShop session={session} shop={shop} />
+      {/* Both ways out are handed to the signed-in app too, not only to the sign-in
+          screen. Somebody who is already in still has to be able to walk back — see
+          the note over the Back button in the header. */}
+      <BypassShop session={session} shop={shop} onLeave={onLeave} onChooseShop={onChooseShop} />
       <EntryDoors session={session} />
     </ShopGate>
   );
@@ -285,7 +288,7 @@ function useClock() {
   return now;
 }
 
-function BypassShop({ session, shop }) {
+function BypassShop({ session, shop, onLeave, onChooseShop }) {
   /* The shop's own name, on its own screens. Hardcoding "Jaspare Auto" here was
      harmless while there was one shop and becomes a lie the moment there are two —
      a Surefit storekeeper reading "Jaspare Auto" above their own stock has every
@@ -524,6 +527,48 @@ function BypassShop({ session, shop }) {
       return h.slice(0, -1);
     });
   }, []);
+
+  /* ---------- WHAT "BACK" MEANS, AND WHERE IT STOPS ----------
+
+     Every screen visited is on the stack above, so Back walks back through them.
+     The screen you land on after signing in is not on it — nothing was visited
+     before it — and until now that meant the Back button simply was not there, and
+     the whole way in (shop list → this shop → working here → sign in) was a
+     one-way street. On a phone, with no address bar to edit, a storekeeper who
+     opened the wrong shop had nothing to press.
+
+     So when the stack runs out, Back keeps going: out to this shop's front door,
+     which is where the shop list and the customer page both are. It does NOT sign
+     anybody out — the session is still there, "working here" walks straight back
+     in — because logging somebody out for pressing Back would be a punishment for
+     looking.
+
+     This is the same route the phone's own back gesture already takes, and that is
+     the point: the button on the screen and the button on the phone should not
+     disagree about where back is.
+
+     Named, not just an arrow. "Back" from a screen you reached three taps ago is a
+     question; "Back to Search" is an answer. */
+  const back = useMemo(() => {
+    if (history.length) {
+      const id = history[history.length - 1];
+      /* Every screen the menu can reach is in NAV, so the name comes from there and
+         cannot drift from the menu. A screen that is not in it (there is none today)
+         gets the plain word rather than a made-up name. */
+      const label = NAV.find((n) => n.id === id)?.label || "";
+      return { label: label || "Back", title: `Back to ${label || "the last screen"}`, act: goBack };
+    }
+    if (onLeave) {
+      return {
+        label: "Front page",
+        title: `Back to ${shop?.name || "this shop"}'s front page — you stay signed in`,
+        act: onLeave,
+      };
+    }
+    /* Neither a screen behind nor a door out: one shop, opened at a bare address.
+       Nothing to offer, and an arrow that goes nowhere is worse than no arrow. */
+    return null;
+  }, [history, goBack, onLeave, shop?.name]);
   const showToast = (msg, tone = "ok") => {
     setToast({ msg, tone });
     setTimeout(() => setToast(null), 2800);
@@ -985,6 +1030,18 @@ function BypassShop({ session, shop }) {
           <button onClick={() => { setShowWelcome(true); setNavOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#2563EB]">
             <HelpCircle size={17} /> Guide
           </button>
+          {/* For the people who work at more than one of these shops. Offered only
+              where there is more than one shop to go to (see chooseShop in main.jsx),
+              and it does not sign anybody out — the other shop's own sign-in decides
+              that, which is the whole point of them being separate shops. */}
+          {onChooseShop && (
+            <button
+              onClick={() => { setNavOpen(false); onChooseShop(); }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#2563EB]"
+            >
+              <Store size={17} /> Another shop
+            </button>
+          )}
           <button onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium text-[#5A6472] hover:bg-[#EEF2F6] hover:text-[#DC3B2E]">
             <LogOut size={17} /> Logout
           </button>
@@ -1001,13 +1058,17 @@ function BypassShop({ session, shop }) {
           <button onClick={() => setNavOpen(true)} className="lg:hidden text-[#5A6472]">
             <Menu size={22} />
           </button>
-          {history.length > 0 && (
+          {back && (
             <button
-              onClick={goBack}
-              className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm rounded-md px-2 py-1 hover:bg-[#EEF2F6] transition-colors shrink-0"
-              title="Go back to the previous screen"
+              onClick={back.act}
+              className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm rounded-md px-2 py-1 hover:bg-[#EEF2F6] transition-colors shrink-0 max-w-[45%]"
+              title={back.title}
             >
-              <ArrowLeft size={18} /> <span className="hidden sm:inline">Back</span>
+              <ArrowLeft size={18} className="shrink-0" />
+              {/* The name of the screen it goes back to, where there is room for it.
+                  On a phone the arrow alone, which is what a phone already means by
+                  it. */}
+              <span className="hidden sm:inline truncate">{back.label}</span>
             </button>
           )}
           <div className="min-w-0">
