@@ -4,6 +4,19 @@
    so "who did what" is authenticated, not self-reported.
 --------------------------------------------------------- */
 import { supabase, createIsolatedClient } from "./supabase.js";
+import { currentShopSlug } from "./shopScope.js";
+
+/* WHICH SHOP A NEW ACCOUNT BELONGS TO.
+
+   Sent as sign-up metadata, where the database trigger handle_new_user() reads it
+   and writes the matching row into user_shops. Without it a new account gets a
+   profile, no membership, and an app that is completely empty — every policy says
+   "a shop you belong to" and they belong to none, so there is no error to explain
+   it either. The slug is whichever shop's sign-in page they are standing on. */
+function signupShop() {
+  const slug = currentShopSlug();
+  return slug ? { shop_slug: slug } : {};
+}
 
 /* Turn a typed name (or phone) into a stable, valid login email so staff
    can sign up with just their name — no real inbox needed. If the person
@@ -42,7 +55,7 @@ export async function signUp(name, password, contact = "") {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: name.trim(), phone: usesEmail ? "" : c } },
+    options: { data: { full_name: name.trim(), phone: usesEmail ? "" : c, ...signupShop() } },
   });
   if (error) throw error;
   return data.user;
@@ -397,7 +410,7 @@ export async function signInRole(role, password, personName = "") {
       const { error: upErr } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: personName || role.label, role: role.key } },
+        options: { data: { full_name: personName || role.label, role: role.key, ...signupShop() } },
       });
       // "already registered" means the account exists and the password is
       // genuinely wrong — surface that instead of the signup error.

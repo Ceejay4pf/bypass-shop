@@ -31,7 +31,7 @@ declare
   v_shop  uuid;
 begin
   if v_email = 'CHANGE-ME@example.com' then
-    raise exception 'Put Surefit''s admin email in this file first — line 27.';
+    raise exception 'Put Surefit''s admin email in this file first — line 29.';
   end if;
 
   select id into v_user from auth.users where lower(email) = lower(btrim(v_email));

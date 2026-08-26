@@ -1252,7 +1252,17 @@ export async function adminCreateStaff({ name, password, contact = "" }) {
   const { data, error } = await iso.auth.signUp({
     email,
     password,
-    options: { data: { full_name: name.trim(), phone: usesEmail ? "" : c } },
+    /* shop_slug is what puts them in a shop. handle_new_user() reads it and writes
+       the user_shops row; without it the admin creates an account that signs in to
+       an empty app, because every policy asks which shop you belong to. The slug is
+       the shop the admin is signed into, which is the only shop they can hire for. */
+    options: {
+      data: {
+        full_name: name.trim(),
+        phone: usesEmail ? "" : c,
+        ...(currentShopSlug() ? { shop_slug: currentShopSlug() } : {}),
+      },
+    },
   });
   if (error) throw error;
   const newId = data.user?.id;
