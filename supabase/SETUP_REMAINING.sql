@@ -18,6 +18,18 @@
 --
 -- Nothing in here touches stock, sales, prices or accounts. It creates two
 -- tables that are currently absent and one read-only function.
+--
+-- IT WORKS EITHER SIDE OF THE MULTI-SHOP MIGRATION.
+-- This file has never been run, and supabase/multishop/ now adds a second shop to
+-- this database. Whichever goes first, the result is the same: every block below
+-- asks whether public.shops exists, and if it does, the two tables are created WITH
+-- shop_id from birth and with per-shop policies. Two functions here — order_lookup
+-- and staff_reachability — have shop-aware replacements in multishop/04, and this
+-- file steps aside rather than overwriting them.
+--
+-- The reason for the care: a table created without shop_id, in a database that has
+-- two shops, is a table where Surefit sees Jaspare's rows. Creating it right is one
+-- `if`; noticing it later is a week of confusion.
 -- ============================================================
 
 
@@ -81,10 +93,36 @@ alter table public.transfers enable row level security;
 -- Anybody signed in may record and read a transfer. It is a shop-floor act, not
 -- an administrative one: the storekeeper handing parts to the other branch is
 -- the person who knows what went.
-do $$ begin
-  create policy "transfers_all" on public.transfers
-    for all to authenticated using (true) with check (true);
-exception when duplicate_object then null; end $$;
+--
+-- Which shop's storekeeper, though. If this database already has more than one
+-- business in it, the table is born with shop_id and the policy says "your shop's
+-- transfers"; otherwise it is the single-shop rule this file was written with.
+do $$
+declare v_multi boolean := exists (select 1 from pg_tables
+                                    where schemaname = 'public' and tablename = 'shops');
+begin
+  if v_multi then
+    alter table public.transfers
+      add column if not exists shop_id uuid references public.shops(id) on delete restrict;
+    update public.transfers set shop_id = (select id from public.shops where slug = 'jaspare-auto')
+     where shop_id is null;
+    alter table public.transfers alter column shop_id set not null;
+    create index if not exists transfers_shop_idx on public.transfers (shop_id);
+
+    drop policy if exists "transfers_all" on public.transfers;
+    drop policy if exists "shop_staff_all" on public.transfers;
+    create policy "shop_staff_all" on public.transfers
+      for all to authenticated
+      using (shop_id in (select public.my_shop_ids()))
+      with check (shop_id in (select public.my_shop_ids()));
+    raise notice 'public.transfers created per-shop';
+  else
+    begin
+      create policy "transfers_all" on public.transfers
+        for all to authenticated using (true) with check (true);
+    exception when duplicate_object then null; end;
+  end if;
+end $$;
 
 do $$ begin
   execute 'alter publication supabase_realtime add table public.transfers';
@@ -111,25 +149,54 @@ create index if not exists staff_contacts_dept_idx on public.staff_contacts (dep
 
 alter table public.staff_contacts enable row level security;
 
-drop policy if exists "staff_contacts_read" on public.staff_contacts;
-create policy "staff_contacts_read" on public.staff_contacts
-  for select to authenticated using (true);
-
--- Writing goes through is_admin() rather than its own copy of the admin list.
+-- Writing goes through an admin check rather than its own copy of the admin list.
 -- An earlier draft of this file listed two addresses by hand and left out
 -- management@bypassshop.co, which would have let that admin read the directory
 -- and silently fail to edit it.
-drop policy if exists "staff_contacts_insert" on public.staff_contacts;
-create policy "staff_contacts_insert" on public.staff_contacts
-  for insert to authenticated with check (public.is_admin());
+--
+-- WHICH admin check depends on whether this database has two businesses in it.
+-- is_admin() is three hardcoded addresses with no idea which shop they are asking
+-- about; is_shop_admin_of(shop_id) asks user_shops. With two shops, the first one
+-- would hand Surefit's staff phone numbers to Jaspare's owner.
+do $$
+declare v_multi boolean := exists (select 1 from pg_tables
+                                    where schemaname = 'public' and tablename = 'shops');
+begin
+  if v_multi then
+    alter table public.staff_contacts
+      add column if not exists shop_id uuid references public.shops(id) on delete restrict;
+    update public.staff_contacts set shop_id = (select id from public.shops where slug = 'jaspare-auto')
+     where shop_id is null;
+    alter table public.staff_contacts alter column shop_id set not null;
+    create index if not exists staff_contacts_shop_idx on public.staff_contacts (shop_id);
+  end if;
 
-drop policy if exists "staff_contacts_update" on public.staff_contacts;
-create policy "staff_contacts_update" on public.staff_contacts
-  for update to authenticated using (public.is_admin());
+  execute 'drop policy if exists "staff_contacts_read"   on public.staff_contacts';
+  execute 'drop policy if exists "staff_contacts_insert" on public.staff_contacts';
+  execute 'drop policy if exists "staff_contacts_update" on public.staff_contacts';
+  execute 'drop policy if exists "staff_contacts_delete" on public.staff_contacts';
 
-drop policy if exists "staff_contacts_delete" on public.staff_contacts;
-create policy "staff_contacts_delete" on public.staff_contacts
-  for delete to authenticated using (public.is_admin());
+  if v_multi then
+    execute 'create policy "staff_contacts_read" on public.staff_contacts
+               for select to authenticated using (public.is_shop_admin_of(shop_id))';
+    execute 'create policy "staff_contacts_insert" on public.staff_contacts
+               for insert to authenticated with check (public.is_shop_admin_of(shop_id))';
+    execute 'create policy "staff_contacts_update" on public.staff_contacts
+               for update to authenticated using (public.is_shop_admin_of(shop_id))';
+    execute 'create policy "staff_contacts_delete" on public.staff_contacts
+               for delete to authenticated using (public.is_shop_admin_of(shop_id))';
+    raise notice 'public.staff_contacts created per-shop';
+  else
+    execute 'create policy "staff_contacts_read" on public.staff_contacts
+               for select to authenticated using (true)';
+    execute 'create policy "staff_contacts_insert" on public.staff_contacts
+               for insert to authenticated with check (public.is_admin())';
+    execute 'create policy "staff_contacts_update" on public.staff_contacts
+               for update to authenticated using (public.is_admin())';
+    execute 'create policy "staff_contacts_delete" on public.staff_contacts
+               for delete to authenticated using (public.is_admin())';
+  end if;
+end $$;
 
 do $$ begin
   execute 'alter publication supabase_realtime add table public.staff_contacts';
@@ -153,39 +220,54 @@ exception when others then null; end $$;
 -- put a real address on their own account, from Settings in the app, and it only
 -- takes effect when they open the link sent to the new address.
 -- ------------------------------------------------------------
-create or replace function public.staff_reachability()
-returns table (
-  id          uuid,
-  name        text,
-  email       text,
-  reachable   boolean,   -- mail could actually get there
-  proved      boolean,   -- a code has actually been received and typed back
-  devices     int,       -- phones this account is trusted on
-  last_signin timestamptz
-)
-language sql stable security definer
-set search_path = public as $$
-  select
-    u.id,
-    coalesce(nullif(p.full_name, ''), split_part(u.email, '@', 1)) as name,
-    u.email,
-    -- The invented domain is the tell. It has never had a mail server.
-    (u.email is not null and u.email not ilike '%@bypassshop.co')  as reachable,
-    exists (select 1 from public.verified_emails v
-             where v.email = lower(u.email))                        as proved,
-    (select count(*)::int from public.trusted_devices d
-      where d.email = lower(u.email))                               as devices,
-    u.last_sign_in_at
-  from auth.users u
-  left join public.profiles p on p.id = u.id
-  where public.is_admin()          -- not an admin, not a single row
-  order by
-    (u.email is not null and u.email not ilike '%@bypassshop.co'),
-    coalesce(nullif(p.full_name, ''), u.email);
-$$;
-
-revoke all on function public.staff_reachability() from public, anon;
-grant execute on function public.staff_reachability() to authenticated;
+-- If multishop/04 has already run, ITS version is the right one — same columns,
+-- but it lists only the staff of shops the caller actually administers. Replacing
+-- it with the version below would quietly hand one shop's whole staff list, login
+-- addresses included, to the other shop's owner. So: create this only when the
+-- multi-shop helpers are absent.
+do $outer$
+begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'is_shop_admin_of') then
+    raise notice 'public.staff_reachability() left as it is — the per-shop version is already installed';
+  else
+    execute $fn$
+      create or replace function public.staff_reachability()
+      returns table (
+        id          uuid,
+        name        text,
+        email       text,
+        reachable   boolean,   -- mail could actually get there
+        proved      boolean,   -- a code has actually been received and typed back
+        devices     int,       -- phones this account is trusted on
+        last_signin timestamptz
+      )
+      language sql stable security definer
+      set search_path = public as $body$
+        select
+          u.id,
+          coalesce(nullif(p.full_name, ''), split_part(u.email, '@', 1)) as name,
+          u.email,
+          -- The invented domain is the tell. It has never had a mail server.
+          (u.email is not null and u.email not ilike '%@bypassshop.co')  as reachable,
+          exists (select 1 from public.verified_emails v
+                   where v.email = lower(u.email))                        as proved,
+          (select count(*)::int from public.trusted_devices d
+            where d.email = lower(u.email))                               as devices,
+          u.last_sign_in_at
+        from auth.users u
+        left join public.profiles p on p.id = u.id
+        where public.is_admin()          -- not an admin, not a single row
+        order by
+          (u.email is not null and u.email not ilike '%@bypassshop.co'),
+          coalesce(nullif(p.full_name, ''), u.email);
+      $body$;
+    $fn$;
+    execute 'revoke all on function public.staff_reachability() from public, anon';
+    execute 'grant execute on function public.staff_reachability() to authenticated';
+    raise notice 'created public.staff_reachability()';
+  end if;
+end $outer$;
 
 
 -- ------------------------------------------------------------
@@ -206,51 +288,68 @@ grant execute on function public.staff_reachability() to authenticated;
 -- It returns one order or nothing. It cannot list, cannot search, and cannot
 -- change anything.
 -- ------------------------------------------------------------
-create or replace function public.order_lookup(p_ref text, p_phone text)
-returns jsonb
-language plpgsql stable security definer
-set search_path = public as $$
-declare
-  v_ref   text := upper(btrim(coalesce(p_ref, '')));
-  v_dig   text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
-  v_row   public.customer_orders;
+-- Again: multishop/04 installs a three-argument version that takes the shop's slug,
+-- plus a two-argument one that searches every shop and returns NOTHING if the
+-- reference and phone match in more than one. Overwriting that with the version
+-- below would go back to "the first matching row", and with two shops numbering
+-- their orders from ENQ-2026-0001 each, the first matching row is a coin toss over
+-- whose name and shopping list gets read out.
+do $outer$
 begin
-  -- Nothing half-given. Both or nothing, so this can never degenerate into
-  -- "show me the order with this reference".
-  if v_ref = '' or length(v_dig) < 7 then
-    return null;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'order_lookup'
+                and p.pronargs = 3) then
+    raise notice 'public.order_lookup() left as it is — the per-shop version is already installed';
+  else
+    execute $fn$
+      create or replace function public.order_lookup(p_ref text, p_phone text)
+      returns jsonb
+      language plpgsql stable security definer
+      set search_path = public as $body$
+      declare
+        v_ref   text := upper(btrim(coalesce(p_ref, '')));
+        v_dig   text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+        v_row   public.customer_orders;
+      begin
+        -- Nothing half-given. Both or nothing, so this can never degenerate into
+        -- "show me the order with this reference".
+        if v_ref = '' or length(v_dig) < 7 then
+          return null;
+        end if;
+
+        select * into v_row
+          from public.customer_orders
+         where upper(ref) = v_ref
+           -- The last 9 digits, so a number saved with 0, with 254, or with +254 all
+           -- match the same phone. Kenyan numbers are 9 digits after the leading zero.
+           and right(regexp_replace(phone, '\D', '', 'g'), 9) = right(v_dig, 9)
+         limit 1;
+
+        if v_row.id is null then
+          return null;
+        end if;
+
+        -- Named one by one rather than to_jsonb(v_row), so a column added to the
+        -- table later cannot start leaking through this function by accident.
+        -- handled_by is left out on purpose: which member of staff picked it up is
+        -- the shop's business, not the customer's.
+        return jsonb_build_object(
+          'ref',      v_row.ref,
+          'ts',       v_row.ts,
+          'customer', v_row.customer,
+          'note',     v_row.note,
+          'items',    v_row.items,
+          'pieces',   v_row.pieces,
+          'total',    v_row.total,
+          'status',   v_row.status
+        );
+      end $body$;
+    $fn$;
+    execute 'revoke all on function public.order_lookup(text, text) from public';
+    execute 'grant execute on function public.order_lookup(text, text) to anon, authenticated';
+    raise notice 'created public.order_lookup()';
   end if;
-
-  select * into v_row
-    from public.customer_orders
-   where upper(ref) = v_ref
-     -- The last 9 digits, so a number saved with 0, with 254, or with +254 all
-     -- match the same phone. Kenyan numbers are 9 digits after the leading zero.
-     and right(regexp_replace(phone, '\D', '', 'g'), 9) = right(v_dig, 9)
-   limit 1;
-
-  if v_row.id is null then
-    return null;
-  end if;
-
-  -- Named one by one rather than to_jsonb(v_row), so a column added to the table
-  -- later cannot start leaking through this function by accident. handled_by is
-  -- left out on purpose: which member of staff picked it up is the shop's
-  -- business, not the customer's.
-  return jsonb_build_object(
-    'ref',      v_row.ref,
-    'ts',       v_row.ts,
-    'customer', v_row.customer,
-    'note',     v_row.note,
-    'items',    v_row.items,
-    'pieces',   v_row.pieces,
-    'total',    v_row.total,
-    'status',   v_row.status
-  );
-end $$;
-
-revoke all on function public.order_lookup(text, text) from public;
-grant execute on function public.order_lookup(text, text) to anon, authenticated;
+end $outer$;
 
 
 -- ------------------------------------------------------------

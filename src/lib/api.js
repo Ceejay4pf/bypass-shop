@@ -3,8 +3,178 @@
    Maps between DB rows (snake_case) and app items (camelCase),
    and records notifications + stock movements for every action.
 --------------------------------------------------------- */
-import { supabase, createIsolatedClient } from "./supabase.js";
+/* `shopFrom` instead of `supabase.from` for every table that belongs to a shop
+   rather than to a person — see the choke point in supabase.js. `supabase.from`
+   is still correct for profiles (one row per human) and for the three public
+   catalogue views, which are narrowed by shop_slug because the people reading them
+   have no session at all. */
+import { supabase, shopFrom, createIsolatedClient } from "./supabase.js";
+import {
+  setShop,
+  setScopeReady,
+  currentShopSlug,
+  isNotMigrated,
+} from "./shopScope.js";
 import { toLoginEmail } from "./auth.js";
+
+/* ---------------------------------------------------------
+   WHICH SHOPS EXIST, AND WHICH ONE THIS SCREEN IS SHOWING
+
+   Four functions, all of which have to work on a database that has never had
+   supabase/multishop/ pasted into it. That is not politeness: the app deploys the
+   moment it is pushed, and the SQL needs an account that is not the one building
+   this. Between those two events every one of these must behave as though there is
+   one shop — which is true, because there is.
+--------------------------------------------------------- */
+
+/* The list for the landing page. Read by strangers, so it comes from
+   public.shop_directory (name, slug, phone and nothing else) and falls back to
+   public.shops for a database that has 01 but not 04.
+
+   Returns [] rather than throwing when neither exists. The caller then shows the
+   two shops the app already knows about — see mergeShops in shopRoute.js. A picker
+   that shows nothing because a table is missing is a shop with no front door. */
+export async function fetchShops() {
+  const ask = (view) => supabase.from(view).select("slug,name,phone").order("name");
+  let { data, error } = await ask("shop_directory");
+  if (error) ({ data, error } = await ask("shops"));
+  if (error) return [];
+  return (data || []).filter((r) => r && r.slug);
+}
+
+/* The shops the signed-in account actually works at, with its role at each.
+   Returns null — not [] — when user_shops does not exist, because "no memberships"
+   and "the question cannot be asked yet" must not look the same: the first locks
+   somebody out and the second has to let them in. */
+export async function fetchMyShops() {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return [];
+
+  const { data, error } = await supabase
+    .from("user_shops")
+    .select("shop_id, role, shops(slug, name)")
+    .eq("user_id", uid);
+  if (error) return isNotMigrated(error) ? null : [];
+
+  return (data || []).map((r) => ({
+    id: r.shop_id,
+    role: r.role || "staff",
+    slug: r.shops?.slug || "",
+    name: r.shops?.name || "",
+  }));
+}
+
+/* Name the shop this screen is showing, and work out whether filtering by it is
+   possible at all.
+
+   The probe is one row and one column. If `shop_id` comes back, the migration has
+   run and every query from here on is narrowed to this shop. If it comes back
+   "no such column", scoping stays off — which is exactly right, because a database
+   with no shop_id has only one shop's data in it, and a filter on a column that
+   does not exist would empty the parts list for whoever is standing at the counter.
+
+   Called after sign-in, and again whenever the shop in the address changes. */
+export async function activateShop({ slug = "", id = "", name = "" } = {}) {
+  setShop({ slug, id, name });
+
+  if (!id) {
+    setScopeReady(false);
+    return { scoped: false, reason: "no shop id" };
+  }
+
+  const { error } = await supabase.from("inventory").select("shop_id").limit(1);
+  if (error && isNotMigrated(error)) {
+    setScopeReady(false);
+    return { scoped: false, reason: "not migrated" };
+  }
+  /* Any other error — offline, a bad key, RLS refusing outright — is not an answer
+     about the column, so it must not be read as one. Leave scoping off and let the
+     screen that actually needed the data report its own failure. */
+  if (error) {
+    setScopeReady(false);
+    return { scoped: false, reason: error.message || "unavailable" };
+  }
+
+  setScopeReady(true);
+  return { scoped: true };
+}
+
+/* Does this account work at the shop whose address is open?
+
+   Returns "yes" / "no" / "unknown". Unknown means user_shops is not there yet, and
+   unknown is treated as yes by the caller — before the migration nobody has a
+   membership and refusing everybody would lock the whole shop out of its own
+   system. After it, everybody does, so unknown stops happening. */
+export async function checkShopMembership(slug) {
+  const want = String(slug || "").toLowerCase();
+  if (!want) return { answer: "unknown", shop: null };
+
+  const mine = await fetchMyShops();
+  if (mine === null) return { answer: "unknown", shop: null };
+
+  const hit = mine.find((m) => String(m.slug).toLowerCase() === want);
+  if (hit) return { answer: "yes", shop: hit, all: mine };
+  return { answer: "no", shop: null, all: mine };
+}
+
+/* ---------------------------------------------------------
+   THE SHOPS & CONTACTS LIST, FROM THE DATABASE
+
+   The numbers staff ring: this shop's own places first, then the other businesses
+   on the system. It replaces a hardcoded array in tabs.jsx whose third entry named
+   a real business "Super Fix Auto" — a wrong name nobody could correct without a
+   deploy, printed next to a phone number staff actually dial.
+
+   Two reads, both narrow. `branches` is shop-scoped, so shopFrom() already limits
+   it to the shop on screen; `shops` is the public list, minus the one we are in.
+
+   Returns null when neither table is there, so the caller can keep showing the old
+   list rather than an empty card. Before the migration that old list is the only
+   list there is.
+--------------------------------------------------------- */
+export async function fetchDirectory() {
+  const slug = currentShopSlug();
+
+  const [br, sh] = await Promise.all([
+    shopFrom("branches").select("id,name,code,kind,location,phone,is_active").order("code"),
+    supabase.from("shops").select("slug,name,phone,is_active").order("name"),
+  ]);
+
+  if (br.error && sh.error) return null;
+
+  const digits = (p) => String(p || "").replace(/\D/g, "");
+
+  /* This shop's places. MAIN is the head office by its code, not by being first in
+     the list — a list can be reordered, a code cannot be reordered by accident. */
+  const places = (br.data || [])
+    .filter((b) => b.is_active !== false)
+    .map((b) => ({
+      id: `branch:${b.id}`,
+      name: b.name,
+      tag: String(b.code).toUpperCase() === "MAIN" ? "Head office" : (b.kind || "Branch"),
+      location: b.location || "",
+      wa: digits(b.phone),
+      display: b.phone || "",
+    }));
+
+  /* The other businesses. Listed as sister shops with a name and a number and
+     nothing else — this app knows where its own branches are and deliberately does
+     not claim to know where anybody else's shop is. */
+  const others = (sh.data || [])
+    .filter((s) => s.is_active !== false && String(s.slug).toLowerCase() !== String(slug).toLowerCase())
+    .map((s) => ({
+      id: `shop:${s.slug}`,
+      name: s.name,
+      tag: "Sister shop",
+      location: "",
+      wa: digits(s.phone),
+      display: s.phone || "",
+    }));
+
+  const all = [...places, ...others].filter((r) => r.name);
+  return all.length ? all : null;
+}
 
 /* ---- row <-> item mapping ---- */
 export function rowToItem(r) {
@@ -76,8 +246,7 @@ const ITEM_COLUMNS =
   "color,name,price,qty,min_qty,location,supplier,notes,status,created_by,created_at";
 
 export async function fetchInventory() {
-  const { data, error } = await supabase
-    .from("inventory")
+  const { data, error } = await shopFrom("inventory")
     .select(ITEM_COLUMNS)
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -87,8 +256,7 @@ export async function fetchInventory() {
 /* The photos, fetched after the list is already on screen. Returns a map of
    code -> images array so the caller can merge them in. */
 export async function fetchInventoryImages() {
-  const { data, error } = await supabase
-    .from("inventory")
+  const { data, error } = await shopFrom("inventory")
     .select("code,images")
     .not("images", "is", null);
   if (error) throw error;
@@ -101,8 +269,7 @@ export async function fetchInventoryImages() {
 
 /* One item in full, photos included — for the edit screen. */
 export async function fetchItem(code) {
-  const { data, error } = await supabase
-    .from("inventory")
+  const { data, error } = await shopFrom("inventory")
     .select("*")
     .eq("code", code)
     .single();
@@ -124,7 +291,7 @@ export async function nextSerial() {
    summary for the whole batch instead of one per part. */
 export async function insertItem(item, byName, { batch = false } = {}) {
   const row = { ...itemToRow(item), created_by: byName };
-  const { data, error } = await supabase.from("inventory").insert(row).select().single();
+  const { data, error } = await shopFrom("inventory").insert(row).select().single();
   if (error) throw error;
   if (!batch) {
     await addNotification({ type: "new_item", code: item.code, name: item.name, qty: item.qty, by_name: byName, remaining: item.qty });
@@ -155,8 +322,7 @@ export async function updateItem(code, patch, byName, { batch = false, reason = 
     const col = map[k] || k;
     if (col in full) row[col] = full[col];
   }
-  const { data, error } = await supabase
-    .from("inventory")
+  const { data, error } = await shopFrom("inventory")
     .update(row)
     .eq("code", code)
     .select()
@@ -195,14 +361,14 @@ export async function deleteItem(code, byName, disposal = {}, { batch = false } 
   let name = null;
   let qty = null;
   try {
-    const { data } = await supabase.from("inventory").select("name,qty").eq("code", code).single();
+    const { data } = await shopFrom("inventory").select("name,qty").eq("code", code).single();
     name = data?.name ?? null;
     qty = data?.qty ?? null;
   } catch {
     /* the part may already be gone; carry on with what we have */
   }
 
-  const { error } = await supabase.from("inventory").delete().eq("code", code);
+  const { error } = await shopFrom("inventory").delete().eq("code", code);
   if (error) throw error;
 
   const extra = {
@@ -343,7 +509,7 @@ function batchSummaryName(type, parts) {
 export async function addStock(code, amount, byName, supplier = "", { batch = false } = {}) {
   const { data: newQty, error } = await supabase.rpc("add_stock", { p_code: code, p_amount: amount });
   if (error) throw error;
-  if (supplier) await supabase.from("inventory").update({ supplier }).eq("code", code);
+  if (supplier) await shopFrom("inventory").update({ supplier }).eq("code", code);
   const name = await itemName(code);
   // A bulk restock gets one summary from addStockBulk instead.
   if (!batch) await addNotification({ type: "stock", code, name, qty: amount, by_name: byName, remaining: newQty });
@@ -360,7 +526,7 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, method = 
     newQty = data;
   } else {
     // Sold from another branch — record the sale but leave our stock untouched.
-    const { data } = await supabase.from("inventory").select("qty").eq("code", code).single();
+    const { data } = await shopFrom("inventory").select("qty").eq("code", code).single();
     newQty = data?.qty ?? null;
   }
   const name = await itemName(code);
@@ -371,10 +537,10 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, method = 
      isn't there and naming it would throw away the whole sale row — so the
      sale is written without it rather than lost. */
   const saleRow = { code, name, qty, buyer, phone, paid, total, by_name: byName, method: method || "Cash" };
-  let saleErr = (await supabase.from("sales").insert(saleRow)).error;
+  let saleErr = (await shopFrom("sales").insert(saleRow)).error;
   if (saleErr && (saleErr.code === "PGRST204" || /method/.test(saleErr.message || ""))) {
     const { method: _drop, ...noMethod } = saleRow;
-    saleErr = (await supabase.from("sales").insert(noMethod)).error;
+    saleErr = (await shopFrom("sales").insert(noMethod)).error;
   }
   // Not thrown: the stock is already deducted and the movement logged, so
   // failing the call now would tell staff the sale didn't happen when it did.
@@ -403,7 +569,7 @@ export async function adjustQty(code, newQty, reason, byName, { batch = false } 
 }
 
 async function itemName(code) {
-  const { data } = await supabase.from("inventory").select("name").eq("code", code).single();
+  const { data } = await shopFrom("inventory").select("name").eq("code", code).single();
   return data?.name || code;
 }
 
@@ -413,8 +579,7 @@ async function itemName(code) {
    See supabase/part_categories.sql. */
 
 export async function fetchPartCategories() {
-  const { data, error } = await supabase
-    .from("part_categories")
+  const { data, error } = await shopFrom("part_categories")
     .select("key,label,shelf,color,sort,created_by,created_at")
     .order("sort", { ascending: true })
     .order("created_at", { ascending: true });
@@ -430,8 +595,7 @@ export async function fetchPartCategories() {
 }
 
 export async function addPartCategory({ key, label, shelf, color }, byName) {
-  const { data, error } = await supabase
-    .from("part_categories")
+  const { data, error } = await shopFrom("part_categories")
     .insert({
       key: String(key || "").toUpperCase(),
       label: String(label || "").trim(),
@@ -463,7 +627,7 @@ export async function updatePartCategory(key, { label, shelf, color }) {
   if (shelf !== undefined) patch.shelf = shelf || null;
   if (color !== undefined) patch.color = color || null;
   if (!Object.keys(patch).length) return;
-  const { error } = await supabase.from("part_categories").update(patch).eq("key", key);
+  const { error } = await shopFrom("part_categories").update(patch).eq("key", key);
   if (error) throw error;
 }
 
@@ -530,8 +694,7 @@ export function rowToMovement(r) {
 }
 
 export async function fetchNotifications(limit = 200) {
-  const { data, error } = await supabase
-    .from("notifications")
+  const { data, error } = await shopFrom("notifications")
     .select("*")
     .order("ts", { ascending: false })
     .limit(limit);
@@ -558,9 +721,9 @@ function withoutLaterColumns(row) {
 }
 
 export async function addNotification(n) {
-  let { error } = await supabase.from("notifications").insert(n);
+  let { error } = await shopFrom("notifications").insert(n);
   if (error && isMissingColumn(error)) {
-    ({ error } = await supabase.from("notifications").insert(withoutLaterColumns(n)));
+    ({ error } = await shopFrom("notifications").insert(withoutLaterColumns(n)));
   }
   if (error) console.error("notification insert failed", error);
 }
@@ -591,16 +754,16 @@ export function emailAdmin(subject, message, who) {
 
 /* ---- STOCK MOVEMENTS ---- */
 export async function fetchMovements(code) {
-  let q = supabase.from("stock_movements").select("*").order("ts", { ascending: false });
+  let q = shopFrom("stock_movements").select("*").order("ts", { ascending: false });
   if (code) q = q.eq("code", code);
   const { data, error } = await q;
   if (error) throw error;
   return data;
 }
 export async function addMovement(m) {
-  let { error } = await supabase.from("stock_movements").insert(m);
+  let { error } = await shopFrom("stock_movements").insert(m);
   if (error && isMissingColumn(error)) {
-    ({ error } = await supabase.from("stock_movements").insert(withoutLaterColumns(m)));
+    ({ error } = await shopFrom("stock_movements").insert(withoutLaterColumns(m)));
   }
   if (error) console.error("movement insert failed", error);
 }
@@ -628,13 +791,12 @@ async function nextQuoteNumber() {
   const { data, error } = await supabase.rpc("next_quote_number");
   if (!error && data) return data;
   const year = new Date().getFullYear();
-  const { count } = await supabase.from("quotes").select("*", { count: "exact", head: true });
+  const { count } = await shopFrom("quotes").select("*", { count: "exact", head: true });
   return `QT-${year}-${String((count || 0) + 1).padStart(4, "0")}`;
 }
 
 export async function fetchQuotes(limit = 200) {
-  const { data, error } = await supabase
-    .from("quotes")
+  const { data, error } = await shopFrom("quotes")
     .select("*")
     .order("ts", { ascending: false })
     .limit(limit);
@@ -655,13 +817,13 @@ export async function saveQuote(q, byName) {
     status: q.status || "Sent",
     created_by: byName || null,
   };
-  const { data, error } = await supabase.from("quotes").insert(row).select().single();
+  const { data, error } = await shopFrom("quotes").insert(row).select().single();
   if (error) throw error;
   return rowToQuote(data);
 }
 
 export async function setQuoteStatus(id, status) {
-  const { error } = await supabase.from("quotes").update({ status }).eq("id", id);
+  const { error } = await shopFrom("quotes").update({ status }).eq("id", id);
   if (error) throw error;
 }
 
@@ -700,13 +862,12 @@ async function nextReceiptNumber() {
   const { data, error } = await supabase.rpc("next_receipt_number");
   if (!error && data) return data;
   const year = new Date().getFullYear();
-  const { count } = await supabase.from("receipts").select("*", { count: "exact", head: true });
+  const { count } = await shopFrom("receipts").select("*", { count: "exact", head: true });
   return `RCP-${year}-${String((count || 0) + 1).padStart(4, "0")}`;
 }
 
 export async function fetchReceipts(limit = 200) {
-  const { data, error } = await supabase
-    .from("receipts")
+  const { data, error } = await shopFrom("receipts")
     .select("*")
     .order("ts", { ascending: false })
     .limit(limit);
@@ -736,7 +897,7 @@ export async function saveReceipt(rc, byName) {
     from_sales: rc.fromSales || [],
     created_by: byName || null,
   };
-  const { data, error } = await supabase.from("receipts").insert(row).select().single();
+  const { data, error } = await shopFrom("receipts").insert(row).select().single();
   if (error) throw error;
   return rowToReceipt(data);
 }
@@ -775,8 +936,7 @@ function rowToTxn(t) {
 }
 
 export async function fetchCreditAccounts() {
-  const { data, error } = await supabase
-    .from("credit_accounts")
+  const { data, error } = await shopFrom("credit_accounts")
     .select("*")
     .order("name", { ascending: true });
   if (error) throw error;
@@ -784,8 +944,7 @@ export async function fetchCreditAccounts() {
 }
 
 export async function addCreditAccount({ name, contact, phone, notes }, byName) {
-  const { data, error } = await supabase
-    .from("credit_accounts")
+  const { data, error } = await shopFrom("credit_accounts")
     .insert({ name, contact: contact || null, phone: phone || null, notes: notes || null, created_by: byName || null })
     .select()
     .single();
@@ -799,18 +958,17 @@ export async function updateCreditAccount(id, patch) {
   if (patch.contact !== undefined) row.contact = patch.contact || null;
   if (patch.phone !== undefined) row.phone = patch.phone || null;
   if (patch.notes !== undefined) row.notes = patch.notes || null;
-  const { error } = await supabase.from("credit_accounts").update(row).eq("id", id);
+  const { error } = await shopFrom("credit_accounts").update(row).eq("id", id);
   if (error) throw error;
 }
 
 export async function deleteCreditAccount(id) {
-  const { error } = await supabase.from("credit_accounts").delete().eq("id", id);
+  const { error } = await shopFrom("credit_accounts").delete().eq("id", id);
   if (error) throw error;
 }
 
 export async function fetchCreditTxns(accountId, limit = 300) {
-  const { data, error } = await supabase
-    .from("credit_txns")
+  const { data, error } = await shopFrom("credit_txns")
     .select("*")
     .eq("account_id", accountId)
     .order("ts", { ascending: false })
@@ -862,8 +1020,7 @@ function rowToTransfer(t) {
 }
 
 export async function fetchTransfers(limit = 300) {
-  const { data, error } = await supabase
-    .from("transfers")
+  const { data, error } = await shopFrom("transfers")
     .select("*")
     .order("ts", { ascending: false })
     .limit(limit);
@@ -872,8 +1029,7 @@ export async function fetchTransfers(limit = 300) {
 }
 
 export async function addTransfer({ direction, otherBranch, code, item, qty, note }, byName) {
-  const { data, error } = await supabase
-    .from("transfers")
+  const { data, error } = await shopFrom("transfers")
     .insert({
       direction,
       other_branch: otherBranch || null,
@@ -890,7 +1046,7 @@ export async function addTransfer({ direction, otherBranch, code, item, qty, not
 }
 
 export async function deleteTransfer(id) {
-  const { error } = await supabase.from("transfers").delete().eq("id", id);
+  const { error } = await shopFrom("transfers").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -931,8 +1087,7 @@ export function rowToSale(r) {
 }
 
 export async function fetchSales(limit = 500) {
-  const { data, error } = await supabase
-    .from("sales")
+  const { data, error } = await shopFrom("sales")
     .select("*")
     .order("ts", { ascending: false })
     .limit(limit);
@@ -942,8 +1097,7 @@ export async function fetchSales(limit = 500) {
 
 /* Every sale by one person, newest first. */
 export async function fetchSalesBy(person, limit = 500) {
-  const { data, error } = await supabase
-    .from("sales")
+  const { data, error } = await shopFrom("sales")
     .select("*")
     .eq("by_name", person)
     .order("ts", { ascending: false })
@@ -977,8 +1131,7 @@ export async function fetchStaffActivity() {
 
 /* Everything one person has done, newest first. */
 export async function fetchActivityBy(person, limit = 400) {
-  const { data, error } = await supabase
-    .from("notifications")
+  const { data, error } = await shopFrom("notifications")
     .select("*")
     .eq("by_name", person)
     .order("ts", { ascending: false })
@@ -1142,8 +1295,7 @@ export function waDigits(phone) {
 }
 
 export async function fetchStaffContacts() {
-  const { data, error } = await supabase
-    .from("staff_contacts")
+  const { data, error } = await shopFrom("staff_contacts")
     .select("*")
     .order("dept", { ascending: true })
     .order("created_at", { ascending: true });
@@ -1159,7 +1311,7 @@ export async function fetchStaffContacts() {
 }
 
 export async function addStaffContact({ dept, name, role, phone }) {
-  const { error } = await supabase.from("staff_contacts").insert({
+  const { error } = await shopFrom("staff_contacts").insert({
     dept: (dept || "General").trim(),
     name: (name || "").trim(),
     role: (role || "").trim() || null,
@@ -1169,7 +1321,7 @@ export async function addStaffContact({ dept, name, role, phone }) {
 }
 
 export async function deleteStaffContact(id) {
-  const { error } = await supabase.from("staff_contacts").delete().eq("id", id);
+  const { error } = await shopFrom("staff_contacts").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -1194,8 +1346,7 @@ export function rowToMessage(r) {
 
 // Load recent messages, oldest first (so the newest sits at the bottom).
 export async function fetchMessages(limit = 200) {
-  const { data, error } = await supabase
-    .from("messages")
+  const { data, error } = await shopFrom("messages")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -1206,8 +1357,7 @@ export async function fetchMessages(limit = 200) {
 export async function sendMessage({ userId, author, body }) {
   const text = String(body || "").trim();
   if (!text) return;
-  const { data, error } = await supabase
-    .from("messages")
+  const { data, error } = await shopFrom("messages")
     .insert({ user_id: userId, author, body: text })
     .select()
     .single();
@@ -1216,7 +1366,7 @@ export async function sendMessage({ userId, author, body }) {
 }
 
 export async function deleteMessage(id) {
-  const { error } = await supabase.from("messages").delete().eq("id", id);
+  const { error } = await shopFrom("messages").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -1255,8 +1405,7 @@ export function rowToExpense(r) {
 }
 
 export async function fetchExpenses(limit = 1000) {
-  const { data, error } = await supabase
-    .from("expenses")
+  const { data, error } = await shopFrom("expenses")
     .select("*")
     .order("spent_on", { ascending: false })
     .order("ts", { ascending: false })
@@ -1266,8 +1415,7 @@ export async function fetchExpenses(limit = 1000) {
 }
 
 export async function addExpense({ spentOn, category, description, amount, method, reference }, byName) {
-  const { data, error } = await supabase
-    .from("expenses")
+  const { data, error } = await shopFrom("expenses")
     .insert({
       spent_on: spentOn || new Date().toISOString().slice(0, 10),
       category,
@@ -1293,8 +1441,7 @@ export async function addExpense({ spentOn, category, description, amount, metho
    to explain the change. The database has no delete policy, so this is the
    only way it can go. */
 export async function voidExpense(id, byName, reason = "") {
-  const { error } = await supabase
-    .from("expenses")
+  const { error } = await shopFrom("expenses")
     .update({
       voided_at: new Date().toISOString(),
       voided_by: byName || null,
@@ -1305,8 +1452,7 @@ export async function voidExpense(id, byName, reason = "") {
 }
 
 export async function fetchExpenseCategories() {
-  const { data, error } = await supabase
-    .from("expense_categories")
+  const { data, error } = await shopFrom("expense_categories")
     .select("*")
     .order("sort", { ascending: true });
   if (error) throw error;
@@ -1317,8 +1463,7 @@ export async function fetchExpenseCategories() {
    so the screen can ask for it rather than silently starting from zero and
    presenting a wrong position as if it were checked. */
 export async function fetchOpening() {
-  const { data, error } = await supabase
-    .from("finance_opening")
+  const { data, error } = await shopFrom("finance_opening")
     .select("*")
     .eq("id", 1)
     .maybeSingle();
@@ -1338,7 +1483,7 @@ export async function fetchOpening() {
 }
 
 export async function saveOpening({ asOf, cash, mpesa, bank, capital, drawings, notes }, byName) {
-  const { error } = await supabase.from("finance_opening").upsert({
+  const { error } = await shopFrom("finance_opening").upsert({
     id: 1,
     as_of: asOf || new Date().toISOString().slice(0, 10),
     cash: Number(cash) || 0,
@@ -1464,12 +1609,31 @@ export function rowToCatalogueItem(r) {
   };
 }
 
+/* THE CUSTOMER PAGE IS NARROWED BY SLUG, NOT BY shop_id.
+
+   Everywhere else the shop is filtered through shopFrom(), which needs a signed-in
+   session to know the shop's id. Nobody reading the parts list has one. So the
+   three public views carry `shop_slug` — the same word that is in the address bar —
+   and these three functions ask by that.
+
+   Each one falls back to the unfiltered query when the column is not there yet,
+   because until supabase/multishop/ has been pasted the views have no shop_slug and
+   there is only one shop's stock behind them. Asking for a column that does not
+   exist would take the whole parts list down for a customer standing in the shop. */
+function shopSlugFilter(q) {
+  const slug = currentShopSlug();
+  return slug ? q.eq("shop_slug", slug) : q;
+}
+
 export async function fetchCatalogue() {
-  const { data, error } = await supabase
-    .from("catalogue")
-    .select("*")
-    .order("cat", { ascending: true })
-    .order("name", { ascending: true });
+  const ask = (filtered) => {
+    let q = supabase.from("catalogue").select("*");
+    if (filtered) q = shopSlugFilter(q);
+    return q.order("cat", { ascending: true }).order("name", { ascending: true });
+  };
+
+  let { data, error } = await ask(true);
+  if (error && isNotMigrated(error)) ({ data, error } = await ask(false));
   if (error) throw error;
   return (data || []).map(rowToCatalogueItem);
 }
@@ -1484,11 +1648,14 @@ export async function fetchCatalogue() {
 export async function fetchCataloguePhotos(codes = []) {
   const want = [...new Set((codes || []).filter(Boolean))].slice(0, 40);
   if (!want.length) return {};
+  const ask = (filtered) => {
+    let q = supabase.from("catalogue_photos").select("code,photo");
+    if (filtered) q = shopSlugFilter(q);
+    return q.in("code", want);
+  };
   try {
-    const { data, error } = await supabase
-      .from("catalogue_photos")
-      .select("code,photo")
-      .in("code", want);
+    let { data, error } = await ask(true);
+    if (error && isNotMigrated(error)) ({ data, error } = await ask(false));
     if (error) throw error;
     const out = {};
     for (const r of data || []) if (r.photo) out[r.code] = r.photo;
@@ -1502,8 +1669,13 @@ export async function fetchCataloguePhotos(codes = []) {
    sections cover most of them, this covers the ones the shop added, and a shop
    that never ran part_categories.sql gets an empty list rather than an error. */
 export async function fetchCatalogueSections() {
+  const ask = (filtered) => {
+    const q = supabase.from("catalogue_sections").select("*");
+    return filtered ? shopSlugFilter(q) : q;
+  };
   try {
-    const { data, error } = await supabase.from("catalogue_sections").select("*");
+    let { data, error } = await ask(true);
+    if (error && isNotMigrated(error)) ({ data, error } = await ask(false));
     if (error) throw error;
     return (data || []).map((r) => ({ key: r.key, label: r.label, sort: r.sort ?? 100 }));
   } catch {
@@ -1514,13 +1686,38 @@ export async function fetchCatalogueSections() {
 /* Send an order. The database re-reads every price and name from the inventory
    and ignores the browser's copy, so what comes back is the shop's own figures,
    not the customer's. It returns the reference to show them. */
+/* "Function not found" as opposed to "the function said no". A missing function is
+   a database that has not had a file pasted into it yet; anything else is a real
+   answer and must not be retried or swallowed. */
+function functionMissing(error) {
+  const code = String(error?.code || "");
+  const msg = String(error?.message || "");
+  return code === "42883" || code === "PGRST202" || /could not find the function/i.test(msg);
+}
+
 export async function placeCustomerOrder({ customer, phone, note, items }) {
-  const { data, error } = await supabase.rpc("place_customer_order", {
+  const args = {
     p_customer: customer,
     p_phone: phone,
     p_note: note || "",
     p_items: (items || []).map((l) => ({ code: l.code, qty: l.qty })),
+  };
+
+  /* The shop the customer is actually standing in front of. Sent as the slug from
+     the address bar, because an anonymous browser has no business holding internal
+     ids — and without it every order from either storefront lands in Jaspare's
+     notifications, which is a Surefit customer's basket ringing the wrong shop.
+
+     The five-argument form only exists after multishop/04. Until then the old
+     four-argument one is called, which is correct: before the migration there is
+     only one shop. */
+  let { data, error } = await supabase.rpc("place_customer_order", {
+    ...args,
+    p_shop_slug: currentShopSlug() || "",
   });
+  if (error && functionMissing(error)) {
+    ({ data, error } = await supabase.rpc("place_customer_order", args));
+  }
   if (error) {
     /* The function raises in plain English on purpose — no name, no phone, an
        empty basket, too many in an hour — so its message is the one to show. */
@@ -1545,14 +1742,26 @@ export async function placeCustomerOrder({ customer, phone, note, items }) {
    screen can say "not available yet, please call" instead of showing a customer a
    Postgres error. */
 export async function lookupCustomerOrder(ref, phone) {
-  const { data, error } = await supabase.rpc("order_lookup", {
+  const args = {
     p_ref: String(ref || "").trim(),
     p_phone: String(phone || "").trim(),
+  };
+
+  /* With two shops, references start again from 0001 at each — so ENQ-2026-0001
+     exists twice. The three-argument form asks within one shop and is the right
+     one. The two-argument fallback is for a database that has not had multishop/04
+     pasted yet; its own body refuses to answer if a reference and phone match at
+     more than one shop, rather than picking whichever row came back first. */
+  let { data, error } = await supabase.rpc("order_lookup", {
+    ...args,
+    p_shop_slug: currentShopSlug() || "",
   });
+  if (error && functionMissing(error)) {
+    ({ data, error } = await supabase.rpc("order_lookup", args));
+  }
   if (error) {
-    const code = String(error.code || "");
     const msg = String(error.message || "");
-    if (code === "42883" || code === "PGRST202" || /could not find the function/i.test(msg)) {
+    if (functionMissing(error)) {
       const e = new Error("Checking an order isn't switched on yet.");
       e.setup = true;
       throw e;
@@ -1582,8 +1791,7 @@ function rowToCustomerOrder(r) {
 }
 
 export async function fetchCustomerOrders(limit = 100) {
-  const { data, error } = await supabase
-    .from("customer_orders")
+  const { data, error } = await shopFrom("customer_orders")
     .select("*")
     .order("ts", { ascending: false })
     .limit(limit);
@@ -1592,8 +1800,7 @@ export async function fetchCustomerOrders(limit = 100) {
 }
 
 export async function setCustomerOrderStatus(id, status, who) {
-  const { error } = await supabase
-    .from("customer_orders")
+  const { error } = await shopFrom("customer_orders")
     .update({ status, handled_by: who, handled_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
@@ -1604,8 +1811,7 @@ export async function setCustomerOrderStatus(id, status, who) {
    customer needs the actual list, so the row fetches it when it's opened rather
    than every order being loaded with the feed. */
 export async function fetchCustomerOrder(ref) {
-  const { data, error } = await supabase
-    .from("customer_orders")
+  const { data, error } = await shopFrom("customer_orders")
     .select("*")
     .eq("ref", ref)
     .maybeSingle();

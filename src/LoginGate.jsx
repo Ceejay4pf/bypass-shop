@@ -48,7 +48,11 @@ const primaryBtn =
   "shadow-lg shadow-[#2563EB40] active:scale-[0.99] transition-transform " +
   "disabled:opacity-50 disabled:shadow-none";
 
-export default function LoginGate({ onLeave }) {
+export default function LoginGate({ onLeave, shop }) {
+  /* Whose sign-in screen this is. One build serves more than one business now, and
+     a Surefit storekeeper typing their password under "Jaspare Auto" has no way to
+     know whether they are about to sign in to the right shop. */
+  const shopName = shop?.name || "Jaspare Auto · Main Shop";
   // Which login method: the 4 shared role logins, or a personal account.
   const [tab, setTab] = useState("role");      // role | own
   const [mode, setMode] = useState("signin"); // signin | signup
@@ -499,7 +503,7 @@ export default function LoginGate({ onLeave }) {
 
           <div className="relative px-6 pt-6 pb-4 text-center">
             <div className="text-[#BFDBFE] text-[11px] font-bold tracking-[0.25em] uppercase">
-              Jaspare Auto · Main Shop
+              {shopName}
             </div>
 
             {/* Spare-part emblem (gear + piston) */}

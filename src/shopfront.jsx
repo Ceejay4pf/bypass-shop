@@ -288,7 +288,23 @@ function Row({ item, section, inCart, onAdd, onStep, highlight = false }) {
   );
 }
 
-export default function Shopfront({ onLeave }) {
+export default function Shopfront({ onLeave, onChooseShop, shop: chosen }) {
+  /* WHICH SHOP'S WINDOW THIS IS.
+
+     `shop` above is SHOP_INFO.branch — the counter details printed on Jaspare's
+     receipts. They are Jaspare's, not "the shop's", and with a second business on
+     the same build they must not be shown under another name. So a shop that is not
+     Jaspare gets its own name and its own number, and the lines this app has never
+     known for it — where it is, what makes it stocks — are left off rather than
+     borrowed. A customer sent to the wrong street is worse than a customer who has
+     to ask. */
+  const jaspare = !chosen?.slug || chosen.slug === "jaspare-auto";
+  const shopName = chosen?.name || shop.name;
+  const shopTagline = jaspare ? shop.tagline : (chosen?.tagline || "");
+  const shopPhone = jaspare ? shop.phone : (chosen?.phone || "");
+  const shopPhoneIntl = jaspare
+    ? shop.phoneIntl
+    : String(chosen?.phone || "").replace(/\D/g, "");
   /* WHICH OF THE THREE PAGES IS SHOWING.
      The parts list, the orders this phone has sent, and a few pages of what the
      shop deals in. The basket is deliberately NOT one of them — it stays the
@@ -520,8 +536,8 @@ export default function Shopfront({ onLeave }) {
     }
   };
 
-  const waLink = `https://wa.me/${shop.phoneIntl}`;
-  const telLink = `tel:+${shop.phoneIntl}`;
+  const waLink = `https://wa.me/${shopPhoneIntl}`;
+  const telLink = `tel:+${shopPhoneIntl}`;
   const here = sectionOf(cat);
 
   return (
@@ -530,12 +546,16 @@ export default function Shopfront({ onLeave }) {
       <header className="bg-[#1B2430] text-[#F3F5F8]">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <button onClick={backHome} className="text-left">
-            <div className="font-bold text-lg leading-tight">{shop.name}</div>
-            <div className="text-xs text-[#9BB7F0] mt-0.5">{shop.tagline}</div>
+            <div className="font-bold text-lg leading-tight">{shopName}</div>
+            {shopTagline ? (
+              <div className="text-xs text-[#9BB7F0] mt-0.5">{shopTagline}</div>
+            ) : null}
           </button>
-          <div className="text-[11px] text-[#DEE3E9] mt-1.5 flex items-center gap-1.5">
-            <MapPin size={12} /> {shop.location}
-          </div>
+          {jaspare && (
+            <div className="text-[11px] text-[#DEE3E9] mt-1.5 flex items-center gap-1.5">
+              <MapPin size={12} /> {shop.location}
+            </div>
+          )}
           <div className="flex gap-2 mt-3">
             <a href={telLink} className="flex items-center gap-1.5 bg-[#2563EB] text-[#F3F5F8] text-xs font-bold uppercase tracking-wide rounded-md px-3 py-2">
               <Phone size={13} /> Call the shop
@@ -581,7 +601,7 @@ export default function Shopfront({ onLeave }) {
             <AlertTriangle size={15} className="mt-0.5 shrink-0" />
             <div>
               {err}
-              <div className="mt-1 text-[11px]">Or call {shop.phone}.</div>
+              <div className="mt-1 text-[11px]">Or call {shopPhone}.</div>
             </div>
           </div>
         )}
@@ -795,9 +815,9 @@ export default function Shopfront({ onLeave }) {
         )}
 
         <div className="mt-8 pt-4 border-t border-[#DEE3E9] text-[11px] text-[#5A6472] leading-relaxed">
-          <div className="font-semibold text-[#1B2430]">{shop.name}</div>
-          <div>{shop.location} · {shop.phone}</div>
-          <div className="mt-1">We stock parts for {shop.makes}.</div>
+          <div className="font-semibold text-[#1B2430]">{shopName}</div>
+          <div>{jaspare ? `${shop.location} · ${shop.phone}` : shopPhone}</div>
+          {jaspare && <div className="mt-1">We stock parts for {shop.makes}.</div>}
 
           {/* THE WAY BACK.
 
@@ -824,6 +844,18 @@ export default function Shopfront({ onLeave }) {
             >
               <ArrowLeft size={12} />
               <span>Shop staff? Go back and sign in</span>
+            </button>
+          )}
+
+          {/* And out of the shop entirely, for somebody who tapped the wrong
+              business on the way in. Beside the staff link rather than above it,
+              because getting the shop wrong is the rarer mistake of the two. */}
+          {onChooseShop && (
+            <button
+              onClick={onChooseShop}
+              className="mt-2 block text-[11px] text-[#5A6472] hover:text-[#2563EB] transition-colors"
+            >
+              Looking for a different shop?
             </button>
           )}
         </div>

@@ -136,6 +136,7 @@ const matchesQuery = (i, cat, q) => {
 
 /* ======================= DASHBOARD ======================= */
 export function DashboardTab({ items, notifications, categories, user, onNav, onOpenLedger, admin = false }) {
+  const shops = useDirectory();
   const totalItems = items.length;
   const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
   const lowStock = items.filter(isLowStock);
@@ -372,8 +373,8 @@ export function DashboardTab({ items, notifications, categories, user, onNav, on
             <MapPin size={15} className="text-[#DC3B2E]" /> Shops &amp; Contacts
           </div>
           <div className="space-y-2">
-            {SHOPS.map((s) => (
-              <div key={s.name} className="flex items-center gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5">
+            {shops.map((s) => (
+              <div key={s.id || s.name} className="flex items-center gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm truncate">{s.name}</div>
                   <div className="text-[11px] text-[#5A6472] font-mono truncate">{s.display}</div>
@@ -501,6 +502,7 @@ function useLongPress(onLongPress, ms = 500) {
 
    Nothing is deleted until Confirm is pressed. */
 export function DeleteItemSheet({ item, onClose, onConfirm }) {
+  const shops = useDirectory();
   const [disposal, setDisposal] = useState("");
   const [takenBy, setTakenBy] = useState("");
   const [logistics, setLogistics] = useState("");
@@ -593,7 +595,7 @@ export function DeleteItemSheet({ item, onClose, onConfirm }) {
                 />
                 {disposal === "branch" && (
                   <datalist id="shop-list">
-                    {SHOPS.map((s) => <option key={s.name} value={s.name} />)}
+                    {shops.map((s) => <option key={s.id || s.name} value={s.name} />)}
                   </datalist>
                 )}
               </Field>
@@ -6638,13 +6640,37 @@ function Row({ label, value, tone }) {
 }
 
 /* ======================= SETTINGS ======================= */
-/* Sister shops / suppliers. `wa` = full intl number, digits only (no + or leading 0),
-   used for both tel: and wa.me links. `display` is what staff see. */
+/* THE NUMBERS STAFF RING.
+   `wa` = full intl number, digits only (no + or leading 0), used for both tel: and
+   wa.me links. `display` is what staff see.
+
+   This is the fallback, not the list. The real one is read from public.branches and
+   public.shops by useDirectory() below, so a number that changes is an edit rather
+   than a deploy. It is kept for the database that has not had supabase/multishop/
+   run yet, where it is the only list there is.
+
+   The third entry is gone. It said "Super Fix Auto", which is not that business's
+   name — Surefit Autoparts Ltd is, and it now comes from the shops table where it
+   can be spelled correctly and corrected if it isn't. A wrong name sitting next to
+   a right phone number is the kind of thing staff read aloud on a call. */
 const SHOPS = [
   { name: "Jaspare Auto — Main Shop", tag: "Head office", location: "Main shop", wa: "254729695400", display: "0724 450 852 · +254 729 695 400" },
   { name: "Jeyden Auto Spares", tag: "Branch", location: "South B", wa: "254798718321", display: "+254 798 718 321" },
-  { name: "Super Fix Auto", tag: "Partner", location: "", wa: "254780643828", display: "+254 780 643 828" },
 ];
+
+/* The list, from the database when there is one. Falls back to SHOPS rather than to
+   nothing: an empty Shops & Contacts card reads as "there is nobody to call". */
+function useDirectory() {
+  const [rows, setRows] = useState(SHOPS);
+  useEffect(() => {
+    let alive = true;
+    api.fetchDirectory()
+      .then((d) => { if (alive && d) setRows(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return rows;
+}
 
 /* Light or dark screen. The choice belongs to the device, not the account —
    the same person's phone can be dark while the shop counter laptop stays
@@ -8354,6 +8380,7 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
 }
 
 export function SettingsTab({ categories, user, email, admin, onCategoriesChanged }) {
+  const shops = useDirectory();
   return (
     <div className="bp-fade-up">
       <SectionTitle eyebrow="System" title="Settings" />
@@ -8400,8 +8427,8 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Shops &amp; Contacts</div>
         <div className="space-y-2">
-          {SHOPS.map((s) => (
-            <div key={s.name} className="flex items-center gap-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
+          {shops.map((s) => (
+            <div key={s.id || s.name} className="flex items-center gap-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3">
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm truncate">{s.name}</div>
                 <div className="text-xs text-[#5A6472] flex items-center gap-1.5 flex-wrap">

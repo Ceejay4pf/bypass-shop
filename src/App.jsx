@@ -8,6 +8,7 @@ import {
   Columns2, X,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
+import { SHOP_INFO } from "./lib/shopInfo.js";
 import LoginGate from "./LoginGate.jsx";
 import EntryDoors, { forgetEntry } from "./EntryDoors.jsx";
 import Welcome from "./Welcome.jsx";
@@ -69,8 +70,17 @@ const NAV = [
 /* `onLeave` forgets which of the two front doors this device chose, so a phone
    that answered "I work at the shop" by mistake is not stuck on a sign-in screen
    forever. Handed down to the sign-in screen, which is where somebody who is not
-   staff will be sitting when they realise. See src/main.jsx. */
-export default function App({ onLeave }) {
+   staff will be sitting when they realise. See src/main.jsx.
+
+   `shop` is which business's address is open — { slug, name }. It is not decoration:
+   every read and write below is narrowed to it once the account's membership has
+   been confirmed. See ShopGate.
+
+   `onChooseShop` goes all the way back to the shop list, which is a different place
+   from `onLeave`: leaving the sign-in screen means "I'm a customer, not staff, at
+   THIS shop", while choosing again means "wrong shop entirely". Somebody sitting in
+   front of "Wrong shop" needs the second one. */
+export default function App({ onLeave, onChooseShop, shop }) {
   const session = useAuth();
 
   // undefined = auth state still loading; null = signed out.
@@ -81,15 +91,137 @@ export default function App({ onLeave }) {
       </div>
     );
   }
-  if (!session) return <LoginGate onLeave={onLeave} />;
+  if (!session) return <LoginGate onLeave={onLeave} shop={shop} />;
   /* The doors go OVER the app, not instead of it, so the inventory is being
      fetched while they roll — the animation costs the shop no waiting. */
   return (
-    <>
-      <BypassShop session={session} />
+    <ShopGate session={session} shop={shop} onChooseShop={onChooseShop}>
+      <BypassShop session={session} shop={shop} />
       <EntryDoors session={session} />
-    </>
+    </ShopGate>
   );
+}
+
+/* ---------------------------------------------------------
+   DOES THIS ACCOUNT WORK AT THE SHOP IN THE ADDRESS?
+
+   Signing in proves who somebody is. It does not prove which business they work
+   at, and with two shops on one login system those are different questions. Without
+   this, a Surefit account that opened /jaspare-auto/login would sign in perfectly
+   and then sit looking at an empty system with no explanation — every query
+   silently narrowed to a shop it has no rows in.
+
+   It is also where the shop's id is fetched and handed to the query layer. The id
+   deliberately does not come from the landing page: that list is read by strangers
+   and carries a name, a slug and a phone, nothing more. The id arrives with the
+   membership, which needs a session by definition.
+
+   "UNKNOWN" IS TREATED AS YES. Until supabase/multishop/ has been pasted there is
+   no user_shops table, so nobody has a membership and refusing everybody would lock
+   the whole shop out of its own system over a migration that has not happened.
+   Unscoped is also correct in that state: with no shop_id there is one shop's data.
+--------------------------------------------------------- */
+function ShopGate({ session, shop, onChooseShop, children }) {
+  const slug = shop?.slug || "";
+  const [state, setState] = useState("checking"); // checking | ok | wrong
+  const [mine, setMine] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    setState("checking");
+    (async () => {
+      let answer = "unknown";
+      let hit = null;
+      let all = [];
+      try {
+        const r = await api.checkShopMembership(slug);
+        answer = r.answer;
+        hit = r.shop;
+        all = r.all || [];
+      } catch {
+        /* A failed check must not become a locked door. The database is the thing
+           that actually refuses a shop you don't belong to; this is only here to
+           say so in words instead of showing an empty system. */
+        answer = "unknown";
+      }
+      if (!alive) return;
+
+      if (answer === "no") {
+        setMine(all);
+        setState("wrong");
+        return;
+      }
+      await api.activateShop({
+        slug,
+        id: hit?.id || "",
+        name: hit?.name || shop?.name || "",
+      });
+      if (alive) setState("ok");
+    })();
+    return () => { alive = false; };
+  }, [slug, session.user.id, shop?.name]);
+
+  if (state === "checking") {
+    return (
+      <div className="min-h-screen bg-[#F3F5F8] flex items-center justify-center text-[#5A6472]">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (state === "wrong") {
+    const signOutNow = async () => { clearRoleSession(); forgetEntry(); await signOut(); };
+    return (
+      <div className="min-h-screen bg-[#070B12] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-[#0C1424] ring-1 ring-white/10 rounded-2xl p-6 text-center">
+          <AlertTriangle size={28} className="text-[#E0A93B] mx-auto" />
+          <h1 className="text-white text-lg font-extrabold uppercase tracking-wide mt-3">
+            Wrong shop
+          </h1>
+          <p className="text-[#9FB3CC] text-sm mt-2 leading-relaxed">
+            {session.user.email} is signed in, but this account does not work at{" "}
+            <span className="font-semibold text-[#C7D6E8]">{shop?.name || slug}</span>.
+          </p>
+
+          {/* The way to where they DO belong, if they belong somewhere. A message
+              that only says no is a message somebody has to guess their way out of. */}
+          {mine.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[#6F8299] text-[11px] uppercase tracking-widest font-bold mb-2">
+                Your shop{mine.length > 1 ? "s" : ""}
+              </p>
+              {mine.map((m) => (
+                <a
+                  key={m.slug}
+                  href={`/${m.slug}/login`}
+                  className="block w-full rounded-xl bg-gradient-to-r from-[#2563EB] to-[#06B6D4] text-white font-bold py-2.5 mb-2"
+                >
+                  Open {m.name || m.slug}
+                </a>
+              ))}
+            </div>
+          )}
+
+          <button
+            onClick={signOutNow}
+            className="mt-2 w-full rounded-xl bg-[#101A2E] ring-1 ring-white/15 text-[#C7D6E8] font-semibold py-2.5"
+          >
+            Sign out
+          </button>
+          {onChooseShop && (
+            <button
+              onClick={onChooseShop}
+              className="mt-3 text-[#6F8299] text-[12px] underline"
+            >
+              Choose a different shop
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 const labelFor = (id) => NAV.find((n) => n.id === id)?.label || "Screen";
@@ -148,7 +280,12 @@ function useClock() {
   return now;
 }
 
-function BypassShop({ session }) {
+function BypassShop({ session, shop }) {
+  /* The shop's own name, on its own screens. Hardcoding "Jaspare Auto" here was
+     harmless while there was one shop and becomes a lie the moment there are two —
+     a Surefit storekeeper reading "Jaspare Auto" above their own stock has every
+     reason to think they are looking at the wrong shop's numbers. */
+  const shopName = shop?.name || SHOP_INFO.main.name;
   const { items, loading: itemsLoading, error, reload: reloadItems, stale } = useInventory();
   const { notifications, reload: reloadNotifications } = useNotifications();
   /* The full sales register, for Reports. The activity feed above is capped at
@@ -486,7 +623,7 @@ function BypassShop({ session }) {
     run(() => api.addStock(code, amount, user, supplier), `+${amount} stock added to ${code}`);
   const handleSell = (sale) =>
     run(async () => { await api.sellItem(sale, user); setTab(admin ? "notify" : "dashboard"); },
-      `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to Jaspare Auto`,
+      `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to ${shopName}`,
       sale.paid ? "ok" : "warn");
   /* Returns whether it actually went through, because Edit Parts saves the
      count and the details one after the other and must not carry on past a
@@ -833,7 +970,7 @@ function BypassShop({ session }) {
         }`}
       >
         <div className="p-4 border-b border-[#DEE3E9]">
-          <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">Jaspare Auto</div>
+          <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">{shopName}</div>
           <div className="flex items-center gap-2 mt-0.5">
             <Boxes size={20} className="text-[#2563EB]" />
             <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">Bypass Shop</span>
@@ -896,7 +1033,7 @@ function BypassShop({ session }) {
           )}
           <div className="min-w-0">
             <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.2em] uppercase">
-              Jaspare Auto · Main Shop
+              {shopName}
             </div>
             <div className="text-sm sm:text-base font-bold uppercase tracking-wide truncate">
               Branch Inventory Management

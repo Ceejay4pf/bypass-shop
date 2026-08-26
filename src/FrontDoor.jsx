@@ -22,7 +22,13 @@ import { SLIDES } from "./lib/slides.js";
    /system, and the link handed to a customer belongs on /jaspare.
 --------------------------------------------------------- */
 
-export default function FrontDoor({ onPick }) {
+export default function FrontDoor({ onPick, shop, onChooseShop }) {
+  /* Whose door this is. One build serves more than one business, and the two
+     buttons below lead into whichever shop the address named — so this line has to
+     be that shop's name, not a constant. Getting it wrong sends a Surefit customer
+     into Jaspare's parts list believing it is Surefit's shelf. */
+  const shopName = shop?.name || "Jaspare Auto · Main Shop";
+  const shopTagline = shop?.tagline || SHOP_INFO.branch.tagline;
   /* The same show as the login board and the way in. Behind the two doors here
      because a customer who has just tapped a WhatsApp link has no idea what this
      shop sells until something shows them. */
@@ -45,7 +51,7 @@ export default function FrontDoor({ onPick }) {
           <div className="bp-sheen absolute top-0 bottom-0 left-0 w-1/4 bg-white/25 blur-lg pointer-events-none" />
           <div className="relative px-6 pt-7 pb-6 text-center">
             <div className="text-[#BFDBFE] text-[11px] font-bold tracking-[0.25em] uppercase">
-              Jaspare Auto · Main Shop
+              {shopName}
             </div>
             <h1
               className="text-white text-3xl font-extrabold uppercase tracking-wide mt-1.5"
@@ -53,7 +59,9 @@ export default function FrontDoor({ onPick }) {
             >
               Bypass Shop
             </h1>
-            <p className="text-[#E6F6FF] text-xs mt-1.5">{SHOP_INFO.branch.tagline}</p>
+            {shopTagline ? (
+              <p className="text-[#E6F6FF] text-xs mt-1.5">{shopTagline}</p>
+            ) : null}
             <p className="text-[#A5F3FC] text-[11px] mt-3 font-semibold">
               {onShow?.car ? `${onShow.car} · ` : ""}{onShow?.part}
             </p>
@@ -99,6 +107,21 @@ export default function FrontDoor({ onPick }) {
 
         {/* Said plainly, because a screen that silently remembers an answer is a
             screen somebody thinks is broken when it stops appearing. */}
+        {/* THE WAY BACK TO THE SHOP CHOICE.
+
+            Not an afterthought. This screen is what the bare link opens after a shop
+            has been chosen, and somebody who tapped the wrong business here has no
+            other way out — expecting them to know the address of the picker is
+            expecting them to type a path they have never been shown. */}
+        {onChooseShop && (
+          <button
+            onClick={onChooseShop}
+            className="mx-auto mt-4 block text-[12px] text-[#9FB3CC] hover:text-[#67E8F9] transition-colors underline"
+          >
+            This isn&apos;t the shop I wanted — choose again
+          </button>
+        )}
+
         <p className="text-[#6F8299] text-[11px] text-center mt-4 leading-relaxed">
           Nothing is saved and nothing is remembered — you&apos;ll be asked again next
           time you open it. Both pages have a small link at the bottom that brings
