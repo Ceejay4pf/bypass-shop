@@ -8,7 +8,7 @@ import {
   Columns2, X,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
-import { SHOP_INFO, shopName } from "./lib/shopInfo.js";
+import { SHOP_INFO } from "./lib/shopInfo.js";
 import LoginGate from "./LoginGate.jsx";
 import EntryDoors, { forgetEntry } from "./EntryDoors.jsx";
 import Welcome from "./Welcome.jsx";
@@ -285,7 +285,7 @@ function BypassShop({ session, shop }) {
      harmless while there was one shop and becomes a lie the moment there are two —
      a Surefit storekeeper reading "Jaspare Auto" above their own stock has every
      reason to think they are looking at the wrong shop's numbers. */
-  const shopName = shop?.name || SHOP_INFO.main.name;
+  const shopTitle = shop?.name || SHOP_INFO.branch.name;
   const { items, loading: itemsLoading, error, reload: reloadItems, stale } = useInventory();
   const { notifications, reload: reloadNotifications } = useNotifications();
   /* The full sales register, for Reports. The activity feed above is capped at
@@ -623,7 +623,7 @@ function BypassShop({ session, shop }) {
     run(() => api.addStock(code, amount, user, supplier), `+${amount} stock added to ${code}`);
   const handleSell = (sale) =>
     run(async () => { await api.sellItem(sale, user); setTab(admin ? "notify" : "dashboard"); },
-      `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to ${shopName}`,
+      `Sold ${sale.qty} × ${sale.code}${sale.deduct === false ? " (from another branch — stock unchanged)" : ""} — sent to ${shopTitle}`,
       sale.paid ? "ok" : "warn");
   /* Returns whether it actually went through, because Edit Parts saves the
      count and the details one after the other and must not carry on past a
@@ -970,10 +970,10 @@ function BypassShop({ session, shop }) {
         }`}
       >
         <div className="p-4 border-b border-[#DEE3E9]">
-          <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">{shopName}</div>
+          <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">{SHOP_INFO.eyebrow}</div>
           <div className="flex items-center gap-2 mt-0.5">
             <Boxes size={20} className="text-[#2563EB]" />
-            <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">{shopName()}</span>
+            <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">{shopTitle}</span>
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
@@ -1033,7 +1033,7 @@ function BypassShop({ session, shop }) {
           )}
           <div className="min-w-0">
             <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.2em] uppercase">
-              {shopName}
+              {shopTitle}
             </div>
             <div className="text-sm sm:text-base font-bold uppercase tracking-wide truncate">
               Branch Inventory Management

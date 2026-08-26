@@ -14,17 +14,29 @@ import { hardReload as doHardReload } from "./lib/hardReload.js";
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, busy: false };
+    this.state = { hasError: false, busy: false, why: "" };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  /* The error's own words are kept, and shown. This screen used to say only that
+     the device was holding an old copy — which is one cause and was, the last time
+     it appeared, the wrong one: a genuine bug in a new deploy read as a stale cache
+     and sent everybody looking in the wrong place. A phone at a shop counter has no
+     console to open, so the one line that says what actually broke has to be on the
+     screen the person is looking at. */
+  static getDerivedStateFromError(error) {
+    let why = "";
+    try {
+      why = String((error && (error.message || error)) || "").slice(0, 200);
+    } catch {
+      /* an error whose own message throws is still an error worth reporting */
+    }
+    return { hasError: true, why };
   }
 
   componentDidCatch(error, info) {
     // Keep a breadcrumb in the console for debugging, but never crash here.
     try {
-      console.error("[Bypass Shop] App error:", error, info);
+      console.error("[Shop] App error:", error, info);
     } catch {
       /* ignore */
     }
@@ -89,11 +101,29 @@ export default class ErrorBoundary extends React.Component {
           <h1 style={{ fontSize: "1.15rem", fontWeight: 800, color: C.ink, margin: "0 0 0.5rem" }}>
             Let's refresh the app
           </h1>
-          <p style={{ fontSize: "0.85rem", color: C.dim, lineHeight: 1.5, margin: "0 0 1.25rem" }}>
-            This device was holding an old copy of the app. Tap the button
-            below to clear it and load the latest version — your data is safe in
-            the cloud.
+          <p style={{ fontSize: "0.85rem", color: C.dim, lineHeight: 1.5, margin: "0 0 0.75rem" }}>
+            The app could not draw this screen. Usually this device is holding an
+            old copy — tap below to clear it and load the latest version. Your data
+            is safe in the cloud.
           </p>
+          {this.state.why && (
+            <p
+              style={{
+                fontSize: "0.7rem",
+                color: C.dim,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                background: dark ? "#0F141B" : "#F3F5F8",
+                border: "1px solid " + C.line,
+                borderRadius: "0.4rem",
+                padding: "0.5rem",
+                margin: "0 0 1rem",
+                wordBreak: "break-word",
+                textAlign: "left",
+              }}
+            >
+              {this.state.why}
+            </p>
+          )}
           <button
             onClick={this.hardReload}
             disabled={this.state.busy}
