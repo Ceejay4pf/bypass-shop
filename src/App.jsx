@@ -832,6 +832,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           user={user}
           admin={admin}
           canEdit={can("edit")}
+          canDelete={can("delete")}
           onChanged={refreshAfterCommand}
           onGo={assistantGo}
         />
@@ -846,6 +847,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           user={user}
           admin={admin}
           canEdit={can("edit")}
+          canDelete={can("delete")}
           onChanged={refreshAfterCommand}
           onGo={assistantGo}
         />
@@ -937,6 +939,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           sales={salesRegister}
           salesReady={registerReady}
           canEdit={can("edit")}
+          canDelete={can("delete")}
           onChanged={refreshAfterCommand}
           onGo={assistantGo}
         />

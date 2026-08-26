@@ -561,12 +561,224 @@ function readBulk(low, raw, items, categories) {
   };
 }
 
+/* ---------- taking a part off the books ----------
+
+   "remove FBM-TOY-PRE-16-0001"
+   "delete DOR-HON-CRV-08-FL-0293, it was entered twice"
+   "get rid of the premio front bumper"        <- asks which one, and lists them
+
+   This is the only instruction in this file that cannot be undone. Everything
+   else writes a new figure over an old one and leaves the old one in the ledger;
+   this takes the row out of the stock list, and afterwards the ledger is the only
+   place the part was ever here.
+
+   So it is the narrowest reading of the lot, on three rules:
+
+   ONE PART, NAMED. Words that fit more than one part do not remove the first
+   match — they come back with the list and ask for the code. That is not caution
+   for its own sake. Every line of a pasted list is its own part in this shop, so
+   "the premio front bumper" routinely means nine parts, and nine parts that read
+   identically on screen differ only by the four digits on the label in your hand.
+   Several codes typed out in one sentence are allowed, because then the person
+   has named each one.
+
+   NEVER EVERYTHING. No filter, or a filter this file failed to read, removes
+   nothing at all and says why. There is no wording here that empties a shelf.
+
+   WHERE IT WENT, IF IT WAS SAID. The Remove sheet on Inventory asks that
+   question because the answer is what a report needs years later, and the same
+   words are read here. When nobody says, the confirmation says out loud that the
+   ledger will read "Not recorded" — an unrecorded removal is allowed, an invented
+   reason is not.
+
+   The keys below are api.js's DISPOSALS keys, written out again rather than
+   imported: api.js reaches for import.meta.env and cannot be loaded by the tests
+   that check this file. Add one there and this is the other place to look. */
+const DISPOSAL_WORDS = [
+  /* Longest and most specific first. "entered twice by mistake" is a duplicate
+     and not a damage, and "sent back to the supplier" is not a shop transfer. */
+  { key: "duplicate", label: "Entered twice by mistake", test: /\b(?:entered|typed|added|keyed|captured)\s+(?:it\s+)?twice\b|\btwice\s+by\s+mistake\b|\bduplicate[ds]?\b|\bdouble\s+entry\b/i },
+  { key: "returned_supplier", label: "Returned to the supplier", test: /\b(?:return(?:ed)?|sent|took|taken|going)\s+(?:it\s+)?back\s+to\s+(?:the\s+)?supplier\b|\breturn(?:ed|ing)?\s+(?:it\s+)?to\s+(?:the\s+)?supplier\b|\bsupplier\s+return\b/i },
+  { key: "branch", label: "Taken to another shop", test: /\b(?:taken|took|sent|moved|transferred|carried)\s+(?:it\s+)?to\s+(?:another|the\s+other)\b|\b(?:another|the\s+other)\s+(?:shop|branch)\b/i },
+  { key: "credit", label: "Given to a credit customer", test: /\bcredit\s+(?:customer|account)\b|\bon\s+credit\b/i },
+  { key: "staff", label: "Taken by staff / internal use", test: /\btaken\s+by\s+(?:staff|one\s+of\s+us)\b|\binternal\s+use\b|\bused\s+(?:it\s+)?(?:here|in\s+the\s+(?:workshop|garage))\b/i },
+  { key: "damaged", label: "Damaged or written off", test: /\bdamaged?\b|\bbroken\b|\bcracked\b|\bwrit(?:e|ten)\s+off\b|\bscrap(?:ped)?\b|\bspoil(?:t|ed)\b|\bruined\b/i },
+  { key: "lost", label: "Missing / unaccounted for", test: /\blost\b|\bmissing\b|\bstolen\b|\bcan(?:no|')?t\s+be\s+found\b|\bcannot\s+be\s+found\b|\bnowhere\s+to\s+be\s+seen\b/i },
+];
+
+/* What an order to remove something looks like. The last two alternatives are
+   for the verb that comes apart in the middle — "take the bumper off the list" —
+   which is how it gets said out loud more often than "delete". */
+const REMOVE_ORDER =
+  /\b(?:delete|remove|get\s+rid\s+of|throw\s+(?:it\s+)?(?:away|out)|writ(?:e|ten)\s+off|scrap)\b|\btake\s+(?:it\s+)?off\b|\boff\s+the\s+(?:list|books|system|shelf|stock\s+list)\b/;
+
+/* Everything in a removal sentence that is giving the order rather than naming
+   the part. Taken out here rather than added to INSTRUCTION_WORDS, because a word
+   listed there is a word silently ignored in every other instruction too. */
+function stripRemoveOrder(text) {
+  return String(text || "")
+    .replace(/\b(?:please|kindly|can\s+you|could\s+you|i\s+want\s+to|i\s+need\s+to|we\s+need\s+to|also|just|now)\b/gi, " ")
+    .replace(/\b(?:delete|deleted|remove|removed|removing|get\s+rid\s+of|throw\s+(?:it\s+)?(?:away|out)|writ(?:e|ten)\s+off|scrap(?:ped)?|take\s+(?:it\s+)?off)\b/gi, " ")
+    .replace(/\b(?:from|off|out\s+of)\s+(?:the\s+)?(?:stock\s+list|list|books|system|shelf|inventory|stock|shop|records?)\b/gi, " ")
+    /* The generic nouns for a thing on a shelf. No part is called "part", and
+       leaving them in made "delete all the parts" refuse for not knowing the word
+       "parts" — true, and no use to anybody: what that sentence needs to be told
+       is that it doesn't say WHICH part. */
+    .replace(/\b(?:parts?|items?|things?|list|lists|rows?|entr(?:y|ies))\b/gi, " ")
+    .replace(/\b(?:because|since|as\s+it|it\s+is|it\s+was|they\s+are|they\s+were|which\s+is|that\s+is)\b/gi, " ")
+    .replace(/\b(?:both|the\s+two|entirely|completely|for\s+good|permanently|altogether)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function readRemove(low, raw, items, categories) {
+  if (!REMOVE_ORDER.test(low)) return null;
+
+  /* A section is not a part. Deleting one orphans every part coded under it and
+     this box cannot re-file them, so it says where that is done rather than doing
+     half of it. */
+  if (/\b(categor(?:y|ies)|section|sections)\b/.test(low)) {
+    return {
+      kind: "unknown",
+      why: "A whole section is removed in Settings → Categories, and only once nothing is filed under it — its 3-letter code is inside the code of every part there. Name the part instead, by the code on its label.",
+    };
+  }
+
+  /* Sold is the one reason that must not come through here. A removal takes the
+     part off the shelf and records where it went; it does not record money, so
+     "remove it, it was sold" loses the sale — the one thing the shop cannot
+     reconstruct afterwards. */
+  if (/\b(sold|sell|sale|sales)\b/.test(low)) {
+    return {
+      kind: "unknown",
+      why: "If it was sold, put it through Sell Item — that keeps the money with the part and takes it off the shelf in the same breath. Removing it here would leave a gap on the shelf and no sale behind it.",
+    };
+  }
+
+  if (/\b(receipts?|quotations?|quotes?|expenses?|messages?|orders?|invoice)\b/.test(low)) {
+    return {
+      kind: "unknown",
+      why: "This removes a part from the stock list, nothing else. A receipt, a quotation, an expense, a message or a customer order is removed on its own screen.",
+    };
+  }
+
+  /* The reason, if one was given, comes out of the sentence before the parts are
+     matched — "damaged" and "twice" are not part names, and left in they read as
+     words this file has never heard of, which is what stops the whole reading. */
+  let disposal = "";
+  let disposalLabel = "";
+  let clean = raw;
+  for (const d of DISPOSAL_WORDS) {
+    if (!d.test.test(low)) continue;
+    disposal = d.key;
+    disposalLabel = d.label;
+    clean = clean.replace(new RegExp(d.test.source, "gi"), " ");
+    break;
+  }
+
+  const sel = selectParts(stripRemoveOrder(clean), items, categories);
+  const { codes, describe, everything, unknownWords, missingCodes, terms } = sel;
+
+  if (everything) {
+    return {
+      kind: "unknown",
+      why: "That doesn't say which part. Nothing in this box removes stock on a description alone — give the code off the shelf label, e.g. remove FBM-TOY-PRE-16-0001.",
+    };
+  }
+  if (missingCodes.length) {
+    return {
+      kind: "unknown",
+      why: `No part in stock has the code ${missingCodes.join(" or ")}, so there is nothing to remove. Check it against the label — the last four digits are what differ between two of the same thing.`,
+    };
+  }
+  /* A word this file failed to read, with no code to fall back on, stops the
+     whole reading — and stops it even when a section or a model DID match, which
+     is stricter than the bulk reader upstairs. "remove the lamborghini bumper"
+     matched Bumpers and offered every bumper in the shop; the person plainly
+     meant one particular thing, and the one word that said which was the word
+     nobody understood. A code in the sentence is different: it names one part on
+     its own, so a stray word beside it — "the customer brought it back" — is
+     wording, not a filter, and is allowed to be ignored. */
+  if (unknownWords.length && !terms.some((t) => t.kind === "part")) {
+    return {
+      kind: "unknown",
+      why: `I don't know “${unknownWords.join(" ")}”, so I can't tell which part you mean — and I won't remove anything on a word I couldn't read. Type the code off the shelf label instead.`,
+    };
+  }
+  if (!codes.length) {
+    return { kind: "unknown", why: `Nothing in stock matches ${describe}, so there is nothing to remove.` };
+  }
+
+  const byCode = new Map(items.map((i) => [i.code, i]));
+  const shown = (code) => {
+    const it = byCode.get(code) || {};
+    return {
+      code,
+      name: it.name || code,
+      qty: Number(it.qty || 0),
+      price: Number(it.price || 0),
+      location: it.location || "",
+    };
+  };
+
+  /* Did they spell out every code themselves? Then several is fine — they read
+     each label. Otherwise one description matched many parts, and the answer is
+     the list and a question, not the first one on it. */
+  const namedByCode = terms.filter((t) => t.kind === "part").length;
+  if (codes.length > 1 && namedByCode !== codes.length) {
+    return {
+      kind: "pickOne",
+      why: `${codes.length} parts match ${describe}, and on the shelf they are ${codes.length} different parts. Say which one by its code — tap it below, or type “remove ${codes[0]}”.`,
+      choices: codes.slice(0, 12).map(shown),
+      more: Math.max(0, codes.length - 12),
+    };
+  }
+  if (codes.length > 6) {
+    return {
+      kind: "unknown",
+      why: `That is ${codes.length} parts in one sentence. More than six at a time is done on Inventory — tick them there, then Remove, so the list you are removing is the list you are looking at.`,
+    };
+  }
+
+  const parts = codes.map(shown);
+  const pieces = parts.reduce((s, p) => s + p.qty, 0);
+  const one = parts.length === 1;
+  const where = one && parts[0].location ? ` from ${parts[0].location}` : "";
+
+  const lines = [
+    one
+      ? `Take ${parts[0].code} off the stock list — ${parts[0].name}`
+      : `Take these ${parts.length} parts off the stock list`,
+    `${pieces} piece${pieces === 1 ? "" : "s"} ${pieces === 1 ? "goes" : "go"} with ${one ? "it" : "them"}${where} — the row itself is gone, not just the count`,
+    disposalLabel
+      ? `Recorded as: ${disposalLabel}`
+      : "Where it went is not recorded, so the ledger will read “Not recorded”. Say why and it is kept — damaged, entered twice, returned to the supplier, taken to another shop.",
+    "The ledger keeps the part, the count, the reason and your name. The stock list does not, and this box cannot put it back.",
+  ];
+
+  return {
+    kind: "removePart",
+    codes,
+    parts,
+    disposal: disposal || null,
+    disposalLabel,
+    describe,
+    lines,
+    confirm: one ? `Remove ${parts[0].code}` : `Remove ${parts.length} parts`,
+    /* Every removal is heavy. It is the only intent in here where reading the
+       list afterwards is too late. */
+    heavy: true,
+  };
+}
+
 /* Things the box is deliberately not doing, answered plainly instead of
    half-attempted. Somebody who types "sell a bumper to Mwangi" should be sent
    to the screen that does it properly, not have a sale half-recorded. */
 const NOT_YET = [
   { test: /\b(sell|sold|sale)\b/, say: "Recording a sale needs the customer and the payment, so it's on the Sell Item screen — this box doesn't do sales." },
-  { test: /\b(delete|remove|get rid of|throw away)\b/, say: "Removing stock asks where it went, which is on Inventory (tick the parts, then Remove). This box won't delete anything." },
+  /* Removing a part used to be refused outright here. It is read now — see
+     readRemove, which runs before this list — and every wording it cannot
+     safely act on answers for itself, by name. */
   { test: /\badd\b.*\b(bumper|headlight|mirror|door|bonnet|light|part)\b/, say: "Adding a part needs its vehicle and year, so use Add New Item, or paste a whole list into Add a Whole List." },
   /* There used to be a line here refusing questions outright. Questions are now
      answered — see ask.js, which is tried before this file — so anything that
@@ -578,7 +790,9 @@ const NOT_YET = [
 
 /* Read an instruction. Returns an intent describing what WOULD happen — never
    does it. `kind` is one of:
-     addSection | renameSection | setField   — something to confirm
+     addSection | renameSection | setField
+     removePart                              — something to confirm
+     pickOne                                 — understood, but which part? with a list
      nothingToDo                             — understood, but changes nothing
      unknown                                 — not understood, with a reason
      empty                                   — nothing typed */
@@ -593,6 +807,14 @@ export function readCommand(text, { items = [], categories = [] } = {}) {
   const bulk = readBulk(low, raw, items, categories);
   if (bulk) return { ...bulk, raw };
 
+  /* After the bulk reader, not before it. "put all quantities as one" is a
+     setting instruction that happens to contain no removal word, and the two
+     readers must never both be able to claim a sentence — bulk asks for a
+     setting verb, this one asks for a removal verb, and neither is in the
+     other's list. */
+  const gone = readRemove(low, raw, items, categories);
+  if (gone) return { ...gone, raw };
+
   for (const { test, say } of NOT_YET) {
     if (test.test(low)) return { kind: "unknown", why: say, raw };
   }
@@ -603,7 +825,7 @@ export function readCommand(text, { items = [], categories = [] } = {}) {
        likely to want it, because this sentence is the only teaching the box gets
        once the examples have been typed over. Asking how the app works is last
        and named plainly — it is the thing nobody guesses is possible. */
-    why: "I didn't follow that. I can answer questions about sales and stock, open the screen that makes a report, statement or receipt, change things — add or rename a section, set quantities or prices across many parts — and explain how any part of this app works. Try \"how do i record a sale\" or \"what is a part code made of\".",
+    why: "I didn't follow that. I can answer questions about sales and stock, open the screen that makes a report, statement or receipt, change things — add or rename a section, set quantities or prices across many parts, remove a part by its code — and explain how any part of this app works. Try \"how do i record a sale\" or \"what is a part code made of\".",
     raw,
   };
 }
@@ -617,6 +839,10 @@ export const EXAMPLES = [
   "put all quantities as one",
   "set all bumper quantities to 2",
   "all side mirror prices are 4500",
+  /* Written with a code in it on purpose. A removal example phrased as
+     "remove the premio bumper" would teach the wording that gets asked a
+     question back, and the wording that works is the one worth showing. */
+  "remove FBM-TOY-PRE-16-0001, entered twice",
 ];
 
 /* Kept for the confirmation screen: a part's reorder level shouldn't silently

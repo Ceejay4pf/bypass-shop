@@ -850,8 +850,15 @@ export function askShop(
      nothing else it could be is worth protecting.
 
      Except an order that names one: "set FBM-TOY-PRE-16-0001 price to 9000" is a
-     price change and command.js should have it, so a setting verb hands it back. */
-  if (CODE_RE.test(raw) && !/\b(set|put|make|change|update|adjust|mark)\b/.test(low)) {
+     price change and command.js should have it, so a setting verb hands it back.
+
+     The removal verbs are in that list for a sharper reason than the setting ones.
+     "remove FBM-TOY-PRE-16-0001" reads as a code with no question in it, so
+     without them it came back as that part's details — the right part, printed
+     politely, and nothing offered to do the one thing that was asked. */
+  if (CODE_RE.test(raw) &&
+      !/\b(set|put|make|change|update|adjust|mark)\b/.test(low) &&
+      !/\b(delete|remove|get rid of|throw (?:it )?(?:away|out)|writ(?:e|ten) off|scrap)\b/.test(low)) {
     const p = partAnswer(raw, low, { items, categories, sales, salesReady });
     if (p) return { ...p, raw };
   }

@@ -112,6 +112,7 @@ export const HELP_TOPICS = [
     title: "Taking a part off the list",
     lines: [
       "Long-press a part in Search, or use the bin on the part. It asks where the stock went first — sold, returned to supplier, damaged, taken to another shop — because that answer is the record.",
+      "You can also say it in the Ask-or-tell box: “remove FBM-TOY-PRE-16-0001, entered twice”. It shows you that one part, its count and its shelf, and asks twice before anything goes. Words that fit more than one part get you the list and a question, never a guess — so it wants the code off the label, not a description.",
       "It needs the Delete right, which not every account has.",
       "The movements stay in the database after the part is gone, but the Ledger screen finds a part through the stock list, so a deleted part can no longer be looked up there.",
     ],

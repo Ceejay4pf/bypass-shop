@@ -2568,11 +2568,17 @@ function AnswerBody({ m, onGo }) {
    panel at the bottom of one: it stretches to the height it is given, and the
    conversation takes whatever is left over after the composer, exactly as the
    team chat beside it does. Everywhere else it stays a panel. */
-function CommandBox({ items, categories, sales = [], salesReady = true, user, admin = false, canEdit = false, onChanged, onGo, fill = false }) {
+function CommandBox({ items, categories, sales = [], salesReady = true, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo, fill = false }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [chat, setChat] = useState([]);
+  /* Armed, for a removal only. Every other instruction in this box writes over a
+     figure the ledger still holds; a removal takes the row out, so it costs a
+     second press — and the second button says what it does rather than repeating
+     the first one's wording. Cleared whenever the sentence changes, so an armed
+     button can never belong to a different part than the one on screen. */
+  const [sure, setSure] = useState(false);
   /* Day headings whose open/shut state has been flipped from the default. Held
      as the flip rather than as "open" so the default can be "today only" without
      the list needing rewriting when the date changes overnight. */
@@ -2604,14 +2610,23 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
   );
 
   const isAnswer = intent.kind === "answer";
-  const actionable = ["addSection", "renameSection", "setField"].includes(intent.kind);
+  const actionable = ["addSection", "renameSection", "setField", "removePart"].includes(intent.kind);
   /* Adding or renaming a section is an admin job — it changes the shape of the
      whole shop's stock list, and its 3-letter code can never be changed after
      the first part is filed under it. Bulk quantity and price only need edit
      rights, which is the same permission the Edit Parts screen asks for.
-     Questions need neither: reading what is on the shelf changes nothing. */
-  const allowed = intent.kind === "setField" ? canEdit : admin;
+     Removing a part asks for the same permission the Inventory screen's Remove
+     asks for, and no more: the box must not be a way round it, in either
+     direction. Questions need neither: reading what is on the shelf changes
+     nothing. */
+  const allowed =
+    intent.kind === "setField" ? canEdit : intent.kind === "removePart" ? canDelete : admin;
   const blocked = actionable && !allowed;
+
+  /* Disarmed the moment the wording moves. Typing another digit onto a code
+     turns it into a different part, and an armed button left over from the last
+     one would remove the wrong thing on a single press. */
+  useEffect(() => { setSure(false); }, [text]);
 
   const groups = useMemo(() => groupByDay(chat, now.getTime()), [chat, now]);
   const isOpen = (g) => (toggled.includes(g.key) ? !g.isToday : g.isToday);
@@ -2677,6 +2692,40 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
       } else if (intent.kind === "renameSection") {
         await api.updatePartCategory(intent.key, { label: intent.to });
         told = `Renamed to “${intent.to}”. Its code is still ${intent.key}.`;
+      } else if (intent.kind === "removePart") {
+        /* The reason text is the sentence somebody typed, word for word. A
+           removal is read back years later out of stock_movements, and "damaged"
+           on its own does not say who decided that or how it was put — the
+           instruction does both. */
+        const info = {
+          disposal: intent.disposal || null,
+          reason: `Instruction: ${typed}`,
+        };
+        if (intent.codes.length === 1) {
+          /* No email for one part, on purpose: that is what Remove on the
+             Inventory screen does too, and a channel that only shouts when the
+             removal came from this box would read as this box being the
+             dangerous one. Staff Activity has it either way. */
+          const { code, name } = await api.deleteItem(intent.codes[0], user, info);
+          told = `${code} removed${name ? ` — ${name}` : ""}. ${
+            intent.disposalLabel ? `${intent.disposalLabel}.` : "Where it went was not recorded."
+          } The ledger still has it.`;
+        } else {
+          /* One notification and one email for the batch, which is what
+             deleteItemsBulk is for. Each part still gets its own ledger line. */
+          const { gone, failed } = await api.deleteItemsBulk(intent.codes, user, info);
+          api.emailBatch("delete", gone, user);
+          if (failed.length) {
+            problem = `${gone.length} of ${intent.codes.length} removed. These didn't: ${failed
+              .map((f) => f.code)
+              .join(", ")}. They are still on the shelf list — read it again and retry.`;
+            setErr(problem);
+          } else {
+            told = `${gone.length} parts removed. ${
+              intent.disposalLabel ? `${intent.disposalLabel}.` : "Where they went was not recorded."
+            } The ledger still has all of them.`;
+          }
+        }
       } else if (intent.kind === "setField") {
         const reason = `Instruction: ${typed}`;
         /* One at a time, and the failures are counted rather than swallowed.
@@ -2762,6 +2811,10 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
       setErr(e?.message || "That didn't save. Check your connection and try again.");
     } finally {
       setBusy(false);
+      /* Disarmed either way. On a half-failed removal the sentence stays in the
+         box to be retried, and an armed button surviving that would remove the
+         rest on a single press. */
+      setSure(false);
     }
   };
 
@@ -2793,9 +2846,10 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
       {(!fill || chat.length === 0) && (
         <p className="text-xs text-[#5A6472] mb-2">
           Ask what sold, what is on the shelf or who owes money — or how any part of this app
-          works. Tell it to add a section, set quantities and prices across many parts, or open
-          the screen that makes a report, statement or receipt. Anything that changes stock
-          shows you the full list first.
+          works. Tell it to add a section, set quantities and prices across many parts, take a
+          part off the list by its code, or open the screen that makes a report, statement or
+          receipt. Anything that changes stock shows you the full list first, and removing
+          asks twice.
         </p>
       )}
 
@@ -2905,14 +2959,46 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           when they are asked, so they stay readable while the next thing is
           typed. */}
       {actionable && (
-        <div className="mt-3 border border-[#2563EB]/30 bg-[#2563EB]/[0.04] rounded-md p-2.5">
+        <div
+          className={`mt-3 border rounded-md p-2.5 ${
+            /* Red for a removal, blue for everything else. The colour is the one
+               part of this panel somebody takes in before reading it. */
+            intent.kind === "removePart"
+              ? "border-[#DC3B2E]/40 bg-[#DC3B2E]/[0.05]"
+              : "border-[#2563EB]/30 bg-[#2563EB]/[0.04]"
+          }`}
+        >
           <ul className="text-xs text-[#1B2430] space-y-1">
             {intent.lines.map((l, i) => (
               <li key={i} className="flex gap-1.5">
-                <Check size={13} className="text-[#2563EB] mt-0.5 shrink-0" /> <span>{l}</span>
+                {intent.kind === "removePart" ? (
+                  <Trash2 size={13} className="text-[#DC3B2E] mt-0.5 shrink-0" />
+                ) : (
+                  <Check size={13} className="text-[#2563EB] mt-0.5 shrink-0" />
+                )}
+                <span>{l}</span>
               </li>
             ))}
           </ul>
+
+          {/* Every part that would go, with the count and the price beside it.
+              Two parts of the same model read identically apart from the last
+              four digits, so the code is the thing set in the fixed-width type
+              and the thing to check against the label in your hand. */}
+          {intent.kind === "removePart" && (
+            <div className="mt-2 max-h-52 overflow-y-auto border-t border-[#DEE3E9] pt-2 space-y-0.5">
+              {intent.parts.map((p) => (
+                <div key={p.code} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-mono text-[#DC3B2E] shrink-0">{p.code}</span>
+                  <span className="text-[#5A6472] truncate flex-1">{p.name}</span>
+                  <span className="text-[#1B2430] shrink-0">
+                    {p.qty} pc{p.qty === 1 ? "" : "s"}
+                    {p.price ? ` · KES ${p.price.toLocaleString()}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Every part it would change, named, with the old figure beside the
               new one. This is the list that makes a wrong reading obvious. */}
@@ -2935,11 +3021,16 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           )}
 
           {intent.heavy && (
-            <div className="mt-2 text-[11px] text-[#B45309] flex gap-1.5">
+            <div
+              className={`mt-2 text-[11px] flex gap-1.5 ${
+                intent.kind === "removePart" ? "text-[#DC3B2E]" : "text-[#B45309]"
+              }`}
+            >
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>
-                That is {intent.changes.length} parts at once — nearly the whole list. Read it
-                through before you press.
+                {intent.kind === "removePart"
+                  ? "Nothing on this screen puts a removed part back. Check the code against the label in your hand before you press."
+                  : `That is ${intent.changes.length} parts at once — nearly the whole list. Read it through before you press.`}
               </span>
             </div>
           )}
@@ -2963,6 +3054,42 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
         </div>
       )}
 
+      {/* Understood, but the words fit more than one part. This is the "asking"
+          half of removing something by name: the parts are listed and one is
+          tapped, rather than the box choosing for you. Tapping writes the code
+          into the field, so what is about to happen is still read and still
+          pressed — the tap picks the part, it does not do the removing. */}
+      {intent.kind === "pickOne" && (
+        <div className="mt-3 border border-[#B45309]/40 bg-[#B45309]/[0.05] rounded-md p-2.5">
+          <div className="text-xs text-[#1B2430] flex gap-1.5">
+            <AlertCircle size={13} className="mt-0.5 shrink-0 text-[#B45309]" />
+            <span>{intent.why}</span>
+          </div>
+          <div className="mt-2 max-h-52 overflow-y-auto border-t border-[#DEE3E9] pt-2 space-y-1">
+            {intent.choices.map((p) => (
+              <button
+                key={p.code}
+                onClick={() => setText(`remove ${p.code}`)}
+                className="w-full flex items-center justify-between gap-2 text-[11px] text-left rounded px-1.5 py-1 bg-[#FFFFFF] border border-[#DEE3E9] active:scale-[0.99]"
+              >
+                <span className="font-mono text-[#DC3B2E] shrink-0">{p.code}</span>
+                <span className="text-[#5A6472] truncate flex-1">{p.name}</span>
+                <span className="text-[#1B2430] shrink-0">
+                  {p.qty} pc{p.qty === 1 ? "" : "s"}
+                  {p.location ? ` · ${p.location}` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+          {intent.more > 0 && (
+            <p className="text-[10px] text-[#5A6472] mt-1.5">
+              {intent.more} more match as well. Narrow it down, or tick them on Inventory and use
+              Remove there.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Didn't understand, and says why. Never a blank box. */}
       {intent.kind === "unknown" && (
         <div className="mt-3 text-xs text-[#5A6472] flex gap-1.5">
@@ -2977,6 +3104,8 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           <span>
             {intent.kind === "setField"
               ? "Changing many parts at once needs edit rights. Ask an admin."
+              : intent.kind === "removePart"
+              ? "Taking a part off the stock list needs the same permission as Remove on the Inventory screen. Ask an admin — the database refuses it too, not just this button."
               : "Only an admin can add or rename a section — its code is stamped into every part filed there."}
           </span>
         </div>
@@ -2993,13 +3122,52 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           reads nothing back, and "Change 12 parts" says exactly how many. */}
       {(canSend || (actionable && !blocked)) && (
         <button
-          onClick={actionable ? run : askIt}
+          onClick={
+            /* A removal takes two presses. The first arms it and the wording
+               changes to say so out loud; only the second one calls the
+               database. Anything else here still goes on one press, because
+               anything else here can be typed again. */
+            !actionable ? askIt : intent.kind !== "removePart" || sure ? run : () => setSure(true)
+          }
           disabled={busy}
-          className="mt-3 w-full bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-2.5 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-60"
+          className={`mt-3 w-full font-bold uppercase tracking-wide rounded-md py-2.5 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform disabled:opacity-60 ${
+            intent.kind === "removePart"
+              ? "bg-[#DC3B2E] text-[#F3F5F8]"
+              : "bg-[#2563EB] text-[#F3F5F8]"
+          }`}
         >
-          {busy ? <Loader2 size={16} className="animate-spin" /> : actionable ? <Check size={16} /> : <Send size={16} />}
-          {busy ? "Working…" : actionable ? intent.confirm : "Ask"}
+          {busy ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : intent.kind === "removePart" ? (
+            <Trash2 size={16} />
+          ) : actionable ? (
+            <Check size={16} />
+          ) : (
+            <Send size={16} />
+          )}
+          {busy
+            ? "Working…"
+            : intent.kind === "removePart"
+            ? sure
+              ? intent.codes.length === 1
+                ? `Yes — take ${intent.codes[0]} off for good`
+                : `Yes — take all ${intent.codes.length} off for good`
+              : intent.confirm
+            : actionable
+            ? intent.confirm
+            : "Ask"}
         </button>
+      )}
+      {/* Said under the armed button, not inside it, so the button keeps one
+          line of wording on a narrow phone. */}
+      {intent.kind === "removePart" && sure && !busy && (
+        <p className="mt-1.5 text-[11px] text-[#5A6472] text-center">
+          Press again to remove, or{" "}
+          <button onClick={() => setSure(false)} className="underline font-semibold">
+            leave it on the shelf
+          </button>
+          .
+        </p>
       )}
       </div>
     </div>
@@ -3007,7 +3175,7 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
 }
 
 /* ======================= ADD ITEM ======================= */
-export function AddItemTab({ items, categories, sales = [], salesReady = true, onAdd, user, admin = false, canEdit = false, onChanged, onGo }) {
+export function AddItemTab({ items, categories, sales = [], salesReady = true, onAdd, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo }) {
   const [cat, setCat] = useState(categories[0]?.key || "");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -3289,6 +3457,7 @@ export function AddItemTab({ items, categories, sales = [], salesReady = true, o
         user={user}
         admin={admin}
         canEdit={canEdit}
+        canDelete={canDelete}
         onChanged={onChanged}
         onGo={onGo}
       />
@@ -3302,7 +3471,7 @@ export function AddItemTab({ items, categories, sales = [], salesReady = true, o
    a row you can correct before anything is saved. Nothing is written
    to the inventory until the Save button is pressed.
 */
-export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, user, admin = false, canEdit = false, onChanged, onGo }) {
+export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo }) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState(null); // null = still on the paste step
   const [openId, setOpenId] = useState(null); // which row is expanded for editing
@@ -3647,6 +3816,7 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
           user={user}
           admin={admin}
           canEdit={canEdit}
+          canDelete={canDelete}
           onChanged={onChanged}
           onGo={onGo}
         />
@@ -6893,6 +7063,7 @@ export function StaffFeedTab({
   sales = [],
   salesReady = true,
   canEdit = false,
+  canDelete = false,
   onChanged,
   onGo,
 }) {
@@ -7016,6 +7187,7 @@ export function StaffFeedTab({
           user={user}
           admin={admin}
           canEdit={canEdit}
+          canDelete={canDelete}
           onChanged={onChanged}
           onGo={onGo}
         />
@@ -7037,7 +7209,10 @@ export function StaffFeedTab({
           messages.map((m, i) => {
             const mine = m.userId === userId;
             const showDay = i === 0 || dayLabel(m.ts) !== dayLabel(messages[i - 1].ts);
-            const canDelete = mine || admin;
+            /* Named apart from the canDelete prop above, which is the shop's
+               permission to take a PART off the stock list. This one is only
+               about binning a line of chat. */
+            const mayBin = mine || admin;
             return (
               <div key={m.id}>
                 {showDay && (
@@ -7076,7 +7251,7 @@ export function StaffFeedTab({
                       {m.body}
                     </div>
                   </div>
-                  {canDelete && (
+                  {mayBin && (
                     <button
                       onClick={() => remove(m.id)}
                       className="opacity-0 group-hover:opacity-100 transition-opacity text-[#5A6472] hover:text-[#DC3B2E] mt-1 shrink-0"
