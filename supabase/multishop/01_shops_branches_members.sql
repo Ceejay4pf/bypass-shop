@@ -178,7 +178,10 @@ $$;
 create or replace function public.my_one_shop()
 returns uuid
 language sql stable security definer set search_path = public as $$
-  select case when count(*) = 1 then min(shop_id) end
+-- array_agg(...)[1] rather than min(shop_id): Postgres has no min() for uuid, and
+-- there is nothing to minimise anyway. The `case` has already established that
+-- there is exactly one row, so "the first one" and "the only one" are the same row.
+  select case when count(*) = 1 then (array_agg(shop_id))[1] end
     from public.user_shops where user_id = auth.uid();
 $$;
 
