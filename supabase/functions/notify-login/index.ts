@@ -12,6 +12,22 @@ const OWNER_EMAIL = Deno.env.get("OWNER_EMAIL") ?? "addamsjmk@gmail.com";
 // Until you verify your own domain in Resend, use their shared sender.
 const FROM = Deno.env.get("ALERT_FROM") ?? "Bypass Shop <onboarding@resend.dev>";
 
+/* WHOSE NAME GOES ON THE EMAIL.
+
+   One deployment of this function sends mail for two different businesses now, so the
+   name cannot be written into the template. It arrives in the body, from whichever
+   shop's screen the app is on. A body without one — an older app still on somebody's
+   phone, or a call from somewhere else — gets the wording every one of these emails
+   used when there was only one shop, which is wrong-ish rather than wrong: it names
+   the system, not another company. */
+const shopOf = (v: unknown) => String(v || "").trim() || "Bypass Shop";
+
+/* The line under the rule at the bottom. It used to name the head office, which was
+   right when every email came from the one shop that reports to it. It cannot say that
+   now: half these emails are Sure Fit's, and a sign-in code footed with another
+   company's name is the kind of thing that makes a real email look like a fake one. */
+const FOOT = "Sent automatically by the shop's stock system — please do not reply.";
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -21,7 +37,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    const { who, at } = await req.json();
+    const { who, at, shop } = await req.json();
+    const name = shopOf(shop);
     const when = at ? new Date(at).toLocaleString("en-KE") : new Date().toLocaleString("en-KE");
 
     if (!RESEND_API_KEY) {
@@ -40,13 +57,13 @@ serve(async (req) => {
       body: JSON.stringify({
         from: FROM,
         to: [OWNER_EMAIL],
-        subject: `Bypass Shop — ${who} just logged in`,
+        subject: `${name} — ${who} just logged in`,
         html: `<div style="font-family:system-ui,sans-serif">
-          <h2 style="color:#2563EB;margin:0 0 8px">Bypass Shop — Login Alert</h2>
+          <h2 style="color:#2563EB;margin:0 0 8px">${name} — Login Alert</h2>
           <p><strong>${who}</strong> signed in to the system.</p>
           <p style="color:#5A6472">Time: ${when}</p>
           <hr style="border:none;border-top:1px solid #DEE3E9"/>
-          <p style="color:#5A6472;font-size:12px">Jaspare Auto · Main Shop</p>
+          <p style="color:#5A6472;font-size:12px">${FOOT}</p>
         </div>`,
       }),
     });

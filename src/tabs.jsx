@@ -10,9 +10,9 @@ import {
   ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint, Users,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
-  Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail, ChevronDown,
+  Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail, ChevronDown, Palette,
 } from "lucide-react";
-import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark } from "./lib/theme.js";
+import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark, applyTheme, getTheme } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
 /* Turns an Excel sheet, a Word table, a CSV or a PDF into the same lines
    somebody would have typed. It writes nothing — see the note at the top of
@@ -47,7 +47,9 @@ import { publicLink } from "./lib/publicRoute.js";
 import {
   priceGroups, findGroups, planPrices, priceProgress, readPrice, badPrice,
 } from "./lib/pricing.js";
-import { shopAccent } from "./lib/shopSkin.js";
+import {
+  shopAccent, SKINS, skinFor, skinByKey, chooseSkin, onSkinChange, canChooseSkin,
+} from "./lib/shopSkin.js";
 import { setupFor } from "./lib/setupNeeded.js";
 import { InstallCard } from "./InstallApp.jsx";
 import SetupNotice from "./SetupNotice.jsx";
@@ -6726,6 +6728,96 @@ export function AppearanceCard() {
   );
 }
 
+/* THE SHOP'S OWN COLOUR, as a setting.
+
+   Sure Fit was handed burnt orange because a shop that looks identical to the shop next
+   door is a shop whose receipts get mixed up with the other's. But the owner picked it
+   from a list of words, having never seen it on a screen, and "I do not like it" is not
+   a thing anybody should have to send me a message about. So it is a setting, in the
+   same place and the same shape as light-or-dark, because it is the same kind of
+   decision: it changes how the system looks and nothing about what it holds.
+
+   ONLY SHOPS ON THE LIST IN src/lib/shopSkin.js SEE THIS CARD. Jaspare does not: its
+   blue is the colour the business has always used, twenty-odd people are working in it
+   today, and a control that lets any one of them repaint everybody else's screen is a
+   control nobody asked for. The card returns null rather than being hidden by the
+   caller, so a shop being added to that list is one line and not two.
+
+   WHAT A TAP ACTUALLY DOES. It writes one attribute onto <html> and the stylesheet does
+   the rest — see the long note in src/index.css. That is why there is no "applying..."
+   and no reload: every screen in the app is already reading the colour through the same
+   handful of custom properties, so all of them change in the same frame.
+
+   applyTheme() afterwards is not a leftover. The phone's status bar is painted from a
+   <meta> tag rather than from CSS, so it is the one piece of the system the stylesheet
+   cannot reach, and without this line the notch stays the old colour until the next
+   reload — which looks like the setting half-worked. */
+export function ShopColourCard() {
+  const slug = currentShopSlug();
+  const [skin, setSkin] = useState(() => skinFor(slug));
+
+  /* Subscribed rather than trusted, so this card is right even if the colour is
+     changed from somewhere else later. Same shape theme.js uses. */
+  useEffect(() => onSkinChange(setSkin), []);
+
+  if (!canChooseSkin(slug)) return null;
+
+  const pick = (key) => {
+    chooseSkin(slug, key);
+    applyTheme(getTheme());
+  };
+
+  return (
+    <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
+      <div className="flex items-center gap-2 mb-1">
+        <Palette size={16} className="text-[#2563EB]" />
+        <div className="text-sm font-bold uppercase tracking-wide">Shop Colour</div>
+      </div>
+      <p className="text-xs text-[#5A6472] mb-3">
+        The colour this shop's system wears —{" "}
+        <span className="font-semibold text-[#1B2430]">{skinByKey(skin).label}</span> at the
+        moment. Saved on this device only, like the light and dark screens, and it does not
+        change anything that is printed on a receipt except the colour of the lines.
+      </p>
+      {/* Four across rather than three: seven items sit as 4 + 3 with one gap, where
+          three across leaves a row of one looking like a mistake. */}
+      <div className="grid grid-cols-4 gap-2">
+        {SKINS.map((s) => {
+          const on = skin === s.key;
+          return (
+            <button
+              key={s.key}
+              onClick={() => pick(s.key)}
+              aria-pressed={on}
+              title={s.hint}
+              className={`flex flex-col items-center gap-1.5 rounded-lg border p-2.5 transition-colors ${
+                on
+                  ? "border-[#2563EB] bg-[#2563EB22] text-[#2563EB]"
+                  : "border-[#DEE3E9] text-[#5A6472] hover:border-[#2563EB]"
+              }`}
+            >
+              {/* The swatch is drawn from the table itself, not from a class name: it
+                  has to show the colour it OFFERS, and the class names in this app all
+                  read the colour currently in force. A row of seven identical circles
+                  would be a colour picker that shows one colour. */}
+              <span
+                className="w-6 h-6 rounded-full border border-[#00000018] shrink-0"
+                style={{ background: `linear-gradient(135deg, ${s.accent} 0%, ${s.to} 100%)` }}
+                aria-hidden="true"
+              />
+              <span className="text-[10px] font-bold uppercase tracking-wide text-center leading-tight">
+                {s.label}
+              </span>
+              {on && <Check size={12} />}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-[#5A6472] mt-2.5">{skinByKey(skin).hint}</p>
+    </div>
+  );
+}
+
 // Optional biometric app-lock. Auto-hides the enable button on devices with no
 // biometric (e.g. desktop computers) — it's never compulsory.
 function BiometricCard({ email }) {
@@ -8433,6 +8525,8 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
       <MyEmailCard email={email} />
 
       <AppearanceCard />
+
+      <ShopColourCard />
 
       <BiometricCard email={email} />
 

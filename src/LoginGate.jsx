@@ -11,7 +11,7 @@ import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
 import { shopName, SHOP_INFO } from "./lib/shopInfo.js";
 import { rolesFor, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { currentShopSlug } from "./lib/shopScope.js";
-import { skinFor } from "./lib/shopSkin.js";
+import { heroWashFor } from "./lib/shopSkin.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
 import { InstallNudge } from "./InstallApp.jsx";
@@ -27,19 +27,15 @@ import ShopMark from "./ShopMark.jsx";
    self-typed name. Passwords are hashed server-side by Supabase;
    the app never sees or stores them.
 --------------------------------------------------------- */
-/* The colour laid over the photograph at the top of this screen. Not a Tailwind
-   class, so index.css cannot re-point it — it has to be asked for.
+/* The colour laid over the photograph at the top of this screen is asked for by name
+   from src/lib/shopSkin.js, because it is an inline style rather than a Tailwind class
+   and index.css cannot re-point it.
 
-   Three stops rather than two, and the darkest is at the top left: the shop's name
-   is white text sitting on a photograph, and a mid-tone behind it is the difference
-   between a masthead and a caption you have to squint at. The alpha values are the
-   same at both shops so the picture shows through by the same amount; only the hue
-   moves. */
-const HERO_WASH = {
-  blue: "linear-gradient(135deg, rgba(14,35,120,0.93) 0%, rgba(37,99,235,0.82) 48%, rgba(6,182,212,0.55) 100%)",
-  orange: "linear-gradient(135deg, rgba(88,28,7,0.93) 0%, rgba(234,88,12,0.82) 48%, rgba(245,158,11,0.55) 100%)",
-};
-const heroWash = (slug) => HERO_WASH[skinFor(slug)] || HERO_WASH.blue;
+   It was written out here, two skins in a little table with a fallback to blue. That
+   was fine while there were two. There are now seven a shop can choose from, and a
+   two-entry table with a fallback would have quietly served blue to five of them —
+   the whole screen orange except the one band the shop actually looks at. Built from
+   the same table the rest of the app reads, so a skin cannot exist without a hero. */
 
 /* A spare-part emblem — a cog/gear with a piston, drawn in white so it sits
    cleanly on the coloured hero. */
@@ -516,7 +512,7 @@ export default function LoginGate({ onLeave, shop }) {
               bottom right so the part itself still shows through. */}
           <div
             className="absolute inset-0"
-            style={{ background: heroWash(currentShopSlug()) }}
+            style={{ background: heroWashFor(currentShopSlug()) }}
           />
           {/* One band of light crossing the picture. The only movement on this
               screen, and it is what stops a photograph under a flat colour

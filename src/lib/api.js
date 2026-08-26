@@ -802,7 +802,12 @@ export async function logLogin(who) {
   await addNotification({ type: "login", name: who, by_name: who });
   // Best-effort email alert; ignored if the function isn't deployed.
   try {
-    await supabase.functions.invoke("notify-login", { body: { who, at: new Date().toISOString() } });
+    /* `shop` so the email says which shop the person signed in to. One owner reads
+       alerts from both, and "somebody logged in" without saying where is not an
+       alert, it is a shrug. */
+    await supabase.functions.invoke("notify-login", {
+      body: { who, at: new Date().toISOString(), shop: shopName() },
+    });
   } catch {
     /* Edge Function not set up yet — the in-app log above still works. */
   }
@@ -813,7 +818,7 @@ export async function logLogin(who) {
 export function emailAdmin(subject, message, who) {
   try {
     supabase.functions
-      .invoke("notify-admin", { body: { subject, message, who } })
+      .invoke("notify-admin", { body: { subject, message, who, shop: shopName() } })
       .catch(() => {});
   } catch {
     /* function not deployed yet — in-app notifications still record everything */

@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Bypass Shop — branch inventory & sales system (reports to Jaspare Auto)",
+  "description": "Bypass Shop Jaspare Branch & Sure Fit Auto Spares Ltd — inventory & sales system",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

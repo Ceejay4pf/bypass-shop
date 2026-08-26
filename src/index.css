@@ -170,37 +170,167 @@ html.dark .border-\[\#F3F5F8\] { border-color: #0F141B; }
    Which shop is wearing which is decided in src/lib/shopSkin.js, from the slug in
    the address bar. */
 html {
-  --ac:      #2563EB;
-  --ac-ink:  #2563EB;
-  --ac-line: #2563EB;
-  --ac-tint: #EAF1FF;
-  --ac-soft: #2563EB22;   /* the translucent chip behind an icon */
-  --ac-wash: #2563EB18;   /* a row tinted to say "this one" */
+  --ac:         #2563EB;
+  --ac-ink:     #2563EB;
+  --ac-line:    #2563EB;
+  --ac-tint:    #EAF1FF;
+  --ac-soft:    #2563EB22;   /* the translucent chip behind an icon */
+  --ac-wash:    #2563EB18;   /* a row tinted to say "this one" */
+  --ac-to:      #06B6D4;     /* far end of the big gradient buttons */
+  --ac-to2:     #15926A;     /* far end of the wordmark's fade */
+  --hero-soft:  #BFDBFE;     /* eyebrow line and small icons ON the login photograph */
+  --hero-faint: #E6F6FF;     /* the caption under the shop's name */
+  --hero-ring:  #67E8F999;   /* the ring round the emblem */
 }
 html.dark {
-  --ac-ink:  #7FA9FF;
-  --ac-line: #3E6BC7;
-  --ac-tint: #17223A;
-  --ac-soft: #2563EB38;
-  --ac-wash: #2563EB26;
+  --ac-ink:     #7FA9FF;
+  --ac-line:    #3E6BC7;
+  --ac-tint:    #17223A;
+  --ac-soft:    #2563EB38;
+  --ac-wash:    #2563EB26;
+  --ac-to2:     #4CCB9A;
 }
 
-/* SURE FIT AUTO SPARES LTD — burnt orange. */
+/* ---- THE OTHER SIX ----
+   Sure Fit does not get one fixed second colour, it gets a choice of seven, the way
+   it already chooses light or dark. Which shops may choose, and the three values a
+   stylesheet cannot reach, are in src/lib/shopSkin.js.
+
+   NOT WRITTEN BY EYE, and worth saying why. Every --ac-ink below is the accent moved
+   toward black until small text on white reaches 4.6:1, and every dark one is moved
+   toward white until it reaches 7.3:1 on the dark card — which is where the blue,
+   green, red and purple that WERE tuned by eye already sit. Choosing these by eye
+   across six colours and two modes is eighty-four judgements, and the one gone wrong
+   is a price somebody misreads.
+
+   No green and no red among the seven, and Plum is far darker and more magenta than
+   the transfer purple: an accent that can be mistaken for "in stock" or "warning" is
+   an accent that costs money. */
 html[data-shop-skin="orange"] {
-  --ac:      #EA580C;
-  --ac-ink:  #C2410C;   /* a step darker than the fill: #EA580C as small text on
-                           white is under the contrast a price needs to be read */
-  --ac-line: #EA580C;
-  --ac-tint: #FFF1E7;
-  --ac-soft: #EA580C22;
-  --ac-wash: #EA580C18;
+  --ac:         #EA580C;
+  --ac-ink:     #C94C0A;
+  --ac-line:    #EA580C;
+  --ac-tint:    #FEF3EE;
+  --ac-soft:    #EA580C22;
+  --ac-wash:    #EA580C18;
+  --ac-to:      #F59E0B;
+  --ac-to2:     #F59E0B;
+  --hero-soft:  #FADACA;
+  --hero-faint: #FEF5F0;
+  --hero-ring:  #F59E0B99;
 }
 html.dark[data-shop-skin="orange"] {
-  --ac-ink:  #FFA366;
-  --ac-line: #B4551F;
-  --ac-tint: #351F10;
-  --ac-soft: #EA580C3D;
-  --ac-wash: #EA580C2B;
+  --ac-ink:     #F19261;
+  --ac-line:    #9D4011;
+  --ac-tint:    #2E1E19;
+  --ac-soft:    #EA580C3D;
+  --ac-wash:    #EA580C2B;
+  --ac-to2:     #F59E0B;
+}
+html[data-shop-skin="teal"] {
+  --ac:         #0D9488;
+  --ac-ink:     #0B8278;
+  --ac-line:    #0D9488;
+  --ac-tint:    #EEF8F7;
+  --ac-soft:    #0D948822;
+  --ac-wash:    #0D948818;
+  --ac-to:      #22D3EE;
+  --ac-to2:     #22D3EE;
+  --hero-soft:  #CAE7E5;
+  --hero-faint: #F0F9F8;
+  --hero-ring:  #22D3EE99;
+}
+html.dark[data-shop-skin="teal"] {
+  --ac-ink:     #5FB8B0;
+  --ac-line:    #0E6762;
+  --ac-tint:    #0F262A;
+  --ac-soft:    #0D94883D;
+  --ac-wash:    #0D94882B;
+  --ac-to2:     #22D3EE;
+}
+html[data-shop-skin="indigo"] {
+  --ac:         #4F46E5;
+  --ac-ink:     #4F46E5;
+  --ac-line:    #4F46E5;
+  --ac-tint:    #F3F2FD;
+  --ac-soft:    #4F46E522;
+  --ac-wash:    #4F46E518;
+  --ac-to:      #818CF8;
+  --ac-to2:     #818CF8;
+  --hero-soft:  #D8D6F9;
+  --hero-faint: #F4F4FD;
+  --hero-ring:  #818CF899;
+}
+html.dark[data-shop-skin="indigo"] {
+  --ac-ink:     #A5A1F2;
+  --ac-line:    #39349E;
+  --ac-tint:    #181B37;
+  --ac-soft:    #4F46E53D;
+  --ac-wash:    #4F46E52B;
+  --ac-to2:     #9AA3F9;
+}
+html[data-shop-skin="magenta"] {
+  --ac:         #DB2777;
+  --ac-ink:     #D92776;
+  --ac-line:    #DB2777;
+  --ac-tint:    #FCF0F5;
+  --ac-soft:    #DB277722;
+  --ac-wash:    #DB277718;
+  --ac-to:      #F472B6;
+  --ac-to2:     #F472B6;
+  --hero-soft:  #F7CFE1;
+  --hero-faint: #FDF2F7;
+  --hero-ring:  #F472B699;
+}
+html.dark[data-shop-skin="magenta"] {
+  --ac-ink:     #EC8DB7;
+  --ac-line:    #942057;
+  --ac-tint:    #2C1728;
+  --ac-soft:    #DB27773D;
+  --ac-wash:    #DB27772B;
+  --ac-to2:     #F584BF;
+}
+html[data-shop-skin="plum"] {
+  --ac:         #86198F;
+  --ac-ink:     #86198F;
+  --ac-line:    #86198F;
+  --ac-tint:    #F7EFF7;
+  --ac-soft:    #86198F22;
+  --ac-wash:    #86198F18;
+  --ac-to:      #C026D3;
+  --ac-to2:     #C026D3;
+  --hero-soft:  #E4CCE6;
+  --hero-faint: #F8F1F8;
+  --hero-ring:  #C026D399;
+}
+html.dark[data-shop-skin="plum"] {
+  --ac-ink:     #CA9ACE;
+  --ac-line:    #5C1766;
+  --ac-tint:    #20152B;
+  --ac-soft:    #86198F3D;
+  --ac-wash:    #86198F2B;
+  --ac-to2:     #DE8CE8;
+}
+html[data-shop-skin="graphite"] {
+  --ac:         #475569;
+  --ac-ink:     #475569;
+  --ac-line:    #475569;
+  --ac-tint:    #F2F3F4;
+  --ac-soft:    #47556922;
+  --ac-wash:    #47556918;
+  --ac-to:      #64748B;
+  --ac-to2:     #64748B;
+  --hero-soft:  #D7DADE;
+  --hero-faint: #F4F5F6;
+  --hero-ring:  #64748B99;
+}
+html.dark[data-shop-skin="graphite"] {
+  --ac-ink:     #A3AAB4;
+  --ac-line:    #333E4E;
+  --ac-tint:    #171D26;
+  --ac-soft:    #4755693D;
+  --ac-wash:    #4755692B;
+  --ac-to2:     #A0AAB8;
 }
 
 /* The one rule set, reading the values above.
@@ -236,17 +366,16 @@ html .hover\:border-\[\#2563EB\]:hover { border-color: var(--ac-line); }
 html .hover\:bg-\[\#2563EB11\]:hover   { background-color: var(--ac-wash); }
 html .focus\:border-\[\#2563EB\]:focus { border-color: var(--ac-line); }
 
-/* The cyan half of the big gradient buttons — the sign-in button, the two front
-   doors, the shop tiles. Orange running to cyan is not a gradient, it is a
-   collision, so the far end moves with the near end. */
-html[data-shop-skin="orange"] .to-\[\#06B6D4\] {
-  --tw-gradient-to: #F59E0B var(--tw-gradient-to-position);
-}
-/* The wordmark's blue-to-green fade. Green under orange reads as a third colour, so
-   for an orange shop it fades to amber and stays one idea. */
-html[data-shop-skin="orange"] .to-\[\#15926A\] {
-  --tw-gradient-to: #B45309 var(--tw-gradient-to-position);
-}
+/* The far end of the big gradient buttons — the sign-in button, the two front doors,
+   the shop tiles — and the far end of the wordmark's fade. Both move with the near
+   end: orange running to cyan is not a gradient, it is a collision, and a magenta
+   wordmark fading to green reads as two logos printed on top of each other.
+
+   Two properties rather than one, because those two gradients are not the same idea.
+   On the blue the button runs to cyan and the wordmark to green, which is the look
+   the shop has always had; every other skin sends both to its own second colour. */
+html .to-\[\#06B6D4\] { --tw-gradient-to: var(--ac-to)  var(--tw-gradient-to-position); }
+html .to-\[\#15926A\] { --tw-gradient-to: var(--ac-to2) var(--tw-gradient-to-position); }
 
 /* ---- green (money in, in stock) ---- */
 html.dark .text-\[\#15926A\]   { color: #4CCB9A; }
@@ -289,48 +418,30 @@ html.dark .hover\:border-\[\#DC3B2E\]:hover { border-color: #96453B; }
 html.dark .hover\:border-\[\#7C5CD6\]:hover { border-color: #6B52A8; }
 html.dark .hover\:border-\[\#C2CAD3\]:hover { border-color: #3B4653; }
 
-/* The pale wash behind the login and "waiting for approval" screens
-   becomes a dark one. Setting the whole stop list here also cancels the
-   pale middle stop, so the fade stays smooth. */
+/* The pale wash down the top of the login screen and of "waiting for approval"
+   (src/PendingGate.jsx). `from-` is a gradient stop rather than a colour, so the
+   accent rules above do not reach it — and that screen is the first thing a new
+   member of staff ever sees, so the wrong colour there is the whole problem in one
+   screen.
+
+   In dark mode the whole stop list is set, which also cancels the pale middle stop
+   so the fade stays smooth. */
+html .from-\[\#EAF1FF\] { --tw-gradient-from: var(--ac-tint) var(--tw-gradient-from-position); }
 html.dark .from-\[\#EAF1FF\] {
-  --tw-gradient-from: #141C2B var(--tw-gradient-from-position);
+  --tw-gradient-from: var(--ac-tint) var(--tw-gradient-from-position);
   --tw-gradient-to: #0F141B var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }
 
-/* The "Bypass Shop" wordmark is gradient-filled text - brighten both
-   ends so it still reads against the dark sidebar. */
-html.dark .to-\[\#15926A\]   { --tw-gradient-to: #4CCB9A var(--tw-gradient-to-position); }
-/* ...but on an orange shop that brightened green is the wrong far end, and the rule
-   above has the same specificity as the orange one further up while sitting later in
-   the file, so it would win. Both conditions in one selector, and the argument is
-   settled: an orange wordmark running to green reads as two logos overlapping. */
-html.dark[data-shop-skin="orange"] .to-\[\#15926A\] {
-  --tw-gradient-to: #F59E0B var(--tw-gradient-to-position);
-}
-
-/* The pale blues ON the login hero — the eyebrow line, the caption, the ring round
-   the emblem, the little icons. They are tints of the wash behind them, so when the
-   wash goes orange these have to follow or the masthead reads as two brands stacked.
-   Warm equivalents at the same lightness, so nothing gets harder to read. */
-html[data-shop-skin="orange"] .text-\[\#BFDBFE\] { color: #FED7AA; }
-html[data-shop-skin="orange"] .text-\[\#E6F6FF\] { color: #FFF3E6; }
-html[data-shop-skin="orange"] .text-\[\#A5F3FC\] { color: #FCD9A5; }
-html[data-shop-skin="orange"] .ring-\[\#67E8F9\]\/60 { --tw-ring-color: #FBBF2499; }
-html[data-shop-skin="orange"] .hover\:text-\[\#67E8F9\]:hover { color: #FBBF24; }
-
-/* The pale wash down the top of the "waiting for approval" screen (src/PendingGate.jsx).
-   Not covered by the accent rules above, because `from-` is a gradient stop rather than
-   a colour — and it is the first thing a new member of staff at Sure Fit ever sees, so a
-   blue one there is the whole problem in one screen. */
-html[data-shop-skin="orange"] .from-\[\#EAF1FF\] {
-  --tw-gradient-from: #FFF1E7 var(--tw-gradient-from-position);
-}
-html.dark[data-shop-skin="orange"] .from-\[\#EAF1FF\] {
-  --tw-gradient-from: #2B1A0E var(--tw-gradient-from-position);
-  --tw-gradient-to: #0F141B var(--tw-gradient-to-position);
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
-}
+/* The pale colours ON the login photograph — the eyebrow line, the caption, the ring
+   round the emblem, the little icons. They are tints of the wash behind them, so when
+   the wash changes these have to follow or the masthead reads as two brands stacked.
+   The same lightness in every skin, so nothing gets harder to read in any of them. */
+html .text-\[\#BFDBFE\]              { color: var(--hero-soft); }
+html .text-\[\#A5F3FC\]              { color: var(--hero-soft); }
+html .text-\[\#E6F6FF\]              { color: var(--hero-faint); }
+html .ring-\[\#67E8F9\]\/60          { --tw-ring-color: var(--hero-ring); }
+html .hover\:text-\[\#67E8F9\]:hover { color: var(--hero-soft); }
 
 /* Native form controls follow color-scheme, but the calendar icon on a
    dark input needs a nudge to stay visible. */

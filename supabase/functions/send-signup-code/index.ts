@@ -30,11 +30,28 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json" },
   });
 
+/* WHOSE NAME GOES ON THE EMAIL.
+
+   One deployment of this function sends mail for two different businesses now, so the
+   name cannot be written into the template. It arrives in the body, from whichever
+   shop's screen the app is on. A body without one — an older app still on somebody's
+   phone, or a call from somewhere else — gets the wording every one of these emails
+   used when there was only one shop, which is wrong-ish rather than wrong: it names
+   the system, not another company. */
+const shopOf = (v: unknown) => String(v || "").trim() || "Bypass Shop";
+
+/* The line under the rule at the bottom. It used to name the head office, which was
+   right when every email came from the one shop that reports to it. It cannot say that
+   now: half these emails are Sure Fit's, and a sign-in code footed with another
+   company's name is the kind of thing that makes a real email look like a fake one. */
+const FOOT = "Sent automatically by the shop's stock system — please do not reply.";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    const { email, name, purpose } = await req.json();
+    const { email, name, purpose, shop } = await req.json();
+    const shopLabel = shopOf(shop);
     const to = String(email || "").trim().toLowerCase();
     // The same code, sent for two different reasons. Only the wording differs,
     // but the wording is the alarm: a person reading "signing in on a phone
@@ -81,9 +98,9 @@ serve(async (req) => {
         to: [to],
         subject: isLogin
           ? `${code} — signing in on a new phone`
-          : `${code} is your Bypass Shop code`,
+          : `${code} is your ${shopLabel} code`,
         html: `<div style="font-family:system-ui,sans-serif;max-width:420px">
-          <h2 style="color:#2563EB;margin:0 0 4px">Bypass Shop</h2>
+          <h2 style="color:#2563EB;margin:0 0 4px">${shopLabel}</h2>
           <p style="font-size:15px;margin:0 0 18px">
             ${name ? `Hello ${name}, s` : "S"}omebody is ${
               isLogin
@@ -105,7 +122,7 @@ serve(async (req) => {
             }
           </p>
           <hr style="border:none;border-top:1px solid #DEE3E9;margin:18px 0 8px"/>
-          <p style="color:#5A6472;font-size:12px;margin:0">Jaspare Auto - Main Shop</p>
+          <p style="color:#5A6472;font-size:12px;margin:0">${FOOT}</p>
         </div>`,
       }),
     });

@@ -40,6 +40,34 @@
           }
         } catch (e) {}
       })();
+
+      /* And the shop's colour, for exactly the same reason.
+
+         The stylesheet is read before the first paint and the app's JavaScript is not,
+         so without this line every single load of an orange shop showed one frame of
+         blue — the sign-in screen, which is the screen it shows most.
+
+         IT DOES NOT WORK OUT WHICH COLOUR, deliberately. Repeating the palette or the
+         per-shop defaults here would put them in a third place, and a third place is
+         where they go out of step. All this does is replay whatever was painted last
+         time on this device for this shop: src/lib/shopSkin.js writes the answer down
+         under the key below every time it applies a skin, and this reads it back.
+
+         So the very first visit on a new device still shows that one blue frame, once,
+         and never again. A slug this misses — the old /jaspare and /shop links, which
+         are aliases — finds nothing and gets the blue, which is the right answer for
+         them anyway. */
+      (function () {
+        try {
+          var slug = (location.pathname.split("/")[1] || "").toLowerCase();
+          if (!slug) return;
+          var seen = localStorage.getItem("bp_shop_skin_seen_" + slug);
+          /* Checked, not trusted: this value ends up in an attribute selector. */
+          if (seen && /^[a-z]+$/.test(seen) && seen !== "blue") {
+            document.documentElement.dataset.shopSkin = seen;
+          }
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>

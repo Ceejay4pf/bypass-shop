@@ -5,6 +5,7 @@
 --------------------------------------------------------- */
 import { supabase, createIsolatedClient } from "./supabase.js";
 import { currentShopSlug } from "./shopScope.js";
+import { shopName } from "./shopInfo.js";
 
 /* WHICH SHOP A NEW ACCOUNT BELONGS TO.
 
@@ -120,6 +121,11 @@ export async function sendEmailCode(email, name = "", purpose = "signup") {
        wording is the whole alarm: somebody reading "signing in on a new
        phone" when they are not learns their password has been taken. */
     purpose: String(purpose || "signup"),
+    /* The shop whose sign-in page they are standing on, so the code email is
+       headed with that shop's name. A staff member at Sure Fit reading another
+       company's name over their own sign-in code has been handed a good reason
+       to think the email is a fake and not type it. */
+    shop: shopName(),
   });
   if (r.setup) return { setup: true, error: r.error };
   if (r.error) throw new Error(r.error);
@@ -177,6 +183,7 @@ export async function startOtpLogin(email, name = "") {
     action: "send",
     email: String(email || "").trim().toLowerCase(),
     name: String(name || "").trim(),
+    shop: shopName(),
   });
   if (r.setup) return { setup: true, error: r.error };
   if (r.error) throw new Error(r.error);

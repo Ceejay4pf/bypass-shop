@@ -65,6 +65,22 @@ function splitFrom(raw: string) {
   return { name: "Bypass Shop", email: raw.trim() };
 }
 
+/* WHOSE NAME GOES ON THE EMAIL.
+
+   One deployment of this function sends mail for two different businesses now, so the
+   name cannot be written into the template. It arrives in the body, from whichever
+   shop's screen the app is on. A body without one — an older app still on somebody's
+   phone, or a call from somewhere else — gets the wording every one of these emails
+   used when there was only one shop, which is wrong-ish rather than wrong: it names
+   the system, not another company. */
+const shopOf = (v: unknown) => String(v || "").trim() || "Bypass Shop";
+
+/* The line under the rule at the bottom. It used to name the head office, which was
+   right when every email came from the one shop that reports to it. It cannot say that
+   now: half these emails are Sure Fit's, and a sign-in code footed with another
+   company's name is the kind of thing that makes a real email look like a fake one. */
+const FOOT = "Sent automatically by the shop's stock system — please do not reply.";
+
 const rpc = (fn: string, body: unknown) =>
   fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
     method: "POST",
@@ -76,9 +92,9 @@ const rpc = (fn: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
-function codeEmail(code: string, name: string) {
+function codeEmail(code: string, name: string, shop: string) {
   return `<div style="font-family:system-ui,sans-serif;max-width:420px">
-    <h2 style="color:#2563EB;margin:0 0 4px">Bypass Shop</h2>
+    <h2 style="color:#2563EB;margin:0 0 4px">${shop}</h2>
     <p style="font-size:15px;margin:0 0 18px">
       ${name ? `Hello ${name}, t` : "T"}ype this code into the app to sign in.
       You will not need your password.
@@ -91,7 +107,7 @@ function codeEmail(code: string, name: string) {
       anywhere</strong> - somebody else knows your email address.
     </p>
     <hr style="border:none;border-top:1px solid #DEE3E9;margin:18px 0 8px"/>
-    <p style="color:#5A6472;font-size:12px;margin:0">Jaspare Auto - Main Shop</p>
+    <p style="color:#5A6472;font-size:12px;margin:0">${FOOT}</p>
   </div>`;
 }
 
@@ -163,7 +179,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    const { action, email, code, name } = await req.json();
+    const { action, email, code, name, shop } = await req.json();
+    const shopLabel = shopOf(shop);
     const to = String(email || "").trim().toLowerCase();
 
     if (!to.includes("@") || !to.includes(".")) {
@@ -213,8 +230,8 @@ serve(async (req) => {
 
       const sent = await sendMail(
         to,
-        `${minted} — your Bypass Shop sign-in code`,
-        codeEmail(String(minted), String(name || "")),
+        `${minted} — your ${shopLabel} sign-in code`,
+        codeEmail(String(minted), String(name || ""), shopLabel),
       );
       if (!sent.ok) return json(sent, sent.setup ? 503 : 500);
       return json({ ok: true, via: sent.via });

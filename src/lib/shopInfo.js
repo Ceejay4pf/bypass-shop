@@ -27,7 +27,8 @@
    BLANK for that field, never Jaspare's. Falling back field-by-field is how
    Jaspare's phone number would end up on Sure Fit Auto Spares' invoice.
 --------------------------------------------------------- */
-import { currentShop } from "./shopScope.js";
+import { currentShop, currentShopSlug } from "./shopScope.js";
+import { KNOWN_SHOPS } from "./shopRoute.js";
 
 /* Digits only, for tel: and WhatsApp links, which reject spaces and plus signs. */
 const digits = (v) => String(v || "").replace(/\D/g, "");
@@ -129,9 +130,22 @@ export const SHOP_INFO = {
 };
 
 /* The shop's name on its own, for headers, menus and page titles — the places that
-   used to say "Bypass Shop" in the markup. Falls back to the old wording so a build
-   running against a database with no shops table looks exactly as it did before. */
+   used to say "Bypass Shop" in the markup.
+
+   THREE STEPS DOWN, and the middle one was missing. The database row is the truth, but
+   there are two ordinary moments when there isn't one yet: the second or so before it
+   arrives, and a database that has not had supabase/multishop/ run against it. It used
+   to fall straight through to the literal "Bypass Shop" in both — which is how a header
+   ends up reading "Bypass Shop" while the receipt printed from the same screen reads
+   "Bypass Shop Jaspare Branch", and the name looked half-changed.
+
+   So the middle step is the address bar: the slug is known on the very first frame, and
+   src/lib/shopRoute.js already holds what each shop is called. Only a slug nobody
+   recognises reaches the old wording now. */
 export function shopName() {
   const s = row();
-  return (s && s.name) || "Bypass Shop";
+  if (s && s.name) return s.name;
+  const slug = currentShopSlug();
+  const known = slug ? KNOWN_SHOPS.find((k) => k.slug === slug) : null;
+  return (known && known.name) || "Bypass Shop";
 }

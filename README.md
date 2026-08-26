@@ -1,7 +1,7 @@
 # Bypass Shop — Branch Inventory & Sales System
 
-**Jaspare Auto Bypass Shop** · Near Total Northlands · a branch of
-**Jaspare Auto (Main Shop)**
+**Bypass Shop Jaspare Branch** · Near Total Northlands
+· and **Sure Fit Auto Spares Ltd** · Industrial Area, Dunga Road
 
 ## What this system is about
 
