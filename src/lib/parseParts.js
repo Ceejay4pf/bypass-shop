@@ -395,7 +395,7 @@ function readSupplier(text) {
 /* Read a single written line into inventory fields.
    Returns null for a line with nothing in it (blank, or a heading like
    "Here's your list written clearly:"). */
-export function parsePartLine(rawLine, categories = []) {
+export function parsePartLine(rawLine, categories = [], heading = null) {
   const raw = tidy(rawLine);
   if (!raw) return null;
   const line = stripBullet(raw);
@@ -522,6 +522,31 @@ export function parsePartLine(rawLine, categories = []) {
       break;
     }
   }
+  /* --- the heading above this line ---
+     "THESE ARE HEADLIGHTS:" and then a run of lines that name nothing but the
+     car. Every one of those lines used to come back asking which section it is,
+     on a list where the person had already said, once, at the top. Answering the
+     same question forty times is how a list stops getting filled in.
+
+     It only ever fills a blank. A line that names its own section keeps it, so a
+     stray "front bumper - Vitz" under a headlight heading is still a bumper.
+
+     Applied here, after the ambiguous-word block, on purpose: a bare "bumper"
+     under a "FRONT BUMPERS" heading has to be read as the ambiguous word FIRST
+     so that the word is blanked out of the line, or it gets read again further
+     down as the model name. */
+  if (heading?.cat && !out.cat) {
+    out.cat = heading.cat;
+    out.catAsk = "";
+    out.catFromHeading = true;
+    /* The side was worked out above, and for the sections with two ends it needs
+       to know the section before it can tell whether "front left" is one answer
+       or two. It did not know then. It does now. */
+    if (position && hand && POSITIONED_CATS.includes(out.cat)) {
+      out.side = `${position.side} ${hand.side}`;
+    }
+  }
+
   /* Wing categories carry the side in the category itself. */
   if (out.cat === "WNL" && !out.side) out.side = "Left";
   if (out.cat === "WNR" && !out.side) out.side = "Right";
@@ -695,6 +720,14 @@ export function parsePartLine(rawLine, categories = []) {
     if (bits.length) out.extra = bits.join("; ");
   }
 
+  /* The heading's make, for the lines it does not name. Applied down here rather
+     than up with the section, because the brand written ON the line has to win and
+     the model reader hands one back for free ("Harrier" is a Toyota). */
+  if (heading?.brand && !out.brand) {
+    out.brand = heading.brand;
+    out.brandFromHeading = true;
+  }
+
   /* --- what still needs a human --- */
   if (!out.cat) out.missing.push(out.catAsk || "category");
   if (!out.brand) out.missing.push("brand");
@@ -733,6 +766,53 @@ export function sideMissing(cat, side) {
   return /^(Front|Rear)$/.test(s) ? ["left or right"] : ["front or rear"];
 }
 
+/* ---------- a heading in the middle of a list ----------
+
+   Lists are written with the sections called out once at the top of each run:
+
+     THESE ARE HEADLIGHTS:
+     Toyota Premio 2016
+     Honda Fit 2012
+     FRONT BUMPERS:
+     Lexus IS 250 2008
+
+   A line is a heading when it names a section, says nothing else about any one
+   part — no model, no year, no price, no amount, no shelf — and is marked as a
+   heading in one of the three ways people actually write them: it ends in a
+   colon, it opens with "these are" / "the following", or it is the section's name
+   and nothing else at all.
+
+   That last condition is the careful one. Without it "headlight - Toyota" would
+   be swallowed as a heading, and the person would lose a line they meant. With
+   it, that line stays a row and asks for its model, which is right. A heading
+   with a make on it ("TOYOTA HEADLIGHTS:") has to end in the colon to count. */
+const HEADING_OPENERS =
+  /^(?:these\s+are|this\s+is|here\s+are|the\s+following(?:\s+are)?|list\s+of|section|category)\b[\s:.—-]*/i;
+
+export function readHeading(rawLine, categories = []) {
+  const line = stripBullet(String(rawLine || "")).trim();
+  if (!line) return null;
+
+  const colon = /:\s*$/.test(line);
+  const opener = HEADING_OPENERS.test(line);
+  const body = line.replace(/:\s*$/, "").replace(HEADING_OPENERS, "").trim();
+  if (!body) return null;
+
+  /* Read it as if it were a part. If it comes back with anything that belongs to
+     one part rather than to a group, it is a part — badly written, maybe, but the
+     person's line, and it stays. */
+  const row = parsePartLine(body, categories);
+  if (!row || !row.cat) return null;
+  if (row.model || row.yearFrom || row.price || row.qty || row.location || row.supplier) return null;
+
+  const phrases = [...categoryPhrases(categories), ...CAT_PHRASES];
+  const norm = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const bare = phrases.some((c) => norm(c.w) === norm(body));
+
+  if (!colon && !opener && !bare) return null;
+  return { cat: row.cat, brand: row.brand || "", raw: line };
+}
+
 /* ---------- a whole pasted list ---------- */
 
 /* Split on new lines, and also on ";" or " / " so a list pasted as one
@@ -747,8 +827,15 @@ export function parsePartsList(text, categories = []) {
     .filter(Boolean);
 
   const rows = [];
+  /* The heading stays in force until another one replaces it — which is how the
+     list is written, one heading over a run of lines. There is no "end of run"
+     mark to look for: blank lines are gone by the time we get here, and a shop
+     that wanted one would have to be told to write it. */
+  let heading = null;
   for (const chunk of chunks) {
-    const row = parsePartLine(chunk, categories);
+    const h = readHeading(chunk, categories);
+    if (h) { heading = h; continue; }
+    const row = parsePartLine(chunk, categories, heading);
     if (row) rows.push({ id: `r${rows.length}`, ...row });
   }
   return rows;

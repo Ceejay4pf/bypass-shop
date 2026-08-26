@@ -3416,8 +3416,17 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
             Left-hand side side mirror - Honda Fit (2010 model)<br />
             Left-hand side front door - Mazda CX-5 (2012-2016 model)<br />
             Front bumper - Lexus IS 250 (2008 model)<br />
-            Rear bumper - Toyota Harrier (2016 model)<br />
-            Left-hand side headlight - Toyota Prado 150 (2016 model)
+            <br />
+            THESE ARE HEADLIGHTS:<br />
+            Left-hand side, Toyota Prado 150 (2016 model)<br />
+            Right-hand side, Honda Fit (2010 model)
+          </div>
+          <div className="mt-2">
+            <span className="font-semibold text-[#1B2430]">Say the section once, at the top.</span>{" "}
+            A line like <span className="font-mono">THESE ARE HEADLIGHTS:</span> — or just{" "}
+            <span className="font-mono">HEADLIGHTS:</span> — puts every line under it in that
+            section, so you only write the cars. Write the next section the same way when you get
+            to it. A line that names its own section keeps it, so nothing is forced.
           </div>
           <div className="mt-2">
             <span className="font-semibold text-[#1B2430]">Write everything you know</span> — it all
@@ -3712,6 +3721,18 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
           {row.extra && (
             <div className="text-[11px] text-[#2563EB] truncate mt-0.5" title={row.extra}>
               Also noted: {row.extra}
+            </div>
+          )}
+          {/* Where the section came from, when it did not come off this line. The
+              person wrote it once at the top of the run and is entitled to see
+              that it was understood — and to see it on the row that got it, not
+              only on the heading they typed. */}
+          {(row.catFromHeading || row.brandFromHeading) && (
+            <div className="text-[11px] text-[#5A6472] truncate mt-0.5">
+              From the heading above:{" "}
+              {[row.catFromHeading ? cat?.label || "section" : "", row.brandFromHeading ? row.brand : ""]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           )}
           {bad && (
