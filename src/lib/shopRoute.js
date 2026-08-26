@@ -60,7 +60,36 @@ export const KNOWN_SHOPS = [
     tagline: "Industrial Area, Dunga Road — next to Impala",
     ready: true,
   },
+  {
+    /* THE THIRD SHOP — and it is not new to this system, which is the part worth
+       knowing. Jeyden Auto Spares is already a BRANCH of Jaspare (branches.code
+       'JEY', South B) and that row stays exactly where it is: the seven branches
+       under Jaspare are the structure this shop has always had. What changes is that
+       it now also has a front door and a shelf of its own.
+
+       The phone number is the one already recorded against that branch, so it is the
+       shop's own number rather than a guess — worth confirming with the owner, but
+       not worth leaving the tile unringable over.
+
+       `ready: false` on purpose, and it is not a placeholder to tidy up later: the
+       shops row does not exist until supabase/multishop/12 is pasted, and mergeShops
+       turns ready true by itself the moment the row is there. So this reads "Not on
+       the system yet" until the shop really is on the system, and then stops, with
+       nothing to deploy in between. */
+    slug: "jeyden-autospares",
+    name: "Jeyden Auto Spares",
+    phone: "+254798718321",
+    tagline: "Dar es Salaam Road, Industrial Area — South B",
+    ready: false,
+  },
 ];
+
+/* NOT A LIST OF ALL THE SHOPS THERE WILL BE. Jaspare Auto — the main shop above
+   these branches — has not been created yet, and nothing here counts the entries or
+   assumes there are three: the picker maps the array, mergeShops replaces it with
+   whatever the table holds, and each per-shop list (skins, roles, openings) falls
+   back to a default for a slug it has never seen. A fourth shop is one more entry
+   here and one more paste of multishop/12, which is the point. */
 
 /* The shop the old links belong to. Every address written before there was more
    than one shop meant this one, and always will. */

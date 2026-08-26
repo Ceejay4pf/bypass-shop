@@ -182,9 +182,24 @@ export async function fetchDirectory() {
 
   /* The other businesses. Listed as sister shops with a name and a number and
      nothing else — this app knows where its own branches are and deliberately does
-     not claim to know where anybody else's shop is. */
+     not claim to know where anybody else's shop is.
+
+     Minus anything already on the list above, and that is not tidying. Jeyden Auto
+     Spares is a branch of Jaspare AND a shop in its own right: the branch row is the
+     structure this business has always had, the shops row is what gives Jeyden its
+     own front door and its own shelf, and both of them are correct. Both being
+     correct would put the same name and the same phone number on two cards side by
+     side, and a staff member reading that has to work out which Jeyden to ring.
+
+     The branch card wins, because it is the one that knows the place is in South B.
+     Matched on the name rather than on the phone number: a shop that changes its
+     line would otherwise split back into two cards, and the name is the thing
+     somebody is reading. */
+  const norm = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const listed = new Set(places.map((p) => norm(p.name)));
   const others = (sh.data || [])
     .filter((s) => s.is_active !== false && String(s.slug).toLowerCase() !== String(slug).toLowerCase())
+    .filter((s) => !listed.has(norm(s.name)))
     .map((s) => ({
       id: `shop:${s.slug}`,
       name: s.name,

@@ -117,8 +117,21 @@ const SUREFIT_OPENERS = [
   "/ads/mirrors-indicator.jpg",
 ];
 
+/* Jeyden opens on the Impreza and the Prado, and leads with the parts rather than
+   with more cars — doors and plain mirrors first, which is a different five and a
+   different order again from the two above. Same eleven photographs, for the same
+   reason: what is downloaded is what somebody actually reaches. */
+const JEYDEN_OPENERS = [
+  "/ads/subaru-impreza-front.jpg",
+  "/ads/doors.jpg",
+  "/ads/prado-front.jpg",
+  "/ads/mirrors-plain.jpg",
+  "/ads/headlights.jpg",
+];
+
 const OPENERS_BY_SLUG = {
   "surefit-autoparts": SUREFIT_OPENERS,
+  "jeyden-autospares": JEYDEN_OPENERS,
 };
 
 export function slidesFor(slug) {

@@ -1,7 +1,12 @@
-# Two shops in one database
+# More than one shop in one database
 
-Jaspare Auto and Sure Fit Auto Spares Ltd, sharing one Supabase project, seeing nothing
-of each other.
+Bypass Shop Jaspare Branch, Sure Fit Auto Spares Ltd and Jeyden Auto Spares, sharing one
+Supabase project, seeing nothing of each other's stock.
+
+Not a fixed three. Steps 1–11 were written for two and are not counted anywhere; step 12
+is the form a shop is added with, and Jaspare Auto — the main shop above these branches —
+has not been created yet. The app reads `public.shops`, so a shop is an insert and not a
+release: nothing here needs a deploy to appear.
 
 The plan these files came from, with the reasoning and the alternatives that were
 rejected, is `../MULTI_SHOP_PLAN.md`. This file is just how to run them.
@@ -52,6 +57,8 @@ assumes the migration has happened.
 | 8 | `08_shop_letterhead.sql` | The letterhead in the database instead of the code: name, tagline, address, P.O. box, phones, footer. Both shops print their own details — before this, one of them printed the other's. |
 | 9 | `09_shared_staff_feed.sql` | **Deliberately gives up privacy on one table.** The staff feed becomes one room both shops read, so a counter can ask the other shop about a part instead of ringing. Writing stays truthful. Re-run 05 to reverse it. |
 | 10 | `10_shop_names.sql` | What each shop is called, on every receipt and quotation. Jaspare becomes **Bypass Shop Jaspare Branch**; Sure Fit gets the word 08 left out and becomes **Sure Fit Auto Spares Ltd**. Also corrects the names 09 stamped onto messages already sent. The seven branches are untouched. |
+| 11 | `11_per_shop_activity.sql` | Staff Activity for **one** shop. The old no-argument form read every notification the signed-in person is an admin of, which for an admin of two shops is both shops' work added together under one name. |
+| — | `12_jeyden_third_shop.sql` | Separate, hand-edited, and **the shape every shop after this one is added in**: the slug, name and address are three variables at the top of one block. Creates **Jeyden Auto Spares** — its own numbering from 1, its own eleven expense categories, no branches, no stock. Jaspare's `JEY` branch row is left exactly where it is. |
 
 Every file is safe to re-run. If one stops half way, fix the cause and run it again
 from the top.

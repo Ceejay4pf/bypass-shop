@@ -139,10 +139,17 @@ export function skinByKey(key) {
 const DEFAULT_BY_SLUG = {
   "jaspare-auto": "blue",
   "surefit-autoparts": "orange",
+  /* Jeyden opens in teal — not blue and not orange, because the sign-in screens have
+     to be told apart at a glance by somebody who works at two of them. Nobody has
+     asked for a colour, so this is a starting point rather than a decision: the slug
+     is in CHOOSABLE below, so the shop can change it itself. */
+  "jeyden-autospares": "teal",
 };
 
-/* Which shops may change it. See the header for why this is not both. */
-const CHOOSABLE = ["surefit-autoparts"];
+/* Which shops may change it. See the header for why this is not every shop: Jaspare
+   is the blue the whole system has always been, and repainting the main shop is a
+   different conversation from letting a new shop pick its own look. */
+const CHOOSABLE = ["surefit-autoparts", "jeyden-autospares"];
 
 export function canChooseSkin(slug) {
   return CHOOSABLE.includes(String(slug || "").toLowerCase());

@@ -74,6 +74,17 @@ const ALL_ROLES = [...ROLE_ACCOUNTS, KEZIAH];
    shop with no entry here gets ROLE_ACCOUNTS. */
 const ROLE_KEYS_BY_SLUG = {
   "surefit-autoparts": ["keziah", "admin"],
+  /* JEYDEN — one door, until the shop says who works there.
+
+     Not the four. The four are Jaspare's shared logins and the people holding those
+     passwords are Jaspare's people; putting Sales and Staff on Jeyden's screen would
+     invite them in through a door that RLS then shows an empty shop behind, which
+     reads as a broken system rather than as "you do not work here".
+
+     So Jeyden opens with Admin only — the one account multishop/12 makes a member —
+     and that person creates their own staff from inside the app, the same way Sure
+     Fit's third person is created. Names go here when there are names. */
+  "jeyden-autospares": ["admin"],
 };
 
 export function rolesFor(slug) {
