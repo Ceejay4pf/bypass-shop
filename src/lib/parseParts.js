@@ -334,11 +334,19 @@ function readPrice(text) {
   if (!isFinite(n) || n <= 0) return null;
   return { price: n, at: m.index, len: m[0].length };
 }
+/* An amount on a line is the amount that goes onto the part. Written whichever
+   way the hand moved: "x2" and "2x" are both two, and so are "2 pcs", "2 nos",
+   "2 sets". A line that says nothing is one piece — see rowToNewItem.
+
+   "pairs" is deliberately NOT a counting word here. A pair is a side in this shop
+   ("front doors pair"), and reading the word as an amount would take it out of the
+   line before the side reader ever sees it. Two of something is written x2. */
 function readQty(text) {
   const m =
     text.match(/\b(?:qty|quantity)\s*[:=]?\s*(\d{1,4})\b/i) ||
     text.match(/\bx\s?(\d{1,3})\b/i) ||
-    text.match(/\b(\d{1,3})\s*(?:pcs?|pieces?|units?|off)\b/i);
+    text.match(/\b(\d{1,3})\s?x\b/i) ||
+    text.match(/\b(\d{1,3})\s*(?:pcs?|pieces?|units?|nos?\.?|sets?|off)\b/i);
   if (!m) return null;
   const n = Number(m[1]);
   if (!n) return null;

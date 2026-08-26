@@ -8,7 +8,7 @@
    is still correct for profiles (one row per human) and for the three public
    catalogue views, which are narrowed by shop_slug because the people reading them
    have no session at all. */
-import { supabase, shopFrom, createIsolatedClient } from "./supabase.js";
+import { supabase, shopFrom, shopRpc, createIsolatedClient } from "./supabase.js";
 import {
   setShop,
   currentShop,
@@ -302,7 +302,7 @@ export async function fetchItem(code) {
 // Generate a unique serial from the DB sequence (safe across devices),
 // then build the rich code the same way the app always has.
 export async function nextSerial() {
-  const { data, error } = await supabase.rpc("next_inventory_serial");
+  const { data, error } = await shopRpc("next_inventory_serial");
   if (error) throw error;
   return data;
 }
@@ -575,7 +575,7 @@ function batchSummaryName(type, parts) {
 
 /* ---- STOCK CHANGES (atomic, via DB functions) ---- */
 export async function addStock(code, amount, byName, supplier = "", { batch = false } = {}) {
-  const { data: newQty, error } = await supabase.rpc("add_stock", { p_code: code, p_amount: amount });
+  const { data: newQty, error } = await shopRpc("add_stock", { p_code: code, p_amount: amount });
   if (error) throw error;
   if (supplier) await shopFrom("inventory").update({ supplier }).eq("code", code);
   const name = await itemName(code);
@@ -589,7 +589,7 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, method = 
   let newQty = null;
   if (deduct) {
     // Sold from THIS branch — atomically reduce our stock.
-    const { data, error } = await supabase.rpc("sell_item", { p_code: code, p_qty: qty });
+    const { data, error } = await shopRpc("sell_item", { p_code: code, p_qty: qty });
     if (error) throw error;
     newQty = data;
   } else {
@@ -623,7 +623,7 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, method = 
 }
 
 export async function adjustQty(code, newQty, reason, byName, { batch = false } = {}) {
-  const { data: qty, error } = await supabase.rpc("set_qty", { p_code: code, p_qty: newQty });
+  const { data: qty, error } = await shopRpc("set_qty", { p_code: code, p_qty: newQty });
   if (error) throw error;
   const name = await itemName(code);
   /* A bulk change gets one summary from its caller instead. Forty parts
@@ -859,9 +859,10 @@ export function rowToQuote(r) {
 }
 
 // Build the next human-friendly quote number: QT-<year>-<0000>.
-// Uses the DB function (atomic); falls back to a count if it's not deployed.
+// Uses the DB function (atomic, and told which shop — see shopRpc); falls back to
+// counting this shop's own quotes if the function isn't deployed.
 async function nextQuoteNumber() {
-  const { data, error } = await supabase.rpc("next_quote_number");
+  const { data, error } = await shopRpc("next_quote_number");
   if (!error && data) return data;
   const year = new Date().getFullYear();
   const { count } = await shopFrom("quotes").select("*", { count: "exact", head: true });
@@ -932,7 +933,7 @@ export function rowToReceipt(r) {
 
 // Next human-friendly receipt number: RCP-<year>-<0000>.
 async function nextReceiptNumber() {
-  const { data, error } = await supabase.rpc("next_receipt_number");
+  const { data, error } = await shopRpc("next_receipt_number");
   if (!error && data) return data;
   const year = new Date().getFullYear();
   const { count } = await shopFrom("receipts").select("*", { count: "exact", head: true });
@@ -1197,7 +1198,7 @@ export async function undoSale(saleId, byName, reason = "", restock = true) {
 /* ---- PER-PERSON ACTIVITY (admin only) ---- */
 /* One row per person: sales, revenue, returns, items added/edited/deleted. */
 export async function fetchStaffActivity() {
-  const { data, error } = await supabase.rpc("staff_activity_summary");
+  const { data, error } = await shopRpc("staff_activity_summary");
   if (error) throw error;
   return data || [];
 }

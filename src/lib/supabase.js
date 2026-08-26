@@ -67,6 +67,58 @@ export function shopFrom(table) {
   };
 }
 
+/* ---------------------------------------------------------
+   THE SAME CHOKE POINT, FOR THE DATABASE FUNCTIONS
+
+   shopFrom() covers the tables. It does not cover the seven functions that hand
+   out a number or move a quantity, and those need the shop just as much.
+
+   Each of them has two forms: one that takes the shop, and an older one that works
+   it out with my_one_shop(). The older form is exactly right for the twenty-odd
+   accounts that belong to one shop, and it RAISES rather than guesses for an
+   account that belongs to two — which is every admin here, now that there is more
+   than one shop. At the counter that reads:
+
+     "No shop was given for this number, and this account belongs to more than one
+      shop. Open the shop you meant and try again."
+
+   — on a fifty-line paste that then saved nothing. The account WAS in the right
+   shop; nobody had told the function which one, and it refused to guess. Refusing
+   was correct. Not telling it was the bug, and it was ours.
+
+   So the shop on the screen goes in, the same one shopFrom() reads with. If the
+   p_shop form is not in the database yet (multishop/04 not pasted), the call is
+   retried in the old form — which is the right answer on a database that still has
+   one shop, and is the same fallback place_customer_order already uses.
+
+   Listed by hand, like the five methods above, for the same reason: a function
+   added later that quietly resolves its own shop is a bug nobody sees.
+--------------------------------------------------------- */
+const SHOP_ARG_FUNCTIONS = new Set([
+  "next_inventory_serial",   // the serial inside a new part's code
+  "next_quote_number",
+  "next_receipt_number",
+  "add_stock",
+  "sell_item",
+  "set_qty",
+  "staff_activity_summary",  // per-shop overload; see multishop/11
+]);
+
+/* Not "function not found" in general — specifically PostgREST failing to resolve
+   an overload by the argument names given. Kept here rather than imported from
+   api.js because api.js imports this file, and a circle between the two would be
+   a worse problem than a repeated three-line predicate. */
+const overloadMissing = (e) =>
+  e?.code === "PGRST202" ||
+  /could not find the function|does not exist|no function matches/i.test(e?.message || "");
+
+export async function shopRpc(fn, args = {}) {
+  if (!SHOP_ARG_FUNCTIONS.has(fn) || !scopeActive()) return supabase.rpc(fn, args);
+  const res = await supabase.rpc(fn, { ...args, p_shop: currentShopId() });
+  if (res.error && overloadMissing(res.error)) return supabase.rpc(fn, args);
+  return res;
+}
+
 /* A throwaway client that never persists its session. Used when an admin
    creates a staff account so signing the new user up doesn't replace the
    admin's own session in this browser. */

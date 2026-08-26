@@ -3380,6 +3380,13 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
   );
   const itemFor = (r) => plans.get(r.id) || rowToNewItem(r, categories);
 
+  /* Parts and pieces are two different counts and both get said, because neither
+     one on its own is the truth. A line that says x3 is ONE part with THREE
+     pieces on it: "50 parts" alone hides nine pieces that went onto the shelf,
+     and "59" alone promises fifty-nine codes. Blank means one — the part is
+     here — which is the same rule the row itself shows. */
+  const pieces = ready.reduce((n, r) => n + Math.max(1, Number(r.qty) || 0), 0);
+
   const save = async () => {
     if (!ready.length) return;
     setSaving(true);
@@ -3388,7 +3395,7 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
        kind of line left for it to be split into. */
     const res = await onAddMany(ready.map(itemFor));
     setSaving(false);
-    setDone({ added: res.added, failed: res.failed, firstError: res.firstError });
+    setDone({ added: res.added, pieces, failed: res.failed, firstError: res.firstError });
     // Keep only the rows that still need attention, so the screen shows
     // exactly what is left to do.
     setRows(needsWork);
@@ -3414,8 +3421,9 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
           </div>
           <div className="mt-2">
             <span className="font-semibold text-[#1B2430]">Write everything you know</span> — it all
-            gets kept. Price <span className="font-mono">@ 8500</span>, quantity{" "}
-            <span className="font-mono">x2</span>, colour <span className="font-mono">silver</span>,
+            gets kept. Price <span className="font-mono">@ 8500</span>, how many{" "}
+            <span className="font-mono">x2</span> or <span className="font-mono">2x</span> or{" "}
+            <span className="font-mono">2 pcs</span>, colour <span className="font-mono">silver</span>,
             shelf <span className="font-mono">shelf D-01</span>, where it came from{" "}
             <span className="font-mono">from Ex Japan</span>, and words like{" "}
             <span className="font-mono">brand new</span>, <span className="font-mono">xenon</span>.
@@ -3553,7 +3561,13 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
             <div className="font-semibold">
               {done.added
                 ? `${done.added} part${done.added !== 1 ? "s" : ""} added, each with its own code`
-                : "Nothing was saved"}.
+                : "Nothing was saved"}
+              {/* The pieces only where they differ, and only when nothing failed —
+                  a total counted off the rows we tried to save is not the truth
+                  about the rows that landed. */}
+              {done.added && !done.failed && done.pieces !== done.added
+                ? ` — ${done.pieces} pieces in total, counted as the list wrote them`
+                : ""}.
             </div>
             {done.failed > 0 && (
               <div className="text-xs mt-0.5">
@@ -3576,6 +3590,11 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
                 {ready.length} part{ready.length !== 1 ? "s" : ""} ready
               </span>
             )}
+            {pieces !== ready.length && (
+              <span className="bg-[#15926A22] text-[#15926A] font-bold rounded px-2 py-1">
+                {pieces} pieces on the shelf
+              </span>
+            )}
             {needsWork.length > 0 && (
               <span className="bg-[#DC3B2E22] text-[#DC3B2E] font-bold rounded px-2 py-1">
                 {needsWork.length} need{needsWork.length === 1 ? "s" : ""} a detail
@@ -3588,7 +3607,9 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
               Each line below is saved as{" "}
               <span className="font-semibold text-[#1B2430]">its own part with its own code</span>,
               exactly as written — two lines that read the same are two parts. Nothing goes onto a
-              part already on the shelf. Tap a row to correct it, or drop it, before you save.
+              part already on the shelf. A line that says more than one keeps that number of pieces
+              on it, so check the count on each row: it is what the shelf will read. Tap a row to
+              correct it, or drop it, before you save.
             </div>
           )}
 
@@ -3625,7 +3646,9 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
               : /* The button says the number of codes it is about to mint, because
                    that is now the only thing it does. */
                 ready.length
-                ? `Add ${ready.length} part${ready.length !== 1 ? "s" : ""}`
+                ? `Add ${ready.length} part${ready.length !== 1 ? "s" : ""}${
+                    pieces !== ready.length ? ` · ${pieces} pieces` : ""
+                  }`
                 : "Nothing ready to save"}
           </button>
         </>
