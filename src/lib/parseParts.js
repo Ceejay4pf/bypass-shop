@@ -17,7 +17,7 @@
    the person needs to fill in. It never guesses a brand it
    has not been told about.
 --------------------------------------------------------- */
-import { BRANDS, DEFAULT_CATEGORIES, SIDED_CATS, POSITIONED_CATS, findMatch } from "../data.js";
+import { BRANDS, DEFAULT_CATEGORIES, SIDED_CATS, POSITIONED_CATS } from "../data.js";
 
 /* ---------- category words ---------- */
 /* Every way we have heard a category asked for, in the shop and on
@@ -484,11 +484,9 @@ export function parsePartLine(rawLine, categories = []) {
 
      Only for the sections that have two ends. A tail light is always at the back
      and a fog light is always at the front, so "Rear Left Tail Light" and "Left
-     Tail Light" are the same part — and if this recorded them as different
-     sides, findMatch would stop seeing them as the same part and the pasted list
-     would open a second row for a light the shop already stocks instead of
-     adding a piece to the first. The shelf ends up with the same light in two
-     places under two codes, which is worse than a slightly shorter side.
+     Tail Light" name one and the same part, and a side that repeated what the
+     section already says would put the same light under two different sides — two
+     spellings of one shelf, which is worse than a slightly shorter side.
 
      "Pair" beats a bare front/rear, because it answers the question that is
      actually being asked — which hand — and a pair of doors is sold as the
@@ -807,75 +805,41 @@ export function rowToNewItem(row, categories = DEFAULT_CATEGORIES) {
 export { CAT_PHRASES, AMBIGUOUS, findPhrase, has, categoryPhrases, BRAND_KEYS, BRAND_ALIASES, MODEL_KEYS, MODEL_TO_BRAND };
 
 
-/* ---------- a pasted list against the stock already on the shelf ----------
+/* ---------- a pasted list is a list of parts to list ----------
 
-   A pasted list is not always a list of new parts. Most of the time it is the
-   shop writing down what came in, and half of it is stock they already hold —
-   the same door for the same car. Until now every line was inserted as a brand
-   new part with a brand new code, so the shelf ended up with one part living
-   under two codes: two rows to keep in step, two quantities, and a search that
-   shows the customer one of them while the pieces are counted on the other.
+   Every line becomes its own part. A line is not weighed against what is already
+   on the shelf, and it is not weighed against the lines above it either: a list
+   that writes the same door twice is a list of two doors.
 
-   So each line is first put beside what is already in stock. Same section, same
-   vehicle, same side, same condition, same variant, overlapping year — findMatch's
-   rules, which are the same rules Quick Transaction and Add New Stock use to
-   decide "this is that part". If it is already there, the line means ADD STOCK to
-   it, not invent it again. */
+   THIS FILE USED TO DO THE OPPOSITE, and the reasoning was not silly. A line
+   reading the same as a part already held was inserted under a second code, so
+   one part lived under two codes — two rows to keep in step and two quantities.
+   So each line was put beside the stock with findMatch (same section, same
+   vehicle, same side, same condition, overlapping year) and a match meant ADD
+   STOCK to the part that exists.
 
-/* The fields a written line can tell us about a part we already hold. Code, name
-   and the note are not here: a code is never rewritten, the name is built from
-   the other fields, and the note is appended rather than replaced. */
-const PASTE_FIELDS = [
-  ["series", "series"],
-  ["yearFrom", "year from"],
-  ["yearTo", "year to"],
-  ["color", "colour"],
-  ["price", "price"],
-  ["location", "shelf"],
-  ["supplier", "supplier"],
-];
+   THE OWNER'S RULE IS THE OTHER WAY, and was given twice: the list filled in at a
+   shop is that shop's own list, an item written on it is listed as it is written,
+   and two lines that read the same are two parts. It is also the reading that
+   agrees with how the codes here work — the serial is unique across the whole
+   shop precisely so that every physical part is traceable on its own even when
+   the rest of the code repeats (generateCode, data.js). A shop holding two of the
+   same door, that writes both down, has written down two doors.
 
-const blankish = (v) => v === null || v === undefined || v === "" || v === 0 || v === "Unassigned";
+   What it costs, so nobody meets it as a surprise: pasting a line for a part the
+   shop already holds opens a second row rather than raising the first one's
+   number, and the two are then sold from separately. Adding pieces to a part that
+   exists is still there — on Add New Stock, and on the match Quick Transaction
+   offers — where a person is looking at that part and chooses it. What is gone is
+   this file choosing it for them off a pasted line. */
 
-/* What one line means, in full, before anything is written:
+/* What one line means, before anything is written: one part, built from the words
+   on it. Kept as a function, and kept out of the screen, because the screen asks
+   this of every row and because this file is where the rule above is recorded —
+   the answer and the reason for it should not sit in two places.
 
-     action  "add"   — nothing like it in stock, so it becomes a new part
-             "stock" — we hold it; the pieces go onto the part that exists
-     fills   things the line says that the stored part has blank. Safe, so these
-             are applied by default: filling a blank shelf or a missing year
-             takes nothing away.
-     clashes things the line says DIFFERENTLY from what is stored. Never applied
-             on their own. A price somebody set on purpose, overwritten by a
-             number off a pasted list without being shown, is the kind of change
-             that is only ever noticed at the till. Shown from -> to, with a tick.
-
-   Nothing here writes anything. It describes, and the screen confirms — the same
-   split the instruction box uses, for the same reason. */
-export function planRow(row, items = [], categories = DEFAULT_CATEGORIES) {
-  const item = rowToNewItem(row, categories);
-  const existing = findMatch(item, items);
-  if (!existing) return { action: "add", item, existing: null, fills: [], clashes: [] };
-
-  const fills = [], clashes = [];
-  for (const [field, label] of PASTE_FIELDS) {
-    const said = item[field];
-    if (blankish(said)) continue;                        // the line didn't say
-    const held = existing[field];
-    if (blankish(held)) fills.push({ field, label, to: said });
-    else if (String(held) !== String(said)) clashes.push({ field, label, from: held, to: said });
-  }
-  return { action: "stock", item, existing, fills, clashes };
-}
-
-export function planRows(rows = [], items = [], categories = DEFAULT_CATEGORIES) {
-  /* Each line is matched against the stock AND against the lines above it, so a
-     list that names the same part twice adds both lots of pieces to one part
-     instead of creating a duplicate on the second line — which is what would
-     happen if every line were matched against the original stock alone. */
-  const seen = [...items];
-  return rows.map((row) => {
-    const plan = { ...planRow(row, seen, categories), id: row.id };
-    if (plan.action === "add") seen.push({ ...plan.item, code: `pending-${row.id}` });
-    return plan;
-  });
+   `items` is deliberately not a parameter. It was one, and the whole point of the
+   rule is that the stock list has no say here. */
+export function planRows(rows = [], categories = DEFAULT_CATEGORIES) {
+  return rows.map((row) => ({ id: row.id, item: rowToNewItem(row, categories) }));
 }

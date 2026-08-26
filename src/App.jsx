@@ -585,45 +585,11 @@ function BypassShop({ session, shop }) {
     );
     return { added, failed, firstError };
   };
-  /* The other half of a pasted list: the parts the shop already holds. Their
-     pieces go onto the part that exists instead of a second code being minted for
-     it — see planRows. One ledger line each, one summary in the feed, the same
-     way handleAddMany does it, because 40 restock announcements bury the day. */
-  const handleStockMany = async (updates) => {
-    let failed = 0;
-    let firstError = "";
-    const done = [];
-    for (const u of updates) {
-      try {
-        /* The details first, so if the stock call fails the part is at least
-           more completely described than it was, and re-running the same list
-           finds nothing left to fill. */
-        const patch = { ...(u.patch || {}) };
-        if (u.appendNote) {
-          const held = items.find((i) => i.code === u.code);
-          const before = String(held?.notes || "").trim();
-          /* Added to, never replaced. A part may have carried a note for a year;
-             the new line is one more thing known about it, not a correction. And
-             a note already on the part is not written twice when the same list
-             is read again. */
-          if (!before.includes(u.appendNote.trim()))
-            patch.notes = [before, u.appendNote].filter(Boolean).join("\n");
-        }
-        if (Object.keys(patch).length) await api.updateItem(u.code, patch, user, { batch: true });
-        const remaining = await api.addStock(u.code, u.addQty, user, u.patch?.supplier || "", { batch: true });
-        done.push({ code: u.code, name: u.name, qty: u.addQty, remaining });
-      } catch (e) {
-        failed++;
-        if (!firstError) firstError = e.message || String(e);
-      }
-    }
-    if (done.length) {
-      await api.addBatchNotification({ type: "stock", by_name: user, parts: done });
-      api.emailBatch("stock", done, user);
-      reloadItems();
-    }
-    return { stocked: done.length, failed, firstError };
-  };
+  /* There is no longer a second half to a pasted list. Every line on it is a new
+     part — the owner's rule, recorded in planRows (src/lib/parseParts.js) — so the
+     batch restock handler that used to live here has gone with the screen that
+     called it. Adding pieces to a part that exists is handleAddStock, below, one
+     part at a time, from the screen where somebody is looking at that part. */
   const handleAddStock = (code, amount, supplier = "") =>
     run(() => api.addStock(code, amount, user, supplier), `+${amount} stock added to ${code}`);
   const handleSell = (sale) =>
@@ -832,7 +798,6 @@ function BypassShop({ session, shop }) {
           sales={salesRegister}
           salesReady={registerReady}
           onAddMany={handleAddMany}
-          onStockMany={handleStockMany}
           user={user}
           admin={admin}
           canEdit={can("edit")}
