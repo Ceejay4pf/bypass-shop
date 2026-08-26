@@ -11,6 +11,7 @@ import {
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
   Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail, ChevronDown, Palette,
+  Mic, MicOff,
 } from "lucide-react";
 import { THEME_CHOICES, useTheme, useThemeMode, readableOnDark, applyTheme, getTheme } from "./lib/theme.js";
 import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parseParts.js";
@@ -19,6 +20,10 @@ import { parsePartsList, rowToNewItem, sideMissing, planRows } from "./lib/parse
    src/lib/readDoc.js — so an uploaded document still goes through the reader and
    the check-before-saving screen exactly like a pasted one. */
 import { readDocument } from "./lib/readDoc.js";
+/* Saying the list out loud instead of typing it. Turns speech into the same lines
+   somebody would have typed and puts them in the same box — see the note at the top
+   of src/lib/dictate.js for why it deliberately understands nothing about parts. */
+import { createDictation, speechSupported, appendLines } from "./lib/dictate.js";
 /* readInstruction reads a question first and an order second — see the note over
    CommandBox for why that order is a safety rule rather than a preference. */
 import { readInstruction, ASK_EXAMPLES } from "./lib/ask.js";
@@ -3313,6 +3318,39 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
   const [docErr, setDocErr] = useState("");
   const fileRef = React.useRef(null);
 
+  /* ---- saying the list out loud ----
+     `heard` is the words still being said, shown as they arrive and cleared the
+     moment they land in the box. It is not part of the list: a person talking to a
+     microphone with no sign that it is hearing them says the whole line again. */
+  const [hearing, setHearing] = useState(false);
+  const [heard, setHeard] = useState("");
+  const [micErr, setMicErr] = useState("");
+  const [spoken, setSpoken] = useState(0);
+  const micRef = React.useRef(null);
+  const micOk = useMemo(() => speechSupported(), []);
+
+  const mic = () => {
+    if (!micRef.current) {
+      micRef.current = createDictation({
+        /* Added to the box, never over it — the same rule as an upload. */
+        onLines: (lines) => {
+          setText((prev) => appendLines(prev, lines));
+          setSpoken((n) => n + lines.length);
+          setHeard("");
+          setMicErr("");
+        },
+        onPartial: setHeard,
+        onError: (m) => { setMicErr(m); setHeard(""); },
+        onStateChange: (s) => { setHearing(s === "on"); if (s === "off") setHeard(""); },
+      });
+    }
+    return micRef.current;
+  };
+
+  /* Left listening after somebody walks away from this screen, the microphone stays
+     on with nowhere to put what it hears. */
+  useEffect(() => () => { try { micRef.current?.stop(); } catch { /* already gone */ } }, []);
+
   const takeFile = async (file) => {
     if (!file || reading) return;
     setReading(true);
@@ -3335,6 +3373,10 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
   };
 
   const read = () => {
+    /* The microphone goes off on the way to the checking screen. The box it was
+       filling is not on that screen, and a microphone still listening to a room
+       while nobody can see what it heard is the worst of both. */
+    try { micRef.current?.stop(); } catch { /* already gone */ }
     // The shop's own sections are passed in, so "boot light - Toyota Premio"
     // files itself instead of coming back asking which category it is.
     const parsed = parsePartsList(text, categories);
@@ -3408,8 +3450,9 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
         <SectionTitle eyebrow="Bulk entry" title="Add a List of Parts" />
 
         <div className="text-[#5A6472] text-xs mb-4 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 leading-relaxed">
-          Write or paste the parts the way you normally say them — one per line, or{" "}
-          <span className="font-semibold text-[#1B2430]">upload the sheet somebody sent you</span>. The shop works
+          Write or paste the parts the way you normally say them — one per line,{" "}
+          <span className="font-semibold text-[#1B2430]">upload the sheet somebody sent you</span>, or{" "}
+          <span className="font-semibold text-[#1B2430]">read them out loud</span>. The shop works
           out the <span className="font-semibold text-[#1B2430]">category, vehicle, year and side</span>{" "}
           by itself, and shows you everything for checking before it saves.
           <div className="mt-2 font-mono text-[11px] text-[#1B2430] bg-white border border-[#DEE3E9] rounded p-2 leading-relaxed">
@@ -3495,6 +3538,72 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
             <div className="mt-2 text-xs text-[#15926A] bg-[#E6F6EF] border border-[#15926A] rounded p-2 flex items-start gap-2">
               <FileText size={13} className="mt-0.5 shrink-0" />
               <span>{docNote}</span>
+            </div>
+          )}
+        </div>
+
+        {/* ---------- SAY THE LIST OUT LOUD ----------
+            For counting a shelf with both hands full, which is when a list actually
+            gets made. The words go into the same box, through the same reader, onto
+            the same checking screen — nothing is saved by talking. */}
+        <div className="mb-4 border border-dashed border-[#DEE3E9] rounded-md p-3 bg-[#FFFFFF]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => { setMicErr(""); if (hearing) mic().stop(); else mic().start(); }}
+              disabled={!micOk}
+              className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wide rounded-md px-3 py-2 disabled:opacity-50 ${
+                hearing ? "bg-[#DC3B2E] text-[#F3F5F8]" : "bg-[#15926A] text-[#F3F5F8]"
+              }`}
+            >
+              {!micOk ? <MicOff size={14} /> : hearing ? <Square size={14} /> : <Mic size={14} />}
+              {hearing ? "Stop listening" : "Say the list out loud"}
+            </button>
+            {hearing ? (
+              <span className="text-[11px] font-semibold text-[#15926A] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#DC3B2E] animate-pulse" />
+                Listening. One part, then a small pause.
+              </span>
+            ) : (
+              <span className="text-[11px] text-[#5A6472]">
+                {micOk
+                  ? "One part, then a small pause — the pause starts the next line."
+                  : "This browser cannot listen. Use Chrome or Safari, or type the list."}
+              </span>
+            )}
+            {spoken > 0 && (
+              <span className="text-[11px] font-semibold text-[#15926A]">
+                {spoken} line{spoken !== 1 ? "s" : ""} written down
+              </span>
+            )}
+          </div>
+
+          {/* What it is hearing right now, so nobody talks to a microphone that
+              stopped listening two parts ago. */}
+          {hearing && (
+            <div className="mt-2 text-xs text-[#1B2430] bg-[#EEF2F6] border border-[#DEE3E9] rounded p-2 min-h-[2rem] italic">
+              {heard || "Go ahead…"}
+            </div>
+          )}
+
+          <div className="text-[11px] text-[#5A6472] mt-2 leading-relaxed">
+            Say it the way you would say it to somebody:{" "}
+            <span className="font-mono text-[#1B2430]">
+              left hand side headlight Toyota Premio twenty sixteen at eight thousand five hundred
+            </span>
+            . Years said as <span className="font-mono">twenty sixteen</span>, prices as{" "}
+            <span className="font-mono">at eight thousand five hundred</span>, how many as{" "}
+            <span className="font-mono">times two</span>. Say{" "}
+            <span className="font-mono">these are headlights</span> once to start a section, and{" "}
+            <span className="font-mono">next item</span> if you run two parts together without a
+            pause. Every line appears below to be read and corrected before anything is saved.
+            {" "}The listening is your browser's own — the same thing the keyboard's microphone key
+            uses. This shop sends no recording anywhere.
+          </div>
+
+          {micErr && (
+            <div className="mt-2 text-xs text-[#DC3B2E] bg-[#FBEAE8] border border-[#DC3B2E] rounded p-2 flex items-start gap-2">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>{micErr}</span>
             </div>
           )}
         </div>
