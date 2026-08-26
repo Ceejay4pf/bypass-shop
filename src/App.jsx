@@ -5,7 +5,7 @@ import {
   Menu, Check, AlertTriangle, Clock, Zap, History, Loader2, Wifi, ArrowLeft,
   FileText, HelpCircle, Pencil, Printer, UserCheck, ShieldCheck, MessageCircle,
   Receipt, Wallet, ArrowRightLeft, ListPlus, Sun, Moon, Scale, ClipboardList,
-  Columns2, X,
+  Columns2, X, DollarSign,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
@@ -30,6 +30,7 @@ import {
 import {
   DashboardTab, SearchTab, InventoryTab, AddItemTab, AddStockTab, BulkAddTab,
   SellTab, NotifyTab, ReportsTab, SettingsTab, QuotationTab, EditPartsTab,
+  PricesTab,
   LowStockTab, PrintStockTab, ApprovalsTab, MyPermissionsTab, StaffFeedTab,
   ReceiptTab, CreditAccountsTab, TransfersTab, CustomerOrdersTab,
 } from "./tabs.jsx";
@@ -48,6 +49,9 @@ const NAV = [
   { id: "add", label: "Add New Item", icon: Plus, cap: "additem" },
   { id: "bulk", label: "Add a List of Parts", icon: ListPlus, cap: "additem" },
   { id: "edit", label: "Edit Parts", icon: Pencil, cap: "edit" },
+  /* Under Edit Parts because it needs the same permission and does the same job,
+     a shelf at a time instead of a part at a time. */
+  { id: "prices", label: "Prices", icon: DollarSign, cap: "edit" },
   { id: "stock", label: "Add New Stock", icon: PackagePlus },
   { id: "sell", label: "Sell Item", icon: ShoppingCart },
   /* What came in off the public parts list. Above Quotation and Receipt
@@ -833,6 +837,15 @@ function BypassShop({ session, shop }) {
           canEdit={can("edit")}
           onChanged={refreshAfterCommand}
           onGo={assistantGo}
+        />
+      )}
+      {id === "prices" && can("edit") && (
+        <PricesTab
+          items={items}
+          categories={CATEGORIES}
+          user={user}
+          canEdit={can("edit")}
+          onChanged={refreshAfterCommand}
         />
       )}
       {id === "edit" && can("edit") && (

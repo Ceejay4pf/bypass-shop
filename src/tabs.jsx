@@ -41,6 +41,12 @@ import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { currentShopSlug } from "./lib/shopScope.js";
 import { publicLink } from "./lib/publicRoute.js";
+/* Which parts share a shelf, and what typing one price into that shelf would
+   actually overwrite. Pure and node-testable on purpose — see the note at the top
+   of src/lib/pricing.js. */
+import {
+  priceGroups, findGroups, planPrices, priceProgress, readPrice, badPrice,
+} from "./lib/pricing.js";
 import { setupFor } from "./lib/setupNeeded.js";
 import { InstallCard } from "./InstallApp.jsx";
 import SetupNotice from "./SetupNotice.jsx";
@@ -10541,6 +10547,367 @@ function PastQuotes({ past, onMakeReceipt }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ======================= PRICES ACROSS THE SHELF =======================
+
+   Nearly six hundred parts in this shop have no price on them. That is not a
+   data-entry backlog, it is the reason a quotation is typed from memory and the
+   reason the public parts list says "ask for the price" on almost every line.
+
+   Fixing them one at a time is six hundred trips through Edit Parts, which is why
+   it has never been done. So this screen prices the way a shop prices: by the
+   group. "Premio headlights are twelve" is one number typed once, and it lands on
+   every Premio headlight of that condition.
+
+   NOTHING SAVES UNTIL IT HAS BEEN SHOWN BACK. Typing fills in a plan; the plan
+   says exactly which parts change and from what to what; only then is there a Save
+   button. A price nobody meant to change is not discovered until a customer has
+   been quoted from it, and by then the paper is in their hand.
+
+   The arithmetic lives in src/lib/pricing.js on purpose — "what is about to be
+   overwritten" is a question that should be answerable by reading, and testable
+   without a database.
+*/
+export function PricesTab({ items = [], categories = [], user, canEdit = false, onChanged }) {
+  const [query, setQuery] = useState("");
+  const [typed, setTyped] = useState({});          // group key -> what is in the box
+  /* The safety catch, on by default. Off means "reprice the whole group", which is
+     a real thing a shop does and so has to be possible — but it should be a
+     decision somebody makes, not the state they find the screen in. */
+  const [onlyBlank, setOnlyBlank] = useState(true);
+  const [hideDone, setHideDone] = useState(true);   // shelves with nothing missing
+  const [step, setStep] = useState("edit");        // edit | review
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(null);
+  const [err, setErr] = useState("");
+
+  const groups = useMemo(() => priceGroups(items, categories), [items, categories]);
+  const progress = useMemo(() => priceProgress(items), [items]);
+  const plan = useMemo(() => planPrices({ groups, typed, onlyBlank }), [groups, typed, onlyBlank]);
+
+  const shown = useMemo(() => {
+    const found = findGroups(groups, query);
+    return hideDone ? found.filter((g) => g.blank > 0) : found;
+  }, [groups, query, hideDone]);
+
+  const money = (n) => Number(n || 0).toLocaleString();
+  const set = (key, v) => setTyped((prev) => ({ ...prev, [key]: v }));
+
+  const save = async () => {
+    if (saving || !plan.count) return;
+    setSaving(true);
+    setErr("");
+    try {
+      const res = await api.setPricesBulk(plan.changes, user);
+      setDone(res);
+      /* Cleared only after the save came back. Clearing on the way in would leave
+         somebody who lost the network with an empty screen and no idea which
+         numbers they had typed. */
+      setTyped({});
+      setStep("edit");
+      if (onChanged) onChanged();
+    } catch (e) {
+      setErr(e.message || "Those prices could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* ---------- what happened ---------- */
+  if (done) {
+    return (
+      <div className="bp-fade-up">
+        <SectionTitle eyebrow="Prices" title="Prices Saved" />
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-5">
+          <div className="flex items-center gap-2 text-[#15926A] font-bold">
+            <CheckCircle2 size={18} />
+            {done.done.length} part{done.done.length !== 1 ? "s" : ""} priced
+          </div>
+          <p className="text-xs text-[#5A6472] mt-1">
+            Every one of them has a line in the ledger saying what it was, what it became
+            and who did it.
+          </p>
+          {done.failed.length > 0 && (
+            <div className="mt-4 bg-[#FBEAE8] border border-[#DC3B2E] rounded-md p-3">
+              <div className="text-[#DC3B2E] text-sm font-bold flex items-center gap-2">
+                <AlertTriangle size={15} /> {done.failed.length} could not be saved
+              </div>
+              <ul className="mt-2 space-y-1">
+                {done.failed.map((f) => (
+                  <li key={f.code} className="text-xs text-[#DC3B2E]">
+                    <span className="font-mono font-bold">{f.code}</span> — {f.message}
+                  </li>
+                ))}
+              </ul>
+              {/* Said plainly, because a half-finished sweep that reads as finished is
+                  how a shelf ends up with two different prices on it. */}
+              <p className="text-[11px] text-[#5A6472] mt-2">
+                These still have the price they had. Nothing else was undone — the ones
+                counted above really are saved.
+              </p>
+            </div>
+          )}
+          <button
+            onClick={() => setDone(null)}
+            className="mt-4 bg-[#2563EB] text-white font-semibold rounded-md px-4 py-2.5 text-sm"
+          >
+            Price some more
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- shown back before anything is written ---------- */
+  if (step === "review") {
+    return (
+      <div className="bp-fade-up">
+        <SectionTitle eyebrow="Prices" title="Check Before Saving" />
+        {err && (
+          <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3 flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {err}
+          </div>
+        )}
+
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-3">
+          <div className="text-sm font-bold uppercase tracking-wide text-[#1B2430]">
+            {plan.count} part{plan.count !== 1 ? "s" : ""} will change
+          </div>
+          <ul className="mt-2 space-y-1">
+            {plan.groups.map((g) => (
+              <li key={g.label} className="text-sm text-[#5A6472]">
+                <span className="font-semibold text-[#1B2430]">{g.label}</span> — {g.count} part
+                {g.count !== 1 ? "s" : ""} at{" "}
+                <span className="font-semibold text-[#2563EB]">KES {money(g.price)}</span>
+              </li>
+            ))}
+          </ul>
+          {plan.skippedPriced > 0 && (
+            <p className="text-xs text-[#5A6472] mt-3 bg-[#EEF2F6] rounded-md p-2.5">
+              {plan.skippedPriced} part{plan.skippedPriced !== 1 ? "s" : ""} in those groups
+              already {plan.skippedPriced !== 1 ? "have" : "has"} a price and{" "}
+              {plan.skippedPriced !== 1 ? "are" : "is"} being left alone. Go back and untick{" "}
+              <span className="font-semibold">only parts with no price</span> if you meant to
+              change {plan.skippedPriced !== 1 ? "them" : "it"} too.
+            </p>
+          )}
+        </div>
+
+        {/* Every single part, not a sample. The whole promise of this step is that
+            nothing is hidden, and "…and 240 more" is exactly where a wrong price
+            would hide. */}
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg divide-y divide-[#DEE3E9] max-h-80 overflow-y-auto mb-3">
+          {plan.changes.map((c) => (
+            <div key={c.code} className="flex items-center gap-2 px-3 py-2 text-xs">
+              <span className="font-mono font-bold text-[#1B2430] shrink-0">{c.code}</span>
+              <span className="text-[#5A6472] truncate flex-1">{c.name}</span>
+              <span className="text-[#5A6472] shrink-0">
+                {c.from > 0 ? `KES ${money(c.from)}` : "no price"}
+              </span>
+              <ChevronRight size={12} className="text-[#5A6472] shrink-0" />
+              <span className="font-bold text-[#2563EB] shrink-0">KES {money(c.to)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => setStep("edit")}
+            className="flex-1 border border-[#DEE3E9] text-[#5A6472] font-semibold rounded-md py-2.5 text-sm"
+          >
+            Back
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex-1 bg-[#2563EB] text-white font-bold rounded-md py-2.5 text-sm disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            <CheckCircle2 size={16} />
+            {saving ? "Saving…" : `Save ${plan.count} price${plan.count !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- typing ---------- */
+  return (
+    <div className="bp-fade-up pb-24">
+      <SectionTitle eyebrow="Prices" title="Prices Across the Shelf" />
+
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <StatCard icon={Boxes} label="Parts" value={progress.total} tone="blue" />
+        <StatCard icon={DollarSign} label="Priced" value={progress.priced} tone="green" />
+        <StatCard icon={AlertTriangle} label="No price" value={progress.blank} tone="red" />
+      </div>
+
+      {!canEdit && (
+        <div className="bg-[#FFF7E6] border border-[#E0A400] rounded-md p-3 text-xs text-[#5A6472] mb-3">
+          You can look, but saving a price needs the{" "}
+          <span className="font-semibold text-[#1B2430]">Edit Parts</span> permission. Ask an
+          admin — the My Permissions screen shows what you have.
+        </div>
+      )}
+
+      <div className="mb-3">
+        <SearchBox value={query} onChange={setQuery} placeholder="Find a section, make or model…" />
+      </div>
+
+      <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 mb-3 space-y-2.5">
+        <button onClick={() => setOnlyBlank((v) => !v)} className="flex items-start gap-2 text-left w-full">
+          {onlyBlank ? (
+            <CheckSquare size={16} className="text-[#2563EB] mt-0.5 shrink-0" />
+          ) : (
+            <Square size={16} className="text-[#5A6472] mt-0.5 shrink-0" />
+          )}
+          <span className="text-xs">
+            <span className="font-bold uppercase tracking-wide text-[#1B2430]">
+              Only parts with no price
+            </span>
+            <span className="block text-[#5A6472] mt-0.5">
+              {onlyBlank
+                ? "A price somebody has already set is left exactly as it is."
+                : "Every part in the group is overwritten, including ones already priced."}
+            </span>
+          </span>
+        </button>
+        <button onClick={() => setHideDone((v) => !v)} className="flex items-start gap-2 text-left w-full">
+          {hideDone ? (
+            <CheckSquare size={16} className="text-[#2563EB] mt-0.5 shrink-0" />
+          ) : (
+            <Square size={16} className="text-[#5A6472] mt-0.5 shrink-0" />
+          )}
+          <span className="text-xs">
+            <span className="font-bold uppercase tracking-wide text-[#1B2430]">
+              Hide groups that are fully priced
+            </span>
+            <span className="block text-[#5A6472] mt-0.5">
+              Leaves only the shelves with work still on them.
+            </span>
+          </span>
+        </button>
+      </div>
+
+      {shown.length === 0 ? (
+        <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-8 text-center">
+          <DollarSign size={28} className="text-[#2563EB] mx-auto mb-2" />
+          <div className="font-semibold text-[#1B2430]">
+            {progress.blank === 0
+              ? "Every part has a price"
+              : hideDone && !query
+              ? "Nothing left with a blank price"
+              : "Nothing matches that"}
+          </div>
+          <div className="text-xs text-[#5A6472] mt-1">
+            {progress.blank === 0
+              ? "There is nothing left to fill in."
+              : hideDone && !query
+              ? "Untick the second box above to see the shelves that are already done."
+              : "Try a make, a model, or the name of a section."}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {shown.map((g) => {
+            const bad = badPrice(typed[g.key]);
+            const willChange = onlyBlank ? g.blank : g.count;
+            return (
+              <div key={g.key} className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3">
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-bold text-[#1B2430]">{g.label}</div>
+                    <div className="text-[11px] text-[#5A6472] mt-0.5">
+                      {[g.condition, g.years, `${g.count} part${g.count !== 1 ? "s" : ""}`]
+                        .filter(Boolean)
+                        .join("  ·  ")}
+                      {g.blank > 0 && (
+                        <span className="text-[#DC3B2E] font-semibold">
+                          {"  ·  "}
+                          {g.blank} with no price
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] mt-1">
+                      {g.priced === 0 ? (
+                        <span className="text-[#5A6472]">Nothing here is priced yet</span>
+                      ) : g.min === g.max ? (
+                        <span className="text-[#5A6472]">
+                          Priced at{" "}
+                          <span className="font-semibold text-[#1B2430]">KES {money(g.min)}</span>
+                        </span>
+                      ) : (
+                        /* Said loudly, because one number for this group is probably
+                           wrong and this line is the only warning there will be. */
+                        <span className="text-[#E0A400] font-semibold">
+                          Already priced between KES {money(g.min)} and KES {money(g.max)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="shrink-0 w-28">
+                    <input
+                      value={typed[g.key] || ""}
+                      onChange={(e) => set(g.key, e.target.value)}
+                      inputMode="numeric"
+                      placeholder="Price"
+                      disabled={!canEdit}
+                      className={`w-full bg-[#FFFFFF] border rounded-md px-2 py-2 text-sm text-right text-[#1B2430] outline-none disabled:bg-[#EEF2F6] ${
+                        bad ? "border-[#DC3B2E]" : "border-[#DEE3E9] focus:border-[#2563EB]"
+                      }`}
+                    />
+                    {/* A refused box that looks the same as an empty one is a price
+                        somebody believes they have set. */}
+                    {bad ? (
+                      <div className="text-[10px] text-[#DC3B2E] mt-1 text-right font-semibold">
+                        {/* Zero is called out by name because it is the one wrong entry
+                            somebody types on purpose. In this app a price of 0 already
+                            means "ask at the counter", so it is left blank rather than
+                            written — and that has to be said, not assumed. */}
+                        {/^0+(\.0+)?$/.test(String(typed[g.key]).trim())
+                          ? "Leave blank instead"
+                          : "Not a price"}
+                      </div>
+                    ) : readPrice(typed[g.key]) > 0 ? (
+                      <div className="text-[10px] text-[#2563EB] mt-1 text-right">
+                        {willChange} part{willChange !== 1 ? "s" : ""}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* The plan stays in view once there is one. Off the bottom of a six-hundred
+          part list is the same as not having a button at all. */}
+      {plan.count > 0 && canEdit && (
+        <div className="fixed bottom-0 left-0 right-0 lg:left-64 bg-[#FFFFFF] border-t border-[#DEE3E9] p-3 flex items-center gap-3 z-20">
+          <div className="text-xs min-w-0 flex-1">
+            <span className="font-bold text-[#1B2430]">
+              {plan.count} part{plan.count !== 1 ? "s" : ""}
+            </span>
+            <span className="text-[#5A6472]">
+              {" "}
+              in {plan.groups.length} group{plan.groups.length !== 1 ? "s" : ""} · nothing saved
+              yet
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setErr("");
+              setStep("review");
+            }}
+            className="bg-[#2563EB] text-white font-bold rounded-md px-4 py-2.5 text-sm shrink-0 flex items-center gap-1"
+          >
+            Check them <ChevronRight size={15} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

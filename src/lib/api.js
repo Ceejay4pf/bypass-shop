@@ -465,6 +465,52 @@ export async function addStockBulk(codes, amount, byName) {
   return { done, failed };
 }
 
+/* ---- PUTTING A PRICE ON THE SHELF ----
+
+   One part, price only. Written as its own update rather than through updateItem so
+   the request carries the single column it means to change: updateItem builds a full
+   row and relies on the undefined fields being dropped on the way out, which is true
+   and is not something a price sweep over six hundred parts should depend on.
+
+   The ledger line is the point of doing it this way at all. A price that changed and
+   cannot be traced to who changed it and when is the same argument every month, so
+   `from -> to` goes in the reason text and stays there. */
+export async function setPrice(code, price, byName, { batch = false, from = null } = {}) {
+  const to = Math.round(Number(price) || 0);
+  if (!(to > 0)) throw new Error("A price has to be more than zero.");
+  const { data, error } = await shopFrom("inventory")
+    .update({ price: to })
+    .eq("code", code)
+    .select()
+    .single();
+  if (error) throw error;
+  const was = from === null ? "" : `${Number(from) || 0} → `;
+  await addMovement({ code, type: "adjust", by_name: byName, reason: `Price ${was}${to}` });
+  if (!batch) await addNotification({ type: "adjust", code, name: data?.name || "", by_name: byName });
+  return rowToItem(data);
+}
+
+/* A whole group, or several. `changes` is what planPrices() in lib/pricing.js worked
+   out: [{ code, name, from, to }]. Same shape as deleteItemsBulk and addStockBulk —
+   every part gets its own ledger line, the feed gets one entry, and a part that fails
+   is named rather than silently missing from the count. */
+export async function setPricesBulk(changes = [], byName) {
+  const done = [];
+  const failed = [];
+  for (const c of changes) {
+    try {
+      await setPrice(c.code, c.to, byName, { batch: true, from: c.from });
+      done.push({ code: c.code, name: c.name || "", qty: 0, from: c.from, to: c.to });
+    } catch (e) {
+      failed.push({ code: c.code, message: e.message || String(e) });
+    }
+  }
+  if (done.length) {
+    await addBatchNotification({ type: "adjust", by_name: byName, parts: done });
+  }
+  return { done, failed };
+}
+
 /* The single summary entry that stands in for a whole batch.
    `parts` is [{code, name, qty}] - everything the batch touched. */
 export async function addBatchNotification({ type, by_name, parts, extra = {} }) {
