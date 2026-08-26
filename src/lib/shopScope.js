@@ -38,7 +38,15 @@
 
    The three catalogue views are absent because they are read by strangers with no
    session at all, so they carry `shop_slug` and are filtered by slug instead —
-   see fetchCatalogue in api.js. */
+   see fetchCatalogue in api.js.
+
+   `messages` was here and has been taken out ON PURPOSE, by the owner's decision:
+   the staff feed is ONE room both shops share, so somebody at one counter can ask
+   the other whether they have a part. It is the one table where that is true, and
+   it is worth being blunt about the cost — there is no private feed left. A note
+   typed at Jaspare is read at Sure Auto Spares and the other way round. Each
+   message still RECORDS the shop it was sent from (see sendMessage in api.js) so
+   the room says who is speaking and from where; only the reading is shared. */
 export const SCOPED_TABLES = [
   "inventory",
   "sales",
@@ -52,7 +60,6 @@ export const SCOPED_TABLES = [
   "expenses",
   "expense_categories",
   "finance_opening",
-  "messages",
   "part_categories",
   "transfers",
   "staff_contacts",

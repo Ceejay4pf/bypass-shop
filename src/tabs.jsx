@@ -7,7 +7,7 @@ import {
   Search, Plus, PackagePlus, ShoppingCart, Bell, Boxes, X, Check,
   AlertTriangle, TrendingUp, DollarSign, Package, Layers, ImagePlus,
   Trash2, Download, Upload, Settings as SettingsIcon, MapPin, Phone, FileText,
-  ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint,
+  ChevronRight, ArrowLeft, AlertCircle, MessageCircle, CheckSquare, Square, Fingerprint, Users,
   UserCheck, UserX, Clock, ShieldCheck, Lock, Send, LogOut, Pencil, Printer, Receipt,
   Wallet, CreditCard, ArrowRightLeft, Building2, User, RotateCcw, Loader2,
   Wand2, Sun, Moon, Smartphone, CheckCircle2, Mail, ChevronDown,
@@ -6877,7 +6877,7 @@ export function StaffFeedTab({
 
   return (
     <div className="bp-fade-up flex flex-col" style={{ height: "calc(100vh - 8.5rem)" }}>
-      <SectionTitle eyebrow={`Everyone · ${SHOP_INFO.branch.name}`} title="Staff Feed" />
+      <SectionTitle eyebrow="Everyone, at both shops" title="Staff Feed" />
 
       {/* Two pills, not a menu. Which chat you are in has to be readable at a
           glance, and switching has to cost one tap — anything deeper and the
@@ -6900,6 +6900,18 @@ export function StaffFeedTab({
           </button>
         ))}
       </div>
+
+      {/* One room, said plainly. Staff at BOTH shops read everything typed here,
+          and the moment to know that is before typing rather than after. */}
+      {pane === "team" && (
+        <div className="flex items-start gap-2 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md px-3 py-2 text-[11px] text-[#5A6472] mb-3 shrink-0">
+          <Users size={13} className="mt-0.5 shrink-0 text-[#2563EB]" />
+          <span>
+            This is one room for <span className="font-semibold text-[#1B2430]">both shops</span>.
+            Everyone at {SHOP_INFO.branch.name} and at the other shop reads what you send.
+          </span>
+        </div>
+      )}
 
       {/* The feed's own error, which has nothing to do with the assistant — it
           would read as the assistant being broken if it stayed on screen while
@@ -6935,7 +6947,7 @@ export function StaffFeedTab({
           <div className="h-full flex flex-col items-center justify-center text-center text-[#5A6472] px-6">
             <MessageCircle size={30} className="text-[#2563EB] mb-2" />
             <div className="font-semibold text-[#1B2430]">No messages yet</div>
-            <div className="text-xs mt-1">Say hello, ask a price, or share an enquiry with the team.</div>
+            <div className="text-xs mt-1">Say hello, ask a price, or ask the other shop whether they have a part.</div>
           </div>
         ) : (
           messages.map((m, i) => {
@@ -6962,6 +6974,12 @@ export function StaffFeedTab({
                   <div className={`max-w-[78%] ${mine ? "items-end text-right" : ""} flex flex-col`}>
                     <div className={`text-[11px] text-[#5A6472] mb-0.5 ${mine ? "text-right" : ""}`}>
                       <span className="font-semibold text-[#1B2430]">{mine ? "You" : m.author}</span>
+                      {m.shopName && m.shopName !== SHOP_INFO.branch.name && (
+                        <>
+                          <span className="mx-1">·</span>
+                          <span className="font-semibold text-[#2563EB]">{m.shopName}</span>
+                        </>
+                      )}
                       <span className="mx-1">·</span>{clock(m.ts)}
                     </div>
                     <div
@@ -6997,7 +7015,7 @@ export function StaffFeedTab({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
           rows={1}
-          placeholder="Message the team…  (Enter to send)"
+          placeholder="Message both shops…  (Enter to send)"
           className="flex-1 resize-none bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] max-h-32"
         />
         <button

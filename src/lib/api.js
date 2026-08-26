@@ -12,6 +12,7 @@ import { supabase, shopFrom, createIsolatedClient } from "./supabase.js";
 import {
   setShop,
   currentShop,
+  currentShopId,
   setScopeReady,
   currentShopSlug,
   isNotMigrated,
@@ -1372,12 +1373,20 @@ export function rowToMessage(r) {
     author: r.author || "Staff",
     body: r.body || "",
     ts: r.created_at ? new Date(r.created_at).getTime() : 0,
+    /* Which shop it was sent from. The NAME is stored on the row rather than
+       joined, because a shop can be renamed — and it was, the week this shipped —
+       and a message should still say the name that was over the door when somebody
+       typed it. shopId is kept as the fact the delete rule is checked against. */
+    shopId: r.shop_id || "",
+    shopName: r.shop_name || "",
   };
 }
 
 // Load recent messages, oldest first (so the newest sits at the bottom).
 export async function fetchMessages(limit = 200) {
-  const { data, error } = await shopFrom("messages")
+  /* supabase.from, not shopFrom, and that is the whole feature: this is the one
+     shop-stamped table read WITHOUT narrowing to the shop on screen. */
+  const { data, error } = await supabase.from("messages")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -1388,8 +1397,18 @@ export async function fetchMessages(limit = 200) {
 export async function sendMessage({ userId, author, body }) {
   const text = String(body || "").trim();
   if (!text) return;
-  const { data, error } = await shopFrom("messages")
-    .insert({ user_id: userId, author, body: text })
+  /* Stamped by hand, because messages is no longer a scoped table and so nothing
+     stamps it automatically any more. Both halves matter: shop_id is what the
+     database checks the sender against, and shop_name is what the room shows. A
+     message that cannot say where it came from is a message in a shared room with
+     no way to tell which shop is being asked. */
+  const shop = currentShop();
+  const { data, error } = await supabase.from("messages")
+    .insert({
+      user_id: userId, author, body: text,
+      shop_id: currentShopId() || null,
+      shop_name: shop.name || null,
+    })
     .select()
     .single();
   if (error) throw error;
@@ -1397,7 +1416,7 @@ export async function sendMessage({ userId, author, body }) {
 }
 
 export async function deleteMessage(id) {
-  const { error } = await shopFrom("messages").delete().eq("id", id);
+  const { error } = await supabase.from("messages").delete().eq("id", id);
   if (error) throw error;
 }
 
