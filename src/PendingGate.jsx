@@ -1,3 +1,4 @@
+import { shopName, SHOP_INFO } from "./lib/shopInfo.js";
 import React from "react";
 import { Clock, LogOut, ShieldCheck } from "lucide-react";
 
@@ -15,8 +16,8 @@ export default function PendingGate({ user, onSignOut }) {
           Waiting for approval
         </h1>
         <p className="text-[#5A6472] text-sm mt-2 leading-relaxed">
-          {user ? `Hi ${user}, your` : "Your"} account has been created. An admin at Jaspare Auto
-          must approve it before you can use Bypass Shop.
+          {user ? `Hi ${user}, your` : "Your"} account has been created. An admin at {SHOP_INFO.main.name}
+          must approve it before you can use {shopName()}.
         </p>
 
         <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mt-5 text-left flex items-start gap-3">

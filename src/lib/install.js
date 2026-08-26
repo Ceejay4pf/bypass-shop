@@ -31,7 +31,7 @@ export const DISMISS_KEY = "bp_install_hidden";
 export const IOS_STEPS = [
   "Tap the Share button — the square with an arrow pointing up, at the bottom of Safari.",
   "Scroll down the list and tap \"Add to Home Screen\".",
-  "Tap \"Add\". The Bypass Shop icon appears with your other apps.",
+  "Tap \"Add\". The shop icon appears with your other apps.",
 ];
 
 /* Which of the four situations we are in.

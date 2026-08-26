@@ -67,8 +67,24 @@ export const isScopedTable = (table) => SCOPED_TABLES.includes(String(table || "
 let active = { slug: "", id: "", name: "" };
 let ready = false;
 
-export function setShop({ slug = "", id = "", name = "" } = {}) {
-  active = { slug: String(slug || ""), id: String(id || ""), name: String(name || "") };
+/* The whole shops row is kept, not just the three fields the query layer needs.
+   The extra columns are the letterhead — name, address, phone, KRA PIN — which
+   shopInfo.js reads to head a receipt. Keeping them here rather than in a second
+   module means there is one answer to "which shop is this", and the name printed on
+   the document cannot drift from the shop the rows were read from.
+
+   Written field by field rather than by spreading the argument, so a stray column
+   from a future migration cannot quietly overwrite `id` or `slug`. */
+export function setShop({
+  slug = "", id = "", name = "",
+  tagline = "", address = "", po_box = "", phone = "", phone_display = "",
+  phone2 = "", email = "", kra_pin = "", footer = "", makes = "", parts_dealt = "",
+} = {}) {
+  active = {
+    slug: String(slug || ""), id: String(id || ""), name: String(name || ""),
+    tagline, address, po_box, phone, phone_display, phone2,
+    email, kra_pin, footer, makes, parts_dealt,
+  };
   return active;
 }
 

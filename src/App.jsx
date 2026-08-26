@@ -8,7 +8,7 @@ import {
   Columns2, X,
 } from "lucide-react";
 import { useTheme } from "./lib/theme.js";
-import { SHOP_INFO } from "./lib/shopInfo.js";
+import { SHOP_INFO, shopName } from "./lib/shopInfo.js";
 import LoginGate from "./LoginGate.jsx";
 import EntryDoors, { forgetEntry } from "./EntryDoors.jsx";
 import Welcome from "./Welcome.jsx";
@@ -973,7 +973,7 @@ function BypassShop({ session, shop }) {
           <div className="text-[#5A6472] text-[10px] font-bold tracking-[0.25em] uppercase">{shopName}</div>
           <div className="flex items-center gap-2 mt-0.5">
             <Boxes size={20} className="text-[#2563EB]" />
-            <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">Bypass Shop</span>
+            <span className="text-lg font-extrabold uppercase tracking-wide bg-gradient-to-r from-[#2563EB] to-[#15926A] bg-clip-text text-transparent">{shopName()}</span>
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">

@@ -1,3 +1,4 @@
+import { shopName, SHOP_INFO } from "./lib/shopInfo.js";
 import React from "react";
 import {
   Boxes, X, PackagePlus, ShoppingCart, Search, FileText, Bell,
@@ -15,7 +16,7 @@ const STEPS = [
   { icon: PackagePlus, title: "Receive new stock", body: "Add New Stock adds quantity to a part when it arrives from a supplier." },
   { icon: ShoppingCart, title: "Sell a part", body: "Sell Item records who bought it, the price, and whether it's paid. Stock drops automatically." },
   { icon: FileText, title: "Make a quotation", body: "Quotation lets you list parts with prices you type — the system adds up the total for the customer." },
-  { icon: Bell, title: "Watch notifications", body: "Every sale, restock and low-stock alert is logged and shared with Jaspare Auto — Main Shop." },
+  { icon: Bell, title: "Watch notifications", body: "Every sale, restock and low-stock alert is logged and shared with the main shop." },
   { icon: History, title: "Nothing is lost", body: "The Ledger shows the full history of any part: every add, sale and adjustment, with who did it." },
 ];
 
@@ -33,10 +34,10 @@ export default function Welcome({ user, onClose }) {
             <X size={20} />
           </button>
           <div className="text-[#5A6472] text-[11px] font-bold tracking-[0.25em] uppercase">
-            Jaspare Auto · Main Shop
+            {SHOP_INFO.main.name}
           </div>
           <h1 className="text-[#1B2430] text-2xl font-extrabold uppercase tracking-wide flex items-center justify-center gap-2 mt-1">
-            <Boxes size={24} className="text-[#2563EB]" /> Bypass Shop
+            <Boxes size={24} className="text-[#2563EB]" /> {shopName()}
           </h1>
           <p className="text-[#5A6472] text-sm mt-2">
             {user ? <>Welcome, <span className="font-semibold text-[#1B2430]">{user}</span>! </> : "Welcome! "}
@@ -87,7 +88,7 @@ export default function Welcome({ user, onClose }) {
             onClick={onClose}
             className="w-full mt-5 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
           >
-            <Zap size={16} /> Start using Bypass Shop <ArrowRight size={16} />
+            <Zap size={16} /> Start using {shopName()} <ArrowRight size={16} />
           </button>
         </div>
       </div>

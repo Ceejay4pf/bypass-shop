@@ -1,3 +1,4 @@
+import { shopName } from "./shopInfo.js";
 /* ---------------------------------------------------------
    Biometric app-lock for the web / PWA (soft lock).
 
@@ -67,7 +68,7 @@ export async function enableLock(email = "staff") {
   const cred = await navigator.credentials.create({
     publicKey: {
       challenge: randomBytes(32),
-      rp: { name: "Bypass Shop", id: location.hostname },
+      rp: { name: shopName(), id: location.hostname },
       user: { id: randomBytes(16), name: email, displayName: email },
       pubKeyCredParams: [
         { type: "public-key", alg: -7 },   // ES256

@@ -51,13 +51,14 @@ export const KNOWN_SHOPS = [
   },
   {
     slug: "surefit-autoparts",
-    name: "Surefit Autoparts Ltd",
-    phone: "+254780643828",
-    /* Deliberately empty. The one thing the app has never known about this
-       business is where it is — `location: ""` in the old hardcoded list — and a
-       guessed address on a public page is a customer sent to the wrong street. */
-    tagline: "",
-    ready: false,
+    /* The name on the shop's own invoice pad, which is the name its documents must
+       carry. The slug still says "surefit" and deliberately stays that way: it is a
+       door number, the links have already been shared, and renaming it would break
+       them for nothing. */
+    name: "Sure Auto Spares Ltd",
+    phone: "+254791285634",
+    tagline: "Industrial Area, Dunga Road — next to Impala",
+    ready: true,
   },
 ];
 
@@ -205,10 +206,16 @@ export function mergeShops(rows) {
     .map((r) => {
       const known = findShop(KNOWN_SHOPS, r.slug);
       return {
+        /* The letterhead columns carried through as they came, so shopInfo.js can
+           head a receipt from them. Spread first, then the fields with a fallback,
+           so a null column in the database cannot beat a value the build knows. */
+        ...r,
         slug: clean(r.slug),
         name: r.name || known?.name || r.slug,
         phone: r.phone || known?.phone || "",
-        tagline: known?.tagline || "",
+        /* The database's own words win here — the address is the thing somebody
+           should be able to correct without waiting for a deploy. */
+        tagline: r.tagline || known?.tagline || "",
         ready: true,
         fromDb: true,
       };

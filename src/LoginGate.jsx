@@ -8,6 +8,7 @@ import {
   otpLoginAvailable, startOtpLogin, finishOtpLogin, trustMyDevice,
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel } from "./lib/device.js";
+import { shopName, SHOP_INFO } from "./lib/shopInfo.js";
 import { ROLE_ACCOUNTS, defaultRolePassword, setRoleSession } from "./lib/roleAccounts.js";
 import { hardReload } from "./lib/hardReload.js";
 import { isConfigured } from "./lib/supabase.js";
@@ -52,7 +53,7 @@ export default function LoginGate({ onLeave, shop }) {
   /* Whose sign-in screen this is. One build serves more than one business now, and
      a Surefit storekeeper typing their password under "Jaspare Auto" has no way to
      know whether they are about to sign in to the right shop. */
-  const shopName = shop?.name || "Jaspare Auto · Main Shop";
+  const shopTitle = shop?.name || shopName();
   // Which login method: the 4 shared role logins, or a personal account.
   const [tab, setTab] = useState("role");      // role | own
   const [mode, setMode] = useState("signin"); // signin | signup
@@ -503,7 +504,7 @@ export default function LoginGate({ onLeave, shop }) {
 
           <div className="relative px-6 pt-6 pb-4 text-center">
             <div className="text-[#BFDBFE] text-[11px] font-bold tracking-[0.25em] uppercase">
-              {shopName}
+              {SHOP_INFO.branch.tagline || shopTitle}
             </div>
 
             {/* Spare-part emblem (gear + piston) */}
@@ -515,7 +516,7 @@ export default function LoginGate({ onLeave, shop }) {
               className="text-white text-3xl font-extrabold uppercase tracking-wide"
               style={{ textShadow: "0 2px 12px rgba(4,12,40,0.55)" }}
             >
-              Bypass Shop
+              {shopTitle}
             </h1>
             <p className="text-[#E6F6FF] text-xs mt-1">Branch Inventory Management System</p>
 

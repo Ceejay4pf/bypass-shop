@@ -90,7 +90,7 @@ export default class ErrorBoundary extends React.Component {
             Let's refresh the app
           </h1>
           <p style={{ fontSize: "0.85rem", color: C.dim, lineHeight: 1.5, margin: "0 0 1.25rem" }}>
-            This device was holding an old copy of Bypass Shop. Tap the button
+            This device was holding an old copy of the app. Tap the button
             below to clear it and load the latest version — your data is safe in
             the cloud.
           </p>

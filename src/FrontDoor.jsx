@@ -27,7 +27,7 @@ export default function FrontDoor({ onPick, shop, onChooseShop }) {
      buttons below lead into whichever shop the address named — so this line has to
      be that shop's name, not a constant. Getting it wrong sends a Surefit customer
      into Jaspare's parts list believing it is Surefit's shelf. */
-  const shopName = shop?.name || "Jaspare Auto · Main Shop";
+  const shopName = shop?.name || SHOP_INFO.branch.name;
   const shopTagline = shop?.tagline || SHOP_INFO.branch.tagline;
   /* The same show as the login board and the way in. Behind the two doors here
      because a customer who has just tapped a WhatsApp link has no idea what this
@@ -57,7 +57,7 @@ export default function FrontDoor({ onPick, shop, onChooseShop }) {
               className="text-white text-3xl font-extrabold uppercase tracking-wide mt-1.5"
               style={{ textShadow: "0 2px 12px rgba(4,12,40,0.55)" }}
             >
-              Bypass Shop
+              {shop?.name || SHOP_INFO.branch.name}
             </h1>
             {shopTagline ? (
               <p className="text-[#E6F6FF] text-xs mt-1.5">{shopTagline}</p>

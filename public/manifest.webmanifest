@@ -1,7 +1,7 @@
 {
-  "name": "Bypass Shop — Jaspare Auto",
-  "short_name": "Bypass Shop",
-  "description": "Branch inventory & sales for Jaspare Auto spare parts.",
+  "name": "Auto Spares — Shop System",
+  "short_name": "Auto Spares",
+  "description": "Inventory & sales for a spare-parts shop.",
   "start_url": "/?app=1",
   "scope": "/",
   "display": "standalone",

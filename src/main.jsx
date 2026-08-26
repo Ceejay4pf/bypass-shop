@@ -88,8 +88,12 @@ function Root() {
      deliberately no internal ids. Until then the slug is enough: it is what the
      customer page filters the catalogue by. */
   useEffect(() => {
-    setShop({ slug: route.slug || "", name: route.shop?.name || "" });
-  }, [route.slug, route.shop?.name]);
+    /* The whole shop row, not just the slug and name: the rest is the letterhead
+       that heads every receipt and quotation (see lib/shopInfo.js). Spread first so
+       slug always wins — route.slug is what the address bar says, and that is the
+       shop whose rows are about to be read. */
+    setShop({ ...(route.shop || {}), slug: route.slug || "", name: route.shop?.name || "" });
+  }, [route.slug, route.shop]);
 
   /* Moving between the views is a real navigation: the address changes, and the
      phone's back button and gesture walk back through it. Without pushState,

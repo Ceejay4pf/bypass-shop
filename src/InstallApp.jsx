@@ -1,3 +1,4 @@
+import { shopName } from "./lib/shopInfo.js";
 import React, { useEffect, useState, useCallback } from "react";
 import { Download, Share, Plus, Check, X, Smartphone } from "lucide-react";
 import {
@@ -147,7 +148,7 @@ export function InstallCard() {
 
   const go = async () => {
     const r = await install();
-    if (r === "accepted") setMsg("Installed. Look for the Bypass Shop icon with your other apps.");
+    if (r === "accepted") setMsg(`Installed. Look for the ${shopName()} icon with your other apps.`);
     else if (r === "dismissed") setMsg("No problem — nothing was installed. You can do it any time.");
     else setMsg("Your browser wouldn't offer it just now. Try Chrome's ⋮ menu → Install app.");
   };

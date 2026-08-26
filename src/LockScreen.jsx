@@ -1,3 +1,4 @@
+import { shopName } from "./lib/shopInfo.js";
 import React, { useEffect, useRef, useState } from "react";
 import { Fingerprint, Boxes, Loader2, AlertTriangle } from "lucide-react";
 import { unlock } from "./lib/appLock.js";
@@ -35,7 +36,7 @@ export default function LockScreen({ user, onUnlocked }) {
     <div className="fixed inset-0 z-[60] bg-[#F3F5F8] flex flex-col items-center justify-center p-6 text-center">
       <div className="flex items-center gap-2 mb-8">
         <Boxes size={26} className="text-[#2563EB]" />
-        <span className="text-xl font-extrabold uppercase tracking-wide text-[#1B2430]">Bypass Shop</span>
+        <span className="text-xl font-extrabold uppercase tracking-wide text-[#1B2430]">{shopName()}</span>
       </div>
 
       <button

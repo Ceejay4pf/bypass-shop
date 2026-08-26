@@ -97,7 +97,7 @@ export default function EntryDoors({ session }) {
               <Boxes size={38} className="text-white" />
             </div>
             <h1 className="text-white text-3xl sm:text-4xl font-extrabold uppercase tracking-wide mt-4">
-              Bypass Shop
+              {SHOP_INFO.branch.name}
             </h1>
             <p className="text-[#BFDBFE] text-xs tracking-[0.3em] uppercase mt-2">
               {SHOP_INFO.branch.name}

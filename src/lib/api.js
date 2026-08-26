@@ -11,11 +11,13 @@
 import { supabase, shopFrom, createIsolatedClient } from "./supabase.js";
 import {
   setShop,
+  currentShop,
   setScopeReady,
   currentShopSlug,
   isNotMigrated,
 } from "./shopScope.js";
 import { toLoginEmail } from "./auth.js";
+import { shopName } from "./shopInfo.js";
 
 /* ---------------------------------------------------------
    WHICH SHOPS EXIST, AND WHICH ONE THIS SCREEN IS SHOWING
@@ -35,9 +37,21 @@ import { toLoginEmail } from "./auth.js";
    two shops the app already knows about — see mergeShops in shopRoute.js. A picker
    that shows nothing because a table is missing is a shop with no front door. */
 export async function fetchShops() {
-  const ask = (view) => supabase.from(view).select("slug,name,phone").order("name");
-  let { data, error } = await ask("shop_directory");
-  if (error) ({ data, error } = await ask("shops"));
+  /* The letterhead columns come back with the name, because they head every receipt
+     the shop prints and one fetch is cheaper than two. Asked for by name rather than
+     with `*` so a column added later cannot silently change what the picker renders.
+
+     Three attempts, narrowing each time: the full letterhead view, then the three
+     columns the view had before step 08, then the table itself. A database that has
+     had only part of supabase/multishop/ pasted still gets a working shop picker —
+     it just heads its documents with the built-in wording until 08 is run. */
+  const FULL =
+    "slug,name,phone,tagline,address,po_box,phone_display,phone2,email,kra_pin,footer,makes,parts_dealt";
+  const ask = (view, cols) => supabase.from(view).select(cols).order("name");
+
+  let { data, error } = await ask("shop_directory", FULL);
+  if (error) ({ data, error } = await ask("shop_directory", "slug,name,phone"));
+  if (error) ({ data, error } = await ask("shops", "slug,name,phone"));
   if (error) return [];
   return (data || []).filter((r) => r && r.slug);
 }
@@ -76,7 +90,14 @@ export async function fetchMyShops() {
 
    Called after sign-in, and again whenever the shop in the address changes. */
 export async function activateShop({ slug = "", id = "", name = "" } = {}) {
-  setShop({ slug, id, name });
+  /* Merged over what is already there, not written fresh. This is called after
+     sign-in with the three facts a membership carries — slug, id, name — while the
+     letterhead (address, phone, KRA PIN) was loaded earlier from the shops row by
+     main.jsx. Replacing the whole record here would blank the heading on every
+     receipt printed after signing in, and only after signing in, which is the kind
+     of bug that gets found by a customer rather than by a test. */
+  const keep = currentShop();
+  setShop({ ...keep, slug, id, name: name || keep.name });
 
   if (!id) {
     setScopeReady(false);
@@ -299,7 +320,7 @@ export async function insertItem(item, byName, { batch = false } = {}) {
   await addMovement({ code: item.code, type: "new_item", qty: item.qty, by_name: byName, remaining: item.qty, supplier: item.supplier });
   if (!batch) {
     emailAdmin(
-      `Bypass Shop — new item added: ${item.code}`,
+      `${shopName()} — new item added: ${item.code}`,
       `A new item was added to inventory:<br><br><b>${item.code}</b> — ${item.name}<br>Quantity: ${item.qty}`,
       byName
     );
@@ -478,7 +499,7 @@ export function emailBatch(type, parts, byName) {
     )
     .join("");
   emailAdmin(
-    `Bypass Shop — ${parts.length} part${parts.length !== 1 ? "s" : ""} ${what}`,
+    `${shopName()} — ${parts.length} part${parts.length !== 1 ? "s" : ""} ${what}`,
     `<b>${parts.length} part${parts.length !== 1 ? "s" : ""}</b> ${what} in one go` +
       (units ? `, ${units} unit${units !== 1 ? "s" : ""} in total` : "") +
       `.<br><br><table style="border-collapse:collapse;font-size:13px">` +
@@ -546,7 +567,7 @@ export async function sellItem({ code, qty, buyer, phone, paid, total, method = 
   // failing the call now would tell staff the sale didn't happen when it did.
   if (saleErr) console.error("sale insert failed", saleErr);
   emailAdmin(
-    `Bypass Shop — stock sold: ${code}`,
+    `${shopName()} — stock sold: ${code}`,
     `Stock was deducted from a sale:<br><br><b>${code}</b> — ${name}<br>Sold: ${qty} (remaining: ${newQty})<br>` +
       `Customer: ${buyer || "—"}${phone ? " · " + phone : ""}<br>Total: KES ${Number(total || 0).toLocaleString()} — ${paid ? "Paid" : "Pending"}`,
     byName

@@ -39,6 +39,7 @@ import {
 } from "./lib/auth.js";
 import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
+import { currentShopSlug } from "./lib/shopScope.js";
 import { publicLink } from "./lib/publicRoute.js";
 import { setupFor } from "./lib/setupNeeded.js";
 import { InstallCard } from "./InstallApp.jsx";
@@ -1301,7 +1302,7 @@ export function LowStockTab({ items, categories, onOpenLedger }) {
 </style></head>
 <body><div class="wrap">
   <div class="head">
-    <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
+    <div><div class="sub">${escapeHtml(SHOP_INFO.eyebrow)}</div><div class="brand">${escapeHtml(SHOP_INFO.branch.name)}</div></div>
     <div class="doc"><div class="t">Reorder List</div><div class="m">${today}</div><div class="m">${lowStock.length} part(s) to buy</div></div>
   </div>
   <div style="font-size:12px;color:#5A6472">${escapeHtml(scope)} · ${escapeHtml(urgencyLabel)}${query.trim() ? ` · matching “${escapeHtml(query.trim())}”` : ""}</div>
@@ -1695,7 +1696,7 @@ export function PrintStockTab({ items, categories }) {
        saying different things. */
     const stamp = (opts = {}) =>
       stampSvg({
-        shop: "JASPARE AUTO · BYPASS",
+        shop: SHOP_INFO.branch.name.toUpperCase(),
         line: "BRANCH STOCK",
         date: today.toUpperCase(),
         ...opts,
@@ -1741,12 +1742,12 @@ export function PrintStockTab({ items, categories }) {
 ${stampOn ? watermarkHtml(stamp, WATERMARKS_PER_PAGE) : ""}
 <div class="wrap">
   <div class="head">
-    <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
+    <div><div class="sub">${escapeHtml(SHOP_INFO.eyebrow)}</div><div class="brand">${escapeHtml(SHOP_INFO.branch.name)}</div></div>
     <div class="doc"><div class="t">${escapeHtml(title)}</div><div class="m">${today}</div><div class="m">${totalItems} item(s)</div></div>
   </div>
   ${body}
   <div class="foot">
-    <div class="words">Generated from Bypass Shop cloud inventory on ${today}. A list of parts held — ask the shop for prices and availability.</div>
+    <div class="words">Generated from ${escapeHtml(SHOP_INFO.branch.name)} cloud inventory on ${today}. A list of parts held — ask the shop for prices and availability.</div>
     ${stampOn ? `<div class="seal">${stamp({ id: "seal" })}</div>` : ""}
   </div>
 </div>
@@ -2394,7 +2395,7 @@ export function MyPermissionsTab({ userId }) {
       <SectionTitle eyebrow="Your access" title="My Permissions" />
       <div className="text-[#5A6472] text-xs mb-4">
         You can view, sell and create quotations by default. Delicate actions need
-        an admin's approval — request one below and an admin at Jaspare Auto will decide.
+        an admin's approval — request one below and an admin at this shop will decide.
       </div>
 
       {err && (
@@ -4594,7 +4595,7 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
           </Field>
           {!deduct && (
             <Field label="Which branch supplied it? (optional)">
-              <input value={sourceBranch} onChange={(e) => setSourceBranch(e.target.value)} placeholder="e.g. Jaspare Auto Main" className={inputCls} />
+              <input value={sourceBranch} onChange={(e) => setSourceBranch(e.target.value)} placeholder="e.g. Main Shop" className={inputCls} />
             </Field>
           )}
           {/* The count says none, but the part is here. Put the real number in
@@ -5458,7 +5459,7 @@ export function NotifyTab({ notifications, admin = false, onChanged }) {
 
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Sent to Jaspare Auto · Main Shop" title="Notifications" />
+      <SectionTitle eyebrow={`Sent to ${SHOP_INFO.main.name}`} title="Notifications" />
 
       {/* Drill into one person's record. Admin-only. */}
       {admin && (
@@ -6051,7 +6052,7 @@ export function ReportsTab({
 </style></head>
 <body><div class="wrap">
   <div class="head">
-    <div><div class="sub">Jaspare Auto · Main Shop</div><div class="brand">Bypass Shop</div></div>
+    <div><div class="sub">${escapeHtml(SHOP_INFO.eyebrow)}</div><div class="brand">${escapeHtml(SHOP_INFO.branch.name)}</div></div>
     <div class="doc"><div class="t">Sales Report</div><div class="m">${today}</div><div class="m">${sales.length} sale(s)</div></div>
   </div>
   <div class="scope">Period: <b>${escapeHtml(rangeLabel)}</b> · Sold by: <b>${escapeHtml(who)}</b> · <b>${escapeHtml(pay)}</b>${query.trim() ? ` · matching <b>“${escapeHtml(query.trim())}”</b>` : ""}</div>
@@ -6075,7 +6076,7 @@ export function ReportsTab({
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td colspan="8">Total</td><td class="r">${revenue.toLocaleString()}</td><td></td></tr></tfoot></table>`
       : `<div class="empty">No sales match this filter.</div>`}
-  <div class="foot">Generated from Bypass Shop on ${today}. Pending totals are money not yet received. Undone sales are excluded — the goods came back.</div>
+  <div class="foot">Generated from ${escapeHtml(SHOP_INFO.branch.name)} on ${today}. Pending totals are money not yet received. Undone sales are excluded — the goods came back.</div>
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;
@@ -6661,7 +6662,9 @@ const SHOPS = [
 /* The list, from the database when there is one. Falls back to SHOPS rather than to
    nothing: an empty Shops & Contacts card reads as "there is nobody to call". */
 function useDirectory() {
-  const [rows, setRows] = useState(SHOPS);
+  const [rows, setRows] = useState(
+    () => (currentShopSlug() === "jaspare-auto" || !currentShopSlug() ? SHOPS : [])
+  );
   useEffect(() => {
     let alive = true;
     api.fetchDirectory()
@@ -6874,7 +6877,7 @@ export function StaffFeedTab({
 
   return (
     <div className="bp-fade-up flex flex-col" style={{ height: "calc(100vh - 8.5rem)" }}>
-      <SectionTitle eyebrow="Everyone · Bypass Shop" title="Staff Feed" />
+      <SectionTitle eyebrow={`Everyone · ${SHOP_INFO.branch.name}`} title="Staff Feed" />
 
       {/* Two pills, not a menu. Which chat you are in has to be readable at a
           glance, and switching has to cost one tap — anything deeper and the
@@ -8472,9 +8475,9 @@ export function SettingsTab({ categories, user, email, admin, onCategoriesChange
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">System Information &amp; Future Features</div>
         <div className="space-y-2 text-sm text-[#5A6472]">
-          <Row label="System" value="Bypass Shop v2.0 (Cloud)" />
+          <Row label="System" value={`${SHOP_INFO.branch.name} v2.0 (Cloud)`} />
           <Row label="Developed by" value="Josphat Mbugua Kagiri" tone="blue" />
-          <Row label="Reports to" value="Jaspare Auto · Main Shop" />
+          <Row label="Reports to" value={SHOP_INFO.main.name} />
           <Row label="Storage" value="Supabase (cloud Postgres)" />
           <Row label="Sync" value="Realtime — instant across devices" />
         </div>
@@ -8648,8 +8651,8 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
 <body><div class="wrap">
   <div class="head">
     <div>
-      <div class="sub">Jaspare Auto · Main Shop</div>
-      <div class="brand">Bypass Shop</div>
+      <div class="sub">${escapeHtml(SHOP_INFO.eyebrow)}</div>
+      <div class="brand">${escapeHtml(SHOP_INFO.branch.name)}</div>
     </div>
     <div class="doc">
       <div class="t">Quotation</div>
@@ -8670,7 +8673,7 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
     <div class="grand"><span>Total</span><span>KES ${grand.toLocaleString()}</span></div>
   </div>
   <div class="sign"><span>Prepared by</span><span>Customer signature</span></div>
-  <div class="foot">Prices valid for 14 days. Thank you for your business — Jaspare Auto · Main Shop.</div>
+  <div class="foot">Prices valid for 14 days. Thank you for your business · ${escapeHtml(SHOP_INFO.main.name)}.</div>
 </div>
 <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;
@@ -8685,7 +8688,7 @@ export function QuotationTab({ items, user, initialCode = "", draft = null, onMa
       .map((l) => `• ${l.desc} — ${l.qty} × ${Number(l.price).toLocaleString()} = KES ${lineTotal(l).toLocaleString()}`)
       .join("\n");
     const msg =
-      `*Bypass Shop — Quotation*${savedNumber ? ` (${savedNumber})` : ""}\nJaspare Auto · Main Shop\n\n` +
+      `*${SHOP_INFO.branch.name} — Quotation*${savedNumber ? ` (${savedNumber})` : ""}\n${SHOP_INFO.eyebrow}\n\n` +
       (customer ? `Customer: ${customer}\n` : "") +
       `\n${rows}\n\nSubtotal: KES ${subtotal.toLocaleString()}` +
       (disc ? `\nDiscount: -KES ${disc.toLocaleString()}` : "") +
@@ -9780,7 +9783,7 @@ export function ReceiptTab({ items, user, draft = null, onDraftUsed }) {
             {!SHOP_INFO.branch.kraPin && (
               <div className="text-[11px] text-[#DC3B2E] flex items-start gap-1.5">
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                No KRA PIN set — add it in src/lib/shopInfo.js for a valid tax invoice.
+                No KRA PIN set — add it to this shop’s row in the shops table for a valid tax invoice.
               </div>
             )}
           </>
@@ -10399,7 +10402,7 @@ export function TransfersTab({ items, user, admin }) {
             </div>
           </Field>
           <Field label={form.direction === "out" ? "Which branch received it?" : "Which branch sent it?"}>
-            <input value={form.otherBranch} onChange={(e) => setForm({ ...form, otherBranch: e.target.value })} placeholder="e.g. Jaspare Auto Main" className={inputCls} />
+            <input value={form.otherBranch} onChange={(e) => setForm({ ...form, otherBranch: e.target.value })} placeholder="e.g. Main Shop" className={inputCls} />
           </Field>
           <Field label="Item / part">
             <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} list="transfer-parts" placeholder="Part name or description" className={inputCls} />
