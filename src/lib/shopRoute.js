@@ -55,7 +55,7 @@ export const KNOWN_SHOPS = [
        carry. The slug still says "surefit" and deliberately stays that way: it is a
        door number, the links have already been shared, and renaming it would break
        them for nothing. */
-    name: "Sure Auto Spares Ltd",
+    name: "Sure Fit Auto Spares Ltd",
     phone: "+254791285634",
     tagline: "Industrial Area, Dunga Road — next to Impala",
     ready: true,

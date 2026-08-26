@@ -177,6 +177,43 @@ const esc = (s) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+/* HOW BIG THE NAME ON THE STAMP CAN BE.
+
+   The name is set on a semicircle, and text set on a path that runs off the end of
+   the path is not drawn short — it is simply not drawn. So a long name loses its
+   last few letters silently: "SURE FIT AUTO SPARES LTD" printed as "SURE FIT AUTO
+   SPARES L", and "JASPARE AUTO BYPASS SHOP" the same. A stamp that clips the name
+   is a document that does not say which shop it came from, which is the one thing a
+   stamp is for.
+
+   So the type shrinks to fit instead. The letter-spacing goes first, because a
+   rubber stamp reads as a stamp because of the spacing, and only then the size.
+
+   The arithmetic: the top arc has radius 76, so half of it is PI * 76 ≈ 239 units
+   long. A capital in a system sans is about 0.62 of the font size wide. Leaving a
+   little air at both ends gives the usable width below — measured against the real
+   thing rather than guessed, since the ends of the arc are where the clipping shows.
+
+   Pure and exported so the fit can be checked with node instead of by printing. */
+const ARC_WIDTH = Math.PI * 76 * 0.93;   // usable length of the top arc
+const CAP_RATIO = 0.62;                  // width of a capital, as a share of the size
+
+export function stampTextFit(text, { max = 15, min = 8.5, spacing = 1.2 } = {}) {
+  const n = String(text || "").length;
+  if (!n) return { size: max, spacing };
+  const fits = (size, gap) => n * (CAP_RATIO * size + gap) <= ARC_WIDTH;
+  if (fits(max, spacing)) return { size: max, spacing };
+  /* Spacing first, down to a quarter-unit — tighter than that and the letters
+     touch, which looks like a smudge rather than a stamp. */
+  for (const gap of [0.9, 0.6, 0.25]) {
+    if (fits(max, gap)) return { size: max, spacing: gap };
+  }
+  /* Then the size, at the tightest spacing, and never below `min`: a name too small
+     to read is no better than a name cut in half. */
+  const size = Math.max(min, Math.floor(((ARC_WIDTH / n) - 0.25) / CAP_RATIO * 10) / 10);
+  return { size, spacing: 0.25 };
+}
+
 /* A round rubber stamp, drawn rather than photographed so it is sharp at any
    size and costs the page nothing to download.
 
@@ -184,6 +221,7 @@ const esc = (s) =>
    five faint and one solid — and two SVGs sharing one path id is how the curved
    text ends up on top of itself. */
 export function stampSvg({ shop = "", line = "", date = "", id = "s", tone = "#2563EB" } = {}) {
+  const fit = stampTextFit(shop);
   const top = `arc-${id}`;
   const bottom = `arcb-${id}`;
   return `<svg viewBox="0 0 200 200" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -195,7 +233,7 @@ export function stampSvg({ shop = "", line = "", date = "", id = "s", tone = "#2
     <circle cx="100" cy="100" r="94" stroke-width="4"/>
     <circle cx="100" cy="100" r="82" stroke-width="1.5"/>
   </g>
-  <text font-family="system-ui, sans-serif" font-size="15" font-weight="700" fill="${tone}" letter-spacing="1.2">
+  <text font-family="system-ui, sans-serif" font-size="${fit.size}" font-weight="700" fill="${tone}" letter-spacing="${fit.spacing}">
     <textPath href="#${top}" startOffset="50%" text-anchor="middle">${esc(shop)}</textPath>
   </text>
   <text font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="${tone}" letter-spacing="1.6">

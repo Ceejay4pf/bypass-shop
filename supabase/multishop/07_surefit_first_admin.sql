@@ -48,7 +48,7 @@ begin
   values (v_user, v_shop, 'admin')
   on conflict (user_id, shop_id) do update set role = 'admin';
 
-  raise notice '% is now an admin of Surefit Autoparts Ltd.', v_email;
+  raise notice '% is now an admin of Sure Fit Auto Spares Ltd.', v_email;
 
   -- Deliberately NOT done here: adding them to Jaspare as well. If the same person
   -- runs both shops, that is a second line and a decision somebody makes on

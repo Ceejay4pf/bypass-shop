@@ -59,7 +59,7 @@ end $$;
 -- because an alias is how a wrong name survives a rename.
 insert into public.shops (name, slug, phone) values
   ('Jaspare Auto',          'jaspare-auto',      '+254729695400'),
-  ('Surefit Autoparts Ltd', 'surefit-autoparts', '+254780643828')
+  ('Sure Fit Auto Spares Ltd', 'surefit-autoparts', '+254780643828')
 on conflict (slug) do nothing;
 
 

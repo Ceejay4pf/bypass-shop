@@ -32,8 +32,8 @@ begin;
 -- 1) THE SHOP EACH MESSAGE CAME FROM, IN WORDS
 --
 -- shop_id already exists (02). The name is stored ALONGSIDE it rather than joined
--- at read time, because a shop can be renamed — Surefit became Sure Auto Spares
--- Ltd in 08, the same week — and a message should still show the name that was
+-- at read time, because a shop can be renamed — Surefit became Sure Fit Auto
+-- Spares Ltd in 08 and 10, the same week — and a message should still show the name that was
 -- over the door when somebody typed it. A join would rewrite history every time
 -- the sign changes.
 -- ------------------------------------------------------------

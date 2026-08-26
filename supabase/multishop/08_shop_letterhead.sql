@@ -15,7 +15,7 @@
 -- number changed is not the person who can deploy.
 --
 -- WHAT IS NOT CHANGED: the slug. Surefit's address stays /surefit-autoparts even
--- though it is now named Sure Auto Spares Ltd. A slug is a door number, the links
+-- though it is now named Sure Fit Auto Spares Ltd. A slug is a door number, the links
 -- have already been shared, and renaming it would break them to no benefit. If it
 -- must change later it is one update plus a redirect, decided on purpose.
 -- ============================================================
@@ -56,7 +56,7 @@ alter table public.shops add column if not exists parts_dealt   text;
 -- nothing on a re-run.
 -- ------------------------------------------------------------
 update public.shops set
-  name          = 'Sure Auto Spares Ltd',
+  name          = 'Sure Fit Auto Spares Ltd',
   tagline       = 'Parts & Service You Trust',
   address       = 'Industrial Area, Dunga Road. Next To Impala',
   po_box        = 'P.O. Box 43912, 00100 GPO Nairobi',
@@ -126,6 +126,6 @@ commit;
 --   select slug, name, tagline, address, po_box, phone_display, phone
 --     from public.shop_directory order by name;
 --
--- Expect two rows. Surefit's name must read "Sure Auto Spares Ltd" and its
+-- Expect two rows. Surefit's name must read "Sure Fit Auto Spares Ltd" and its
 -- phone_display "0140 731 839 / 0791 285 634". Jaspare's must be unchanged.
 -- ------------------------------------------------------------

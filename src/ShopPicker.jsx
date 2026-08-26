@@ -15,7 +15,7 @@ import { SLIDES } from "./lib/slides.js";
    where they always went. This page is for the bare address and for the installed
    app's icon, where nobody has said anything yet.
 
-   A SHOP THAT IS NOT OPEN YET IS SHOWN AND SAID SO. Surefit Autoparts Ltd has a
+   A SHOP THAT IS NOT OPEN YET IS SHOWN AND SAID SO. Sure Fit Auto Spares Ltd has a
    name and a phone number in this build before it has a single row in the database.
    Hiding it would mean nobody could tell the link worked; opening it would show
    Jaspare's 604 parts under Surefit's name, which is the one outcome worth

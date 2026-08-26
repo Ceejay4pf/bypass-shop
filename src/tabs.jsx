@@ -6657,7 +6657,7 @@ function Row({ label, value, tone }) {
    run yet, where it is the only list there is.
 
    The third entry is gone. It said "Super Fix Auto", which is not that business's
-   name — Surefit Autoparts Ltd is, and it now comes from the shops table where it
+   name — Sure Fit Auto Spares Ltd is, and it now comes from the shops table where it
    can be spelled correctly and corrected if it isn't. A wrong name sitting next to
    a right phone number is the kind of thing staff read aloud on a call. */
 const SHOPS = [

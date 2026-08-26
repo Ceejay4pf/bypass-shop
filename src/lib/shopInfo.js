@@ -6,7 +6,7 @@
 
    IT IS NO LONGER A CONSTANT, and that is the whole point of this file now.
    Two businesses share this build. A constant here would print Jaspare's name,
-   address and phone number on Sure Auto Spares' receipts — handing a customer a
+   address and phone number on Sure Fit Auto Spares' receipts — handing a customer a
    document headed with another company's details, which is worse than a document
    with no heading at all.
 
@@ -25,7 +25,7 @@
    pre-migration world: one shop, no `shops` table, and these values were the truth.
    Note the deliberate asymmetry — a shop that HAS a row but is missing a field gets
    BLANK for that field, never Jaspare's. Falling back field-by-field is how
-   Jaspare's phone number would end up on Sure Auto Spares' invoice.
+   Jaspare's phone number would end up on Sure Fit Auto Spares' invoice.
 --------------------------------------------------------- */
 import { currentShop } from "./shopScope.js";
 

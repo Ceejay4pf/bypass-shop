@@ -1,6 +1,6 @@
 # Two shops in one database
 
-Jaspare Auto and Surefit Autoparts Ltd, sharing one Supabase project, seeing nothing
+Jaspare Auto and Sure Fit Auto Spares Ltd, sharing one Supabase project, seeing nothing
 of each other.
 
 The plan these files came from, with the reasoning and the alternatives that were
@@ -49,6 +49,9 @@ assumes the migration has happened.
 | 5 | `05_policies.sql` | The database itself refusing to show one shop's rows to the other. |
 | 6 | `06_drop_temp_defaults.sql` | A forgotten `shop_id` becomes a loud error instead of a silent write into Jaspare. |
 | — | `07_surefit_first_admin.sql` | Separate, hand-edited: Surefit's first admin. |
+| 8 | `08_shop_letterhead.sql` | The letterhead in the database instead of the code: name, tagline, address, P.O. box, phones, footer. Both shops print their own details — before this, one of them printed the other's. |
+| 9 | `09_shared_staff_feed.sql` | **Deliberately gives up privacy on one table.** The staff feed becomes one room both shops read, so a counter can ask the other shop about a part instead of ringing. Writing stays truthful. Re-run 05 to reverse it. |
+| 10 | `10_surefit_full_name.sql` | The shop's name in full — Sure Fit Auto Spares Ltd. 08 had it a word short, and a short name on a receipt is a payment sent to the wrong account. Also corrects the names 09 stamped onto existing messages. |
 
 Every file is safe to re-run. If one stops half way, fix the cause and run it again
 from the top.
