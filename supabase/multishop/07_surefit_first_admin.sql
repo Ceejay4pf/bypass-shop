@@ -26,7 +26,7 @@
 -- ------------------------------------------------------------
 do $$
 declare
-  v_email text := 'CHANGE-ME@example.com';   -- <<< Surefit's admin
+  v_email text := 'admin@bypassshop.co';     -- <<< Surefit's admin
   v_user  uuid;
   v_shop  uuid;
 begin
