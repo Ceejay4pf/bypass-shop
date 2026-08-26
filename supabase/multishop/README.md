@@ -13,11 +13,25 @@ rejected, is `../MULTI_SHOP_PLAN.md`. This file is just how to run them.
 Supabase Dashboard → **SQL Editor** → **New query** → paste one file → **Run**.
 One file at a time, in order, reading the `NOTICE` output as it goes.
 
-**This needs the account that owns project `loliaseckqpqjoqiwyiq`.** As of writing,
-the login being used to develop the app is told *"You do not have access to this
-project"* — its organisation shows only `addamsjmk-cmyk's Project` and
-`mevril auto part`. So whoever owns Bypass Shop's project has to run these.
-`charles.mbuguajmk@gmail.com` is the likely holder.
+### Which account
+
+**Project `loliaseckqpqjoqiwyiq`, named "BYPASS JASPRE SHOP", in organisation
+`rrpyekscovkwkolooovw`** — all three read straight out of
+`supabase/.temp/linked-project.json`, written by the CLI when the project was linked.
+
+That organisation is **not** the one the app is being developed from. The
+`addamsjmk-cmyk` login is told *"You do not have access to this project"*, and its
+own org lists only `addamsjmk-cmyk's Project` and `mevril auto part`. The management
+token in this repo returns `401 Unauthorized`, so the owner's email cannot be read
+back from the API.
+
+To find the right login, open **https://supabase.com/dashboard/org/rrpyekscovkwkolooovw**
+in each candidate account: the one that owns it sees the org and a project called
+"BYPASS JASPRE SHOP", and every other account gets a no-access page. The likeliest
+candidate is whoever holds `Ceejay4pf` on GitHub, since that account owns the repo
+Vercel deploys from. `charles.mbuguajmk@gmail.com` appears in this codebase only as
+the **Resend** account owner (`OWNER_EMAIL` in `supabase/functions/notify-admin/`) —
+that is a mail account, not evidence about Supabase.
 
 Until they are run, nothing changes: the app keeps working exactly as it does today,
 the shop picker still appears, Jaspare works fully, and Surefit is listed but says
