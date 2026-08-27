@@ -942,4 +942,6 @@ export const ASK_EXAMPLES = [
   "what is a part code made of",
   "add a category for boot lights",
   "put all quantities as one",
+  "fastest way to add a lot of parts",
+  "can i say the list out loud",
 ];

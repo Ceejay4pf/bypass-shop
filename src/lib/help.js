@@ -30,6 +30,53 @@
    `test` is matched against the lowercased question. Order matters — the first
    match wins, so narrow topics come before the wide ones they sit inside. */
 export const HELP_TOPICS = [
+  /* FIRST, and first because of what the shop spends its day doing. Six hundred
+     parts got onto this system one line at a time, and the question behind almost
+     every "how do i" about adding is really "is there a faster way than this".
+     There is, and it was not discoverable: the microphone, the file upload, the
+     headings and the quantity shorthand are each on a screen you have to already
+     be on to find.
+
+     The test wants an efficiency word AND an adding word, both, which is what
+     keeps it out of the way of every other topic. "What is the fastest way to
+     write a receipt" is a receipt question and stays one. */
+  {
+    key: "faster",
+    test: /(?![\s\S]*\b(?:add stock|more stock|restock|delivery|arrived)\b)(?=[\s\S]*\b(?:fast(?:er|est)?|quick(?:er|est|ly)|efficien\w*|speed\w*|less typing|save time|best way|better way|easiest|easier|shortcut|short cut|tips?|advice|improve|smart(?:er|est)?|at once|in one go|lots? of|loads of|hundreds?)\b)(?=[\s\S]*\b(?:add|adding|added|enter|entering|type|typing|file|filing|new parts?|new items?|categor\w*|sections?|stock ?list|whole list)\b)/,
+    title: "Getting a lot of parts on quickly",
+    lines: [
+      "Never one at a time. Add a List of Parts takes the whole lot in one go — pasted out of WhatsApp, said out loud into the phone, or uploaded as the file the supplier sent — and every line becomes a row you check before anything is saved.",
+      "Write one part per line, the way you would say it out loud. The reader takes the section, make, model, year, side, price and count out of your own wording, and a line it could not read says so instead of being dropped quietly.",
+      "One line is one part, always — two of the same thing written on two lines are two parts with two codes, because on the shelf they are two things.",
+      "No section for what you are holding? Say so in this box without leaving the screen: \"add a category for wiper blades\". It works out the three-letter code, the shelf letter and a colour, and shows them before creating anything.",
+    ],
+    /* Every one of these is a pattern in parseParts.js, not a suggestion. If one
+       is removed there it has to come out of here in the same breath. */
+    rows: [
+      { a: "A line", b: "front bumper toyota premio 2016 @ 12000", c: "" },
+      { a: "How many", b: "x2 · 2x · 2 pcs · 2 nos · 2 sets — all read as the count", c: "" },
+      { a: "Price", b: "@ 12000 · ksh 12,000 · 12000/= · shs 12000", c: "" },
+      { a: "A heading", b: "THESE ARE HEADLIGHTS: — every line under it is a headlight, and it carries the make down too", c: "" },
+      { a: "Side", b: "front left · rear right · lhs · nearside · pair", c: "" },
+      { a: "Out loud", b: "the microphone on that screen — one part, a pause, the next part", c: "" },
+    ],
+    go: { tab: "bulk", label: "Open Add a List of Parts" },
+    goAlt: { tab: "add", label: "Add one part instead" },
+  },
+  /* Above the bulk topic, which owns the word "list" — "how do i say a list out
+     loud" would otherwise be answered with how to paste one. */
+  {
+    key: "dictate",
+    test: /\b(microphone|mic|speak(?:ing)?|say (?:it|them|the parts?) out|voice|talk to it|dictat\w*|out loud|read (?:them |it |the list )?out)\b/,
+    title: "Reading a list out loud",
+    lines: [
+      "There is a microphone on Add a List of Parts. Press it once and talk: say one part, pause, say the next. The pause is what makes the new line, so nothing has to be announced — it is the rhythm of counting a shelf anyway. If two parts run together, say \"next item\".",
+      "The words land in the same box a pasted list lands in and go through the same reader, so they stop on the same checking screen with nothing saved. What was already typed is kept — talking adds to it.",
+      "Numbers are understood the way they are said: \"twenty sixteen\" is the year 2016, \"times two\" is a count of two, \"at eight thousand five hundred\" is the price. Say \"these are headlights\" once and every part after it is a headlight until you say otherwise.",
+      "The listening is the browser's own, the same thing behind the keyboard's microphone key — this shop sends no recording anywhere. Chrome and Safari have it; where a browser doesn't, the button isn't shown rather than sitting there doing nothing.",
+    ],
+    go: { tab: "bulk", label: "Open Add a List of Parts" },
+  },
   /* Undoing a sale is read before selling one, because "how do i undo a sale"
      contains the word sale and would otherwise be answered with how to make
      one — the opposite of what was asked. */
@@ -137,6 +184,7 @@ export const HELP_TOPICS = [
       "A section is a family of parts — Front Bumpers, Headlights, Side Mirrors — with a three-letter code and a shelf letter. It is the first thing in every code of every part filed under it.",
       "Tell this box \"add a category for wiper blades\" and it works out the code, the shelf letter and a colour, and shows them before creating it. Renaming is the same: \"rename Bonnets to Hoods\".",
       "Only an admin can add or rename one, and the three-letter code can never be changed once a part is filed there — it is stamped into that part's code for good.",
+      "It won't let you make the same section twice, under any name. Ask for a section of headlamps and it tells you those already go under Headlights (code HDL), because that is the word it files them by — so nothing gets split across two sections that mean the same thing.",
     ],
     go: { tab: "settings", label: "Sections in Settings" },
   },
@@ -360,8 +408,10 @@ export const HELP_TOPICS = [
       "Ask about the shop: what sold today, how much was taken last month, who owes money, whether a part is on the shelf and everything recorded about it, what is low.",
       "Ask about the app: how to record a sale, what a code is made of, who is allowed to delete a part.",
       "Tell it to open the screen that makes a report, a statement, a receipt or a quotation, and it opens already set to the period you asked for.",
-      "Tell it to change things: add or rename a section, or set quantities or prices across many parts at once. It always shows the full list of parts first, and nothing happens until you press the button.",
+      "Tell it to change things: add or rename a section, set quantities or prices across many parts at once, or take a part off the list by its code. It always shows the full list of parts first, nothing happens until you press the button, and a removal asks twice.",
+      "Ask it for a faster way, and it will say so — how to get a whole list on at once, how to talk a list in through the microphone instead of typing it, what shorthand it understands in a line.",
     ],
+    go: { tab: "bulk", label: "The fast way to add parts" },
   },
   {
     key: "data",
@@ -387,7 +437,12 @@ export const HOW_TO = new RegExp(
     /* "can i delete a part" — but not a bare "can i", which is how somebody asks
        for a figure: "can i see today's sales" wants the sales, not a lesson. So
        the permission question has to name a doing word. */
-    "\\bcan (?:i|we|you|somebody|anyone) (?:add|create|change|edit|delete|remove|undo|reverse|print|record|write|make|give|set|install|lock|move|transfer|see the|use)\\b",
+    "\\bcan (?:i|we|you|somebody|anyone) (?:add|create|change|edit|delete|remove|undo|reverse|print|record|write|make|give|set|install|lock|move|transfer|see the|use|say|speak|talk|dictate|read|paste|upload|import|scan)\\b",
+    /* "what is the fastest way to add a lot of parts", "is there a better way".
+       Asking for a way to do something can't be a request for a figure, whatever
+       it is asking a way to do — so this one is safe to have here despite how
+       little else in this list is that general. */
+    "\\b(?:fast(?:est|er)|quick(?:est|er)|best|better|easiest|easier|simplest|smarter|right) way\\b",
     "\\b(?:help|explain|teach|tutorial|how-to|instructions)\\b",
     /* "what does FBM mean", "what is this", "what can you do" */
     "\\bwhat does .{0,40}\\bmean\\b",
@@ -419,6 +474,7 @@ export const HELP_MENU = {
   ],
   rows: [
     { a: "Doing", b: "how do i record a sale · how do i add a part · how do i give a receipt · how do i add stock that arrived · how do i fix a wrong count", c: "" },
+    { a: "Faster", b: "what is the fastest way to add a lot of parts · can i say the list out loud · how do i add a new category", c: "" },
     { a: "Knowing", b: "what is a part code made of · what does low stock mean · who can delete a part · how are receipt numbers given out · the online list for customers", c: "" },
     { a: "Asking", b: "what sales were made today · do we have a premio front bumper · who owes us money · what is low on stock", c: "" },
   ],
