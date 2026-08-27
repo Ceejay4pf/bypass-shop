@@ -17,7 +17,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Wallet, TrendingUp, Scale, Plus, Trash2, AlertTriangle, Check,
-  RefreshCw, Loader2, Landmark, Smartphone, Banknote, Lock,
+  RefreshCw, Loader2, Landmark, Smartphone, Banknote, Lock, Printer,
 } from "lucide-react";
 import * as api from "./lib/api.js";
 import { Field, inputCls, SectionTitle, fmtDateTime } from "./ui.jsx";
@@ -25,6 +25,9 @@ import {
   POTS, cashBook, profitAndLoss, balanceSheet,
   monthsPresent, monthRange, PROFIT_VAT_MULTIPLE,
 } from "./lib/finance.js";
+import { statementHtml } from "./lib/statementPrint.js";
+import { SHOP_INFO } from "./lib/shopInfo.js";
+import { shopAccent } from "./lib/shopSkin.js";
 
 const KES = (n) =>
   `KES ${Math.round(Number(n) || 0).toLocaleString("en-KE")}`;
@@ -254,7 +257,16 @@ export function FinanceTab({ user, admin, initialView = "statements" }) {
       )}
 
       {view === "statements" && (
-        <Statements book={book} pl={pl} bs={bs} month={month} periodLabel={periodLabel} />
+        <Statements
+          book={book}
+          pl={pl}
+          bs={bs}
+          month={month}
+          periodLabel={periodLabel}
+          user={user}
+          problems={d.problems || []}
+          openingSet={Boolean(d.opening)}
+        />
       )}
       {view === "expenses" && (
         <Expenses
@@ -274,14 +286,58 @@ export function FinanceTab({ user, admin, initialView = "statements" }) {
 }
 
 /* ======================= STATEMENTS ======================= */
-function Statements({ book, pl, bs, month, periodLabel }) {
+function Statements({ book, pl, bs, month, periodLabel, user, problems = [], openingSet = true }) {
   const [showEntries, setShowEntries] = useState(false);
   // Rounding to whole shillings can leave a shilling or two; anything bigger
   // than that is a real fault in the statement and has to be said out loud.
   const balanced = Math.abs(bs.check) < 1;
 
+  /* On paper: the same three statements, on this shop's letterhead. The building is
+     all in lib/statementPrint.js, which is why this is short — the only decisions
+     made here are the ones that need the screen, and there are two of them. The
+     entries print when they are showing, and the warnings that are on the screen go
+     onto the page whether they are showing or not, because the person reading the
+     paper copy cannot see this screen. */
+  const printIt = () => {
+    const html = statementHtml({
+      shop: SHOP_INFO.branch,
+      office: SHOP_INFO.main,
+      footer: SHOP_INFO.footer,
+      accent: shopAccent(),
+      periodLabel,
+      book,
+      pl,
+      bs,
+      broughtForward: Boolean(month),
+      entries: showEntries ? book.entries : [],
+      problems,
+      openingSet,
+      preparedBy: user || "",
+      printedAt: new Date().toLocaleString("en-KE", {
+        day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+      }),
+      vatMultiple: PROFIT_VAT_MULTIPLE,
+    });
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow pop-ups to print the statement."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
   return (
     <>
+      <div className="flex items-center justify-end gap-2 mb-3">
+        <span className="text-[11px] text-[#5A6472] text-right">
+          {showEntries ? "Every entry prints too" : "Summary only — open the entries below to print them as well"}
+        </span>
+        <button
+          onClick={printIt}
+          className="shrink-0 bg-[#2563EB] text-white text-xs font-bold rounded-md px-3 py-2 flex items-center gap-1.5 active:scale-[0.98]"
+        >
+          <Printer size={13} /> Print
+        </button>
+      </div>
+
       {/* ---- CASH BOOK ---- */}
       <Card
         title="Cash book"

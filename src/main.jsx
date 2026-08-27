@@ -151,6 +151,31 @@ function Root() {
   if (route.view === "unknown") {
     return <NoSuchShop slug={route.slug} shops={shops} onPick={pickShop} />;
   }
+  /* A real shop of ours whose rows do not exist yet. This catches all three of its
+     addresses at once — the front door, /login and /shop — because every one of
+     them would otherwise lead somewhere that cannot work: a sign-in with no
+     members to match, or a parts list filtered to a shop_id that isn't there,
+     which shows an empty shelf as though the shop had nothing on it.
+
+     Said here rather than in resolveRoute() on purpose. The router's job is what
+     the address MEANS, and it means Jeyden either way; whether Jeyden can be
+     opened yet is a fact about the database, and it changes without the address
+     changing. */
+  if (route.shop && route.shop.ready === false) {
+    /* Not until the table has actually answered. On the first frame the list is the
+       one compiled into the build, where this shop is not ready BY DEFINITION —
+       telling somebody the shop isn't on the system and then opening it half a
+       second later would make the true message look like a glitch, and this is the
+       screen that has to be believed on the day it is right. */
+    if (loadingShops) {
+      return (
+        <div className="min-h-screen bg-[#070B12] flex items-center justify-center p-4">
+          <p className="text-[#5A6472] text-sm">Opening {route.shop.name}…</p>
+        </div>
+      );
+    }
+    return <NotOnTheSystemYet shop={route.shop} shops={shops} onPick={pickShop} />;
+  }
   if (route.view === "picker") {
     return <ShopPicker shops={shops} onPick={pickShop} loading={loadingShops} />;
   }
@@ -181,26 +206,94 @@ function NoSuchShop({ slug, shops, onPick }) {
           Check the link, or pick a shop below.
         </p>
         <div className="mt-5 text-left">
-          {shops.map((s) => (
-            <button
-              key={s.slug}
-              onClick={() => onPick(s)}
-              disabled={s.ready === false}
-              className={`w-full rounded-2xl p-3.5 mb-2 font-bold text-left ${
-                s.ready === false
-                  ? "bg-[#0C1424] ring-1 ring-white/10 text-[#5A6472]"
-                  : "bg-gradient-to-r from-[#2563EB] to-[#06B6D4] text-white"
-              }`}
-            >
-              {s.name}
-              {s.ready === false && (
-                <span className="block text-[11px] font-normal mt-0.5">Not on the system yet</span>
-              )}
-            </button>
-          ))}
+          <ShopButtons shops={shops} onPick={onPick} />
         </div>
       </div>
     </div>
+  );
+}
+
+/* A shop of ours that has a door, a name and a phone number here, and no rows of
+   its own in the database yet.
+
+   This is a different message from "no shop called that" and the difference is the
+   whole point: one says the link is wrong, this one says the link is right and the
+   shop is not open yet. Whoever typed it needs to know which, because only one of
+   the two is worth re-checking with the person who sent it.
+
+   It names the step that finishes it, in the words of the thing that has to happen,
+   so the owner can forward this screen to whoever runs the database. */
+function NotOnTheSystemYet({ shop, shops, onPick }) {
+  const others = (shops || []).filter((s) => s.slug !== shop.slug);
+  return (
+    <div className="min-h-screen bg-[#070B12] flex items-center justify-center p-4">
+      <div className="w-full max-w-md text-center">
+        <h1 className="text-white text-xl font-extrabold uppercase tracking-wide">
+          {shop.name}
+        </h1>
+        {shop.tagline && (
+          <p className="text-[#67E8F9] text-xs mt-1">{shop.tagline}</p>
+        )}
+        <p className="text-[#9FB3CC] text-sm mt-3 leading-relaxed">
+          The link is right — this shop just isn't on the system yet. Its own shelf,
+          its staff and its counter still have to be created in the database, and
+          until they are there is nothing here to sign in to and no parts list to
+          show.
+        </p>
+        <p className="text-[#5A6472] text-xs mt-3 leading-relaxed">
+          Whoever looks after the database finishes it by running{" "}
+          {shop.setupFile ? (
+            <span className="font-mono text-[#9FB3CC]">{shop.setupFile}</span>
+          ) : (
+            <>this shop&apos;s step in <span className="font-mono text-[#9FB3CC]">supabase/multishop/</span></>
+          )}{" "}
+          once, with this shop&apos;s first admin email filled in. Nothing needs
+          deploying afterwards — this page turns into the shop the moment the row
+          exists.
+        </p>
+        {shop.phone && (
+          <p className="text-[#9FB3CC] text-sm mt-4">
+            <a href={`tel:${shop.phone}`} className="font-semibold text-[#67E8F9]">{shop.phone}</a>
+          </p>
+        )}
+        {others.length > 0 && (
+          <div className="mt-6 text-left">
+            <p className="text-[10px] uppercase tracking-wide text-[#5A6472] mb-2 text-center">
+              The shops that are open
+            </p>
+            <ShopButtons shops={others} onPick={onPick} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* The shop tiles, one list used by both messages above. A shop with no rows yet is
+   shown and not openable — a tile that lies about whose shelf you are looking at is
+   worse than a tile that says "not yet", and leaving it out altogether is how
+   somebody concludes the shop was never built. */
+function ShopButtons({ shops, onPick }) {
+  return (
+    <>
+      {shops.map((s) => (
+        <button
+          key={s.slug}
+          onClick={() => onPick(s)}
+          disabled={s.ready === false}
+          className={`w-full rounded-2xl p-3.5 mb-2 font-bold text-left ${
+            s.ready === false
+              ? "bg-[#0C1424] ring-1 ring-white/10 text-[#5A6472]"
+              : "bg-gradient-to-r from-[#2563EB] to-[#06B6D4] text-white"
+          }`}
+        >
+          {s.name}
+          {s.ready === false && (
+            <span className="block text-[11px] font-normal mt-0.5">Not on the system yet</span>
+          )}
+        </button>
+      ))}
+    </>
   );
 }
 

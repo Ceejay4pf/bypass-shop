@@ -81,6 +81,9 @@ export const KNOWN_SHOPS = [
     phone: "+254798718321",
     tagline: "Dar es Salaam Road, Industrial Area — South B",
     ready: false,
+    /* The one step that finishes it, named here rather than written into the page
+       that shows it, so a fourth shop names its own file instead of Jeyden's. */
+    setupFile: "supabase/multishop/12_jeyden_third_shop.sql",
   },
 ];
 
@@ -225,12 +228,25 @@ export function staffLink({ origin = "", slug = "" } = {}) {
 
    A shop the app has never heard of appears too. That is the whole point of
    reading the table: adding a third shop should be an insert, not a release.
+
+   AND IT WORKS THE OTHER WAY ROUND AS WELL, which it did not, and that was a
+   reported bug: /jeyden-autospares answered "no shop called that". The table
+   held two rows, this function returned those two rows and nothing else, so the
+   third shop — which the build knows about, and whose door had been built and
+   deployed — vanished the instant the database answered. Its tile disappeared
+   from the picker too, and `ready: false` above never got the chance to say
+   "Not on the system yet", because there was no tile left to say it on.
+
+   So the two lists are UNIONED. A shop with a row is a real shop; a shop this
+   build knows about with no row yet keeps its place and keeps its own `ready`,
+   which is what makes the honest message possible. Nothing is invented either
+   way: the database still wins every field of every shop it has.
 --------------------------------------------------------- */
 export function mergeShops(rows) {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return KNOWN_SHOPS.map((s) => ({ ...s, fromDb: false }));
-  }
-  return rows
+  const known = KNOWN_SHOPS.map((s) => ({ ...s, fromDb: false }));
+  if (!Array.isArray(rows) || rows.length === 0) return known;
+
+  const fromDb = rows
     .filter((r) => r && r.slug)
     .map((r) => {
       const known = findShop(KNOWN_SHOPS, r.slug);
@@ -249,4 +265,9 @@ export function mergeShops(rows) {
         fromDb: true,
       };
     });
+
+  /* The database's rows first, in the order it gave them, then whatever this
+     build knows about that the table has not got to yet. */
+  const have = new Set(fromDb.map((s) => s.slug));
+  return [...fromDb, ...known.filter((s) => !have.has(clean(s.slug)))];
 }
