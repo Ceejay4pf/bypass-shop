@@ -1936,6 +1936,96 @@ export async function fetchCustomerOrder(ref) {
   return data ? rowToCustomerOrder(data) : null;
 }
 
+/* ============================================================
+   M-PESA PROMPTS AT THE COUNTER  (see supabase/mpesa.sql)
+
+   Three calls, and not one of them holds a key. The consumer key, the secret and
+   the till's passkey live in Supabase secrets and are read by the edge function on
+   the server; anything this file could reach is something every visitor to the
+   site could read out of the JavaScript bundle.
+
+   WHAT THE COUNTER IS NEVER TOLD BY THIS FILE. That money arrived. `sendMpesaPrompt`
+   returns the fact that a prompt was accepted, which is not a payment.
+   `checkMpesaPrompt` is the only one that can say paid, and it says it because the
+   edge function asked Safaricom and Safaricom answered — not because a callback
+   arrived at a public URL claiming so.
+   ============================================================ */
+
+/* Ask a customer's phone for money. Returns { ok, checkoutRequestId } on success,
+   or { ok: false, error } with a sentence fit for the screen — a cashier with a
+   customer waiting cannot do anything with a stack trace.
+
+   `setup: true` on the way back means the shop has not stored its Daraja
+   credentials yet, which is a different problem from a payment that failed, and
+   the screen says so differently. */
+export async function sendMpesaPrompt({ phone, amount, forCode, forCustomer, ref }, byName) {
+  try {
+    const { data, error } = await supabase.functions.invoke("mpesa-stk", {
+      body: {
+        action: "send",
+        shopId: currentShopId() || null,
+        phone, amount, forCode, forCustomer, ref,
+        by: byName || "",
+      },
+    });
+    if (error) {
+      /* The function itself did not answer — not deployed, or the project is
+         asleep. Named plainly rather than passed through, because "Failed to send
+         a request to the Edge Function" on a counter screen tells nobody
+         anything. */
+      return { ok: false, setup: true,
+               error: "The M-Pesa service is not answering. It may not be set up on this system yet." };
+    }
+    return data || { ok: false, error: "M-Pesa gave no answer." };
+  } catch {
+    return { ok: false, error: "No connection — the prompt was not sent." };
+  }
+}
+
+/* What became of it. The one answer the till is allowed to believe. */
+export async function checkMpesaPrompt(checkoutRequestId) {
+  try {
+    const { data, error } = await supabase.functions.invoke("mpesa-stk", {
+      body: { action: "check", checkoutRequestId },
+    });
+    if (error) return { ok: false, error: "Could not reach M-Pesa. Try again." };
+    return data || { ok: false, error: "M-Pesa gave no answer." };
+  } catch {
+    return { ok: false, error: "No connection — could not check." };
+  }
+}
+
+/* Every prompt this shop has sent, newest first. Read straight from the table
+   rather than through the function: it is this shop's own record, and row level
+   security has already decided which rows those are. */
+export async function fetchMpesaPayments(limit = 40) {
+  const { data, error } = await shopFrom("mpesa_payments")
+    .select("checkout_request_id,phone,amount,status,result_desc,mpesa_receipt,paid_amount,paid_at,for_code,for_customer,requested_by,env,created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  /* A missing table means supabase/mpesa.sql has not been pasted yet. Returns an
+     empty list rather than throwing, the same way every other reader in this file
+     copes with SQL that has not been run — a screen that crashes is worse than a
+     screen that is honestly empty. */
+  if (error) return [];
+  return (data || []).map((r) => ({
+    id: r.checkout_request_id,
+    checkoutRequestId: r.checkout_request_id,
+    phone: r.phone || "",
+    amount: Number(r.amount) || 0,
+    status: r.status || "sent",
+    resultDesc: r.result_desc || "",
+    receipt: r.mpesa_receipt || "",
+    paidAmount: r.paid_amount == null ? null : Number(r.paid_amount),
+    paidAt: r.paid_at ? new Date(r.paid_at).getTime() : 0,
+    forCode: r.for_code || "",
+    forCustomer: r.for_customer || "",
+    by: r.requested_by || "",
+    env: r.env || "sandbox",
+    ts: r.created_at ? new Date(r.created_at).getTime() : 0,
+  }));
+}
+
 export function subscribeCustomerOrders(onChange) {
   const ch = supabase
     .channel("customer_orders_rt")

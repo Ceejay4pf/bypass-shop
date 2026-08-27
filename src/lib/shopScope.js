@@ -64,6 +64,11 @@ export const SCOPED_TABLES = [
   "transfers",
   "staff_contacts",
   "branches",
+  /* The M-Pesa prompts sent at a counter. Scoped because the row carries a
+     customer's phone number and what they were asked to pay, and one shop has no
+     business reading the other's. Never INSERTED from here — the row is written
+     by the edge function that sent the prompt (see supabase/mpesa.sql). */
+  "mpesa_payments",
 ];
 
 export const isScopedTable = (table) => SCOPED_TABLES.includes(String(table || ""));

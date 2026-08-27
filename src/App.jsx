@@ -892,6 +892,9 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
              just reached from where the wrong count actually shows up. */
           onAddStock={handleAddStock}
           initialCode={pickFor("sell")}
+          /* Whose name goes against an M-Pesa prompt. A prompt is a request for
+             money made in the shop's name, so it records who made it. */
+          user={user}
         />
       )}
       {id === "orders" && (

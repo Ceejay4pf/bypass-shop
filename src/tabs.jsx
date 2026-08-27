@@ -45,6 +45,14 @@ import {
 import { getDeviceId, thisDeviceLabel, agoText } from "./lib/device.js";
 import { SHOP_INFO } from "./lib/shopInfo.js";
 import { currentShopSlug } from "./lib/shopScope.js";
+/* The M-Pesa prompt at the counter. Which shops have a till of their own, what
+   counts as a Kenyan mobile number, and what each answer from Safaricom means —
+   pure and node-testable, and holding no key of any kind. See the note at the top
+   of src/lib/mpesa.js for why none of it can live in a VITE_ variable. */
+import {
+  mpesaEnabled, normalisePhone, prettyPhone, checkAmount, promptStatus, isPaid,
+  PROMPT_LIFETIME_MS,
+} from "./lib/mpesa.js";
 import { publicLink } from "./lib/publicRoute.js";
 /* Which parts share a shelf, and what typing one price into that shelf would
    actually overwrite. Pure and node-testable on purpose — see the note at the top
@@ -4643,7 +4651,7 @@ function EditPartForm({ item, categories, onCancel, onSave, canAdjust = false, f
 }
 
 /* ======================= SELL ======================= */
-export function SellTab({ items, categories, onSell, onAddStock, initialCode = "" }) {
+export function SellTab({ items, categories, onSell, onAddStock, initialCode = "", user = "" }) {
   const [query, setQuery] = useState("");
   // A part long-pressed in Search arrives already chosen.
   const [picked, setPicked] = useState(
@@ -4680,6 +4688,23 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
   const [method, setMethod] = useState("Cash");
   const [deduct, setDeduct] = useState(true);        // true = sold from THIS branch (reduce stock)
   const [sourceBranch, setSourceBranch] = useState("");// where it came from when not deducting
+  /* ---- THE M-PESA PROMPT ----
+     Only this shop has a till on the system, so only this shop gets the button —
+     see the note in src/lib/mpesa.js about what pushing Jaspare's prompt from
+     another company's counter would actually do to their customer's money. */
+  const canPrompt = mpesaEnabled(currentShopSlug());
+  /* Kept apart from `phone` above. That one is the customer's number ON THE SALE,
+     which is often a landline, a relative's, or blank; this is the handset that is
+     going to be asked for a PIN in the next ten seconds. They are usually the same
+     number and must not be assumed to be. */
+  const [payPhone, setPayPhone] = useState("");
+  const [prompt, setPrompt] = useState(null);   // the live one, or null
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptErr, setPromptErr] = useState("");
+  /* Re-renders the countdown. The prompt dies after about a minute whether or not
+     anything is looking at it, and a screen frozen on "asking" is how a cashier
+     ends up waiting on a prompt that expired before the queue formed. */
+  const [now, setNow] = useState(0);
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -4702,7 +4727,92 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
      record against stock that isn't there. Correcting the count or marking it as
      another branch's goods both clear it. */
   const blocked = Boolean(selected && deduct && selected.qty === 0);
-  const reset = () => { setSelected(null); setQty("1"); setUnitPrice(""); setBuyer(""); setPhone(""); setQuery(""); setDeduct(true); setSourceBranch(""); setMethod("Cash"); };
+  const reset = () => {
+    setSelected(null); setQty("1"); setUnitPrice(""); setBuyer(""); setPhone(""); setQuery("");
+    setDeduct(true); setSourceBranch(""); setMethod("Cash");
+    /* The prompt goes with the sale it was for. A paid prompt left on screen for
+       the NEXT customer is the one way this feature could hand out a part for
+       nothing, so it is cleared here and nowhere else is allowed to keep it. */
+    setPayPhone(""); setPrompt(null); setPromptErr(""); setPromptBusy(false);
+  };
+
+  /* WHILE A PROMPT IS ON SOMEBODY'S PHONE.
+
+     Nobody at a counter is going to press Check while a customer is typing a PIN
+     in front of them, so the screen asks on its own — every four seconds, and
+     every second for the countdown. It asks Safaricom through the edge function
+     rather than waiting to be told by the callback, because the callback URL is
+     public and being told is not the same as knowing (see supabase/mpesa.sql).
+
+     It stops asking a minute after the prompt expired. A till that keeps polling a
+     dead prompt all afternoon is a till nobody trusts the spinner on. */
+  useEffect(() => {
+    if (!prompt || prompt.status !== "sent") return;
+    let alive = true;
+    let ticks = 0;
+    const id = setInterval(async () => {
+      if (!alive) return;
+      ticks += 1;
+      setNow(Date.now());
+      if (Date.now() - (prompt.sentAt || 0) > PROMPT_LIFETIME_MS + 60000) return;
+      if (ticks % 4) return;
+      const r = await api.checkMpesaPrompt(prompt.checkoutRequestId);
+      /* Only a real answer is written in. An `ok: false` here means the question
+         could not be asked — the network, or a project waking up — and letting
+         that overwrite the status would turn a connection problem into a failed
+         payment on screen. */
+      if (alive && r && r.ok && r.status) setPrompt((prev) => (prev ? { ...prev, ...r } : prev));
+    }, 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [prompt?.checkoutRequestId, prompt?.status, prompt?.sentAt]);
+
+  const sendPrompt = async () => {
+    setPromptErr("");
+    const ph = normalisePhone(payPhone);
+    if (ph.error) { setPromptErr(ph.error); return; }
+    const amt = checkAmount(total);
+    if (amt.error) { setPromptErr(amt.error); return; }
+    setPromptBusy(true);
+    const r = await api.sendMpesaPrompt(
+      {
+        phone: ph.msisdn,
+        amount: amt.amount,
+        forCode: selected ? selected.code : "",
+        forCustomer: buyer,
+      },
+      user
+    );
+    setPromptBusy(false);
+    if (!r || !r.ok) { setPromptErr((r && r.error) || "The prompt was not sent."); return; }
+    /* `saved: false` means the prompt IS on the customer's phone but the row did
+       not save, so nothing will ever poll it. Said out loud rather than swallowed:
+       money may be about to move with no record of why. */
+    setPrompt({
+      checkoutRequestId: r.checkoutRequestId,
+      amount: r.amount,
+      phone: r.phone,
+      status: "sent",
+      sentAt: Date.now(),
+      saved: r.saved !== false,
+    });
+    setNow(Date.now());
+  };
+
+  const checkPrompt = async () => {
+    if (!prompt) return;
+    setPromptBusy(true);
+    const r = await api.checkMpesaPrompt(prompt.checkoutRequestId);
+    setPromptBusy(false);
+    setNow(Date.now());
+    if (!r || !r.ok) { setPromptErr((r && r.error) || "Could not check just now."); return; }
+    setPromptErr("");
+    setPrompt((prev) => (prev ? { ...prev, ...r } : prev));
+  };
+
+  /* A prompt that was sent and has not been paid. The sale can still go through —
+     the customer may hand over cash after cancelling — but it must not go through
+     QUIETLY, which is what the wording on the button below is for. */
+  const promptOutstanding = Boolean(prompt) && !isPaid(prompt);
 
   return (
     <div className="bp-fade-up">
@@ -4729,6 +4839,10 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
               </button>
             ))}
           </div>
+          {/* Only while nothing is being sold. During a sale the screen belongs to
+              the part in front of the customer; between sales this is the question
+              somebody actually has — did that one ever land. */}
+          {canPrompt && <MpesaLog />}
         </>
       ) : (
         <>
@@ -4922,6 +5036,112 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
               </div>
             </Field>
           )}
+          {/* ---------------- ASK THEIR PHONE FOR THE MONEY ----------------
+              Only when the money is coming in, only when it is coming in by
+              M-Pesa, and only at a counter whose own till is behind it. */}
+          {payment === "Paid" && method === "M-PESA" && canPrompt && total > 0 && (
+            <div className="mb-4 rounded-xl border border-[#DEE3E9] bg-[#F7F9FB] p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Smartphone size={15} className="text-[#15926A]" />
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472]">
+                  Ask their phone for the money
+                </span>
+              </div>
+              {!prompt ? (
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      value={payPhone}
+                      onChange={(e) => setPayPhone(e.target.value)}
+                      placeholder="07xx xxx xxx"
+                      inputMode="tel"
+                      className={inputCls}
+                    />
+                    {/* Nine times in ten it is the number already typed against the
+                        sale, and re-typing it with a customer waiting is how the
+                        wrong person gets asked to pay. */}
+                    {phone.trim() && phone.trim() !== payPhone && (
+                      <button
+                        onClick={() => setPayPhone(phone.trim())}
+                        className="whitespace-nowrap px-3 rounded-md border border-[#DEE3E9] text-[12px] font-semibold text-[#2563EB]"
+                      >
+                        Use {phone.trim()}
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={sendPrompt}
+                    disabled={promptBusy || !payPhone.trim()}
+                    className="mt-2 w-full bg-[#15926A] text-white font-bold uppercase tracking-wide rounded-md py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {promptBusy ? <Loader2 size={16} className="animate-spin" /> : <Smartphone size={16} />}
+                    {promptBusy
+                      ? "Sending…"
+                      : `Send a prompt for KES ${Math.round(total).toLocaleString()}`}
+                  </button>
+                  <p className="text-[11px] text-[#5A6472] mt-1.5 leading-relaxed">
+                    Their phone asks for their M-Pesa PIN. Nothing is deducted from stock
+                    until you confirm the sale below.
+                  </p>
+                </>
+              ) : (
+                (() => {
+                  const st = promptStatus(prompt, now);
+                  const bar = {
+                    good: "border-[#15926A] bg-[#15926A12] text-[#0F6E50]",
+                    warn: "border-[#B45309] bg-[#B4530912] text-[#8A4208]",
+                    bad:  "border-[#DC3B2E] bg-[#DC3B2E12] text-[#8C1D13]",
+                    wait: "border-[#2563EB] bg-[#2563EB12] text-[#1D4ED8]",
+                  }[st.tone];
+                  return (
+                    <>
+                      <div className={`rounded-md border px-3 py-2 ${bar}`}>
+                        <div className="text-sm font-bold flex items-center gap-2">
+                          {st.tone === "wait" && <Loader2 size={14} className="animate-spin" />}
+                          {st.tone === "good" && <CheckCircle2 size={14} />}
+                          {st.title}
+                        </div>
+                        <div className="text-[11px] mt-0.5 leading-relaxed">{st.detail}</div>
+                        <div className="text-[10px] mt-1 opacity-80">
+                          {prettyPhone(prompt.phone)}
+                        </div>
+                      </div>
+                      {prompt.saved === false && (
+                        <p className="text-[11px] text-[#8C1D13] mt-1.5 leading-relaxed">
+                          The prompt was sent but this shop could not record it, so it will
+                          not update on its own. Check the customer&apos;s M-Pesa message
+                          before handing anything over.
+                        </p>
+                      )}
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={checkPrompt}
+                          disabled={promptBusy}
+                          className="flex-1 border border-[#DEE3E9] rounded-md py-2 text-sm font-semibold text-[#5A6472] disabled:opacity-50"
+                        >
+                          {promptBusy ? "Checking…" : "Check again"}
+                        </button>
+                        {/* Only once the last one is finished with. A second prompt on
+                            top of a live one is refused by Safaricom anyway, and the
+                            error it gives back reads like the shop's fault. */}
+                        {st.done && !isPaid(prompt) && (
+                          <button
+                            onClick={() => { setPrompt(null); setPromptErr(""); }}
+                            className="flex-1 bg-[#15926A] text-white rounded-md py-2 text-sm font-bold"
+                          >
+                            Send again
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()
+              )}
+              {promptErr && (
+                <p className="text-[11px] text-[#8C1D13] mt-2 leading-relaxed">{promptErr}</p>
+              )}
+            </div>
+          )}
           <div className="text-sm text-[#5A6472] mb-3">
             Total:{" "}
             <span className="text-[#2563EB] font-bold">KES {total.toLocaleString()}</span>{" "}
@@ -4934,6 +5154,17 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
             {blocked && (
               <div className="mt-1 text-[12px] text-[#B45309]">
                 Correct the count above, or mark it as supplied by another branch, before confirming.
+              </div>
+            )}
+            {/* A prompt was sent and has not been paid. NOT a block — the customer
+                may well be handing over notes instead, and refusing the sale would
+                send that one to the exercise book. But it cannot be silent: this is
+                the exact moment a part walks out against a payment that never
+                arrived. */}
+            {promptOutstanding && (
+              <div className="mt-1 text-[12px] text-[#B45309]">
+                M-Pesa has not confirmed that payment. Take the money another way, or
+                press Check again, before letting the part go.
               </div>
             )}
           </div>
@@ -4956,10 +5187,117 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
               disabled={blocked}
               className="flex-1 bg-[#2563EB] text-[#F3F5F8] font-bold uppercase tracking-wide rounded-md py-3 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <ShoppingCart size={18} /> Confirm sale
+              <ShoppingCart size={18} /> {promptOutstanding ? "Confirm unpaid" : "Confirm sale"}
             </button>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/* WHAT WAS ASKED FOR, AND WHAT CAME BACK.
+
+   A prompt that is answered thirty seconds after the cashier has moved on to the
+   next customer is otherwise invisible: the sale screen has been reset and the
+   money is in the till account with nothing on any screen tying it to a part. This
+   is the answer to "did that one land", and it is the only place in the app that
+   reads the table.
+
+   IT IS NOT THE CASH BOOK AND MUST NEVER BECOME IT. A sale paid by M-Pesa is
+   already in the M-Pesa column through the method on the sale — see the header of
+   supabase/mpesa.sql. This list is the request and the answer; adding it to the
+   day's takings would count every prompt-paid sale twice. */
+function MpesaLog() {
+  const [open, setOpen] = useState(false);
+  /* null means "not asked yet", which is a different thing from an empty list and
+     has to look different: one is a panel nobody has opened, the other is a shop
+     that has sent no prompts. */
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setBusy(true);
+    try { setRows(await api.fetchMpesaPayments(20)); } finally { setBusy(false); }
+  };
+  /* Loaded on opening rather than on mounting. The till sits on this screen all
+     day and most of that time nobody is asking. */
+  useEffect(() => { if (open && rows === null) load(); }, [open]);
+
+  const dot = { good: "#15926A", warn: "#B45309", bad: "#DC3B2E", wait: "#2563EB" };
+  /* One reading of the clock for the whole list, so two rows sent in the same
+     second cannot end up saying different things about how long ago that was. */
+  const now = Date.now();
+
+  return (
+    <div className="mt-5 border-t border-[#DEE3E9] pt-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[12px] font-semibold text-[#2563EB] flex items-center gap-1.5"
+      >
+        <Smartphone size={13} />
+        M-Pesa prompts sent
+        <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2.5">
+          {rows === null ? (
+            <p className="text-[11px] text-[#5A6472]">Looking…</p>
+          ) : rows.length === 0 ? (
+            <p className="text-[11px] text-[#5A6472] leading-relaxed">
+              No prompts have been sent from this shop yet. If you expected some,
+              supabase/mpesa.sql may not have been run.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {rows.map((r) => {
+                /* sentAt from the row's own time, so a prompt sent this morning and
+                   never answered reads as unanswered rather than as still ringing. */
+                const st = promptStatus({ ...r, sentAt: r.ts }, now);
+                return (
+                  <div key={r.id} className="rounded-md border border-[#DEE3E9] bg-white px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[12px] font-bold text-[#1B2430] flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: dot[st.tone] }} />
+                        KES {r.amount.toLocaleString()}
+                      </span>
+                      <span className="text-[10px] text-[#5A6472]">{agoText(r.ts, now)}</span>
+                    </div>
+                    <div className="text-[11px] text-[#5A6472] mt-0.5">
+                      {prettyPhone(r.phone)}
+                      {r.forCode ? ` · ${r.forCode}` : ""}
+                      {r.forCustomer ? ` · ${r.forCustomer}` : ""}
+                      {r.by ? ` · ${r.by}` : ""}
+                    </div>
+                    <div className="text-[11px] mt-0.5" style={{ color: dot[st.tone] }}>
+                      {st.title} {r.receipt ? r.receipt : ""}
+                    </div>
+                    {/* The two figures should agree. Where they do not, the shop is
+                        shown both rather than the request being rewritten to match
+                        the answer. */}
+                    {r.paidAmount != null && r.paidAmount !== r.amount && (
+                      <div className="text-[11px] text-[#8C1D13] mt-0.5">
+                        Asked for KES {r.amount.toLocaleString()}, M-Pesa says KES {r.paidAmount.toLocaleString()}.
+                      </div>
+                    )}
+                    {r.env !== "production" && (
+                      <div className="text-[10px] text-[#B45309] mt-0.5">
+                        Test mode — no real money moved.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button
+            onClick={load}
+            disabled={busy}
+            className="mt-2 text-[11px] font-semibold text-[#2563EB] disabled:opacity-50"
+          >
+            {busy ? "Checking…" : "Check again"}
+          </button>
+        </div>
       )}
     </div>
   );
