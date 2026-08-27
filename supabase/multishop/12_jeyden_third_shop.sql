@@ -251,7 +251,12 @@ begin
   end if;
 
   v_report := v_report ||
-    'Jaspare Auto''s branches: ' || v_main || ' (this must still say 7 — if it moved, stop)' || chr(10) ||
+    -- Reported, not asserted against a number. An earlier version of this line
+    -- claimed the count "must still say 7", which was never true of this database:
+    -- public.branches has held two rows since 2026-08-26 and adding a shop does not
+    -- touch it. A guard that cries wolf gets ignored, which is worse than no guard.
+    -- What matters is that this number is the SAME before and after.
+    'Jaspare Auto''s branches, unchanged by this file: ' || v_main || chr(10) ||
     'Open https://bypass-shop.vercel.app/' || btrim(p_slug) || '/login' || chr(10) ||
     'The tile should no longer say "Not on the system yet", and the shelf should be' || chr(10) ||
     'empty — NOT holding one part of anybody else''s stock. If another shop''s parts' || chr(10) ||
