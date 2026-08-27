@@ -241,15 +241,15 @@ function NotOnTheSystemYet({ shop, shops, onPick }) {
           show.
         </p>
         <p className="text-[#5A6472] text-xs mt-3 leading-relaxed">
-          Whoever looks after the database finishes it by running{" "}
+          Whoever looks after the database finishes it by pasting{" "}
           {shop.setupFile ? (
             <span className="font-mono text-[#9FB3CC]">{shop.setupFile}</span>
           ) : (
             <>this shop&apos;s step in <span className="font-mono text-[#9FB3CC]">supabase/multishop/</span></>
           )}{" "}
-          once, with this shop&apos;s first admin email filled in. Nothing needs
-          deploying afterwards — this page turns into the shop the moment the row
-          exists.
+          into the SQL editor and pressing run. Nothing in it needs editing, and
+          nothing needs deploying afterwards — this page turns into the shop the
+          moment the row exists.
         </p>
         {shop.phone && (
           <p className="text-[#9FB3CC] text-sm mt-4">

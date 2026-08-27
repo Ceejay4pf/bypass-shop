@@ -4,9 +4,10 @@ Bypass Shop Jaspare Branch, Sure Fit Auto Spares Ltd and Jeyden Auto Spares, sha
 Supabase project, seeing nothing of each other's stock.
 
 Not a fixed three. Steps 1–11 were written for two and are not counted anywhere; step 12
-is the form a shop is added with, and Jaspare Auto — the main shop above these branches —
-has not been created yet. The app reads `public.shops`, so a shop is an insert and not a
-release: nothing here needs a deploy to appear.
+builds `public.add_shop(...)`, which is how every shop after it is added — including
+Jaspare Auto, the main shop above these branches, which has not been created yet. The app
+reads `public.shops`, so a shop is an insert and not a release: nothing here needs a deploy
+to appear.
 
 The plan these files came from, with the reasoning and the alternatives that were
 rejected, is `../MULTI_SHOP_PLAN.md`. This file is just how to run them.
@@ -58,7 +59,7 @@ assumes the migration has happened.
 | 9 | `09_shared_staff_feed.sql` | **Deliberately gives up privacy on one table.** The staff feed becomes one room both shops read, so a counter can ask the other shop about a part instead of ringing. Writing stays truthful. Re-run 05 to reverse it. |
 | 10 | `10_shop_names.sql` | What each shop is called, on every receipt and quotation. Jaspare becomes **Bypass Shop Jaspare Branch**; Sure Fit gets the word 08 left out and becomes **Sure Fit Auto Spares Ltd**. Also corrects the names 09 stamped onto messages already sent. The seven branches are untouched. |
 | 11 | `11_per_shop_activity.sql` | Staff Activity for **one** shop. The old no-argument form read every notification the signed-in person is an admin of, which for an admin of two shops is both shops' work added together under one name. |
-| — | `12_jeyden_third_shop.sql` | Separate, hand-edited, and **the shape every shop after this one is added in**: the slug, name and address are three variables at the top of one block. Creates **Jeyden Auto Spares** — its own numbering from 1, its own eleven expense categories, no branches, no stock. Jaspare's `JEY` branch row is left exactly where it is. |
+| 12 | `12_jeyden_third_shop.sql` | **Paste and run, nothing to edit.** Builds `public.add_shop(...)` — the machine every shop after this one is added with — then calls it once for **Jeyden Auto Spares**: its own numbering from 1, its own eleven expense categories, no branches, no stock. Jaspare's `JEY` branch row is left exactly where it is. It returns one row of plain English saying what exists, who can sign in, and that Jaspare's branches still read 7. |
 
 Every file is safe to re-run. If one stops half way, fix the cause and run it again
 from the top.
@@ -88,6 +89,50 @@ Its address is `/surefit-autoparts` for customers and
 `/surefit-autoparts/login` for staff. Jaspare's old links — the bare address,
 `/shop`, `/parts`, `/login` — all keep working and all still mean Jaspare, because
 they are already printed on things and already sent to people.
+
+## Adding shop number four
+
+After step 12 there is no file to write and nothing to hand-edit. One line:
+
+```sql
+select public.add_shop('jaspare-auto-main', 'Jaspare Auto',
+                       'Kirinyaga Road', 'The main shop',
+                       '+254700000000', '+254 700 000 000');
+```
+
+It creates the row, seeds the numbering at 1, seeds the eleven expense categories,
+makes the right people admins, and returns a paragraph telling you what it did. Safe
+to re-run: a second call changes nothing except fields you corrected. `add_shop` is
+revoked from `anon` and `authenticated`, so it exists only for whoever is holding the
+database — a browser cannot reach it.
+
+### Who becomes the first admin, and why it is worked out rather than typed
+
+`07_surefit_first_admin.sql` had a blank to fill in, and a shop created with that
+blank empty is a shop with **no members**: it appears in the picker, nobody can sign
+in, and the only explanation is a `NOTICE` nobody reads.
+
+So step 12 decides instead: **whoever is already an admin of every other shop becomes
+an admin of the new one.** That set is the owner, and it is the only answer that can
+be computed rather than guessed. If the set is empty nothing is invented — the shop is
+still created, and the returned paragraph says `NOBODY CAN SIGN IN YET`, lists every
+admin that exists, and gives the exact line to run with an email in it:
+
+```sql
+select public.add_shop('their-slug','Their Name',null,null,null,null,null,null,
+                       'them@example.com');
+```
+
+That last argument always wins over the rule above, for the case where somebody has
+actually said who it should be.
+
+**This still cannot be done from inside the app, on purpose.** Step 05's policy on
+`user_shops` checks `is_shop_admin_of(shop_id)` against the row being written, so an
+admin of one shop cannot add anybody to another. A shop that can grant itself
+membership of another shop is not three shops — it is one with three names. Handing
+out the first membership is the one act that has to happen at the database, and after
+it the new admin adds their own staff from inside the app and never opens this folder
+again.
 
 ## The three things worth checking afterwards
 

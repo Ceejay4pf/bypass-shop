@@ -81,9 +81,9 @@ const ROLE_KEYS_BY_SLUG = {
      invite them in through a door that RLS then shows an empty shop behind, which
      reads as a broken system rather than as "you do not work here".
 
-     So Jeyden opens with Admin only — the one account multishop/12 makes a member —
-     and that person creates their own staff from inside the app, the same way Sure
-     Fit's third person is created. Names go here when there are names. */
+     So Jeyden opens with Admin only — the role multishop/12 grants, and the only one
+     it grants — and that person creates their own staff from inside the app, the same
+     way Sure Fit's third person is created. Names go here when there are names. */
   "jeyden-autospares": ["admin"],
 };
 
