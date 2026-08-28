@@ -69,6 +69,14 @@ export const SCOPED_TABLES = [
      business reading the other's. Never INSERTED from here — the row is written
      by the edge function that sent the prompt (see supabase/mpesa.sql). */
   "mpesa_payments",
+  /* The rest of the books — supabase/finance_ledger.sql. A supplier list is as
+     much a shop's own as its shelf: two shops buying from the same wholesaler
+     still keep their own invoices, and one shop's debt is not the other's. */
+  "equity_movements",
+  "suppliers",
+  "purchase_invoices",
+  "supplier_payments",
+  "stock_adjustments",
 ];
 
 export const isScopedTable = (table) => SCOPED_TABLES.includes(String(table || ""));

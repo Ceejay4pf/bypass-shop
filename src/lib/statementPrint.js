@@ -254,6 +254,16 @@ export function statementHtml({
   <h2 class="sec">Trading account${periodLabel ? ` — ${esc(periodLabel)}` : ""}</h2>
   <table>${lines([
     line({ label: "Sales", value: pl?.revenue, note: `${num(pl?.units)} item${num(pl?.units) === 1 ? "" : "s"} sold` }),
+    /* Only when there were some. A line reading "Refunded (KES 0)" on every
+       statement teaches people to skip it, and this is a line that must be read on
+       the one statement where it is not zero. */
+    num(pl?.refunds) > 0
+      ? line({ label: "Refunded to customers", value: -num(pl.refunds), indent: true,
+               note: "Money handed back. Taken off turnover rather than charged as a cost, so the sales figure is not left overstated." })
+      : "",
+    num(pl?.refunds) > 0
+      ? line({ label: "Net sales", value: pl?.netRevenue, rule: true })
+      : "",
     line({ label: "Cost of what was sold", value: -num(pl?.costOfSales), indent: true }),
     line({ label: "Gross profit", value: pl?.grossProfit, rule: true,
            note: `${num(pl?.marginPct).toFixed(1)}% — estimated at ${vatMultiple}× the VAT in each sale` }),
@@ -278,7 +288,10 @@ export function statementHtml({
     line({ label: "M-Pesa", value: bs?.assets?.mpesa, indent: true }),
     line({ label: "Bank", value: bs?.assets?.bank, indent: true }),
     line({ label: "Stock on the shelves", value: bs?.assets?.stock, indent: true,
-           note: `${num(bs?.stock?.units)} items — at cost. Would fetch ${money(bs?.stock?.retail)} if it all sold.` }),
+           note: `${num(bs?.stock?.units)} items — at estimated cost. Would fetch ${money(bs?.stock?.retail)} if it all sold.${
+             num(bs?.writeOffs) !== 0
+               ? ` ${money(-num(bs.writeOffs))} has been written off damaged or missing stock.`
+               : ""}` }),
     line({ label: "Owed by credit accounts", value: bs?.assets?.debtors, indent: true }),
     line({ label: "Owed on unpaid sales", value: bs?.assets?.unpaidSales, indent: true }),
     line({ label: "Total owned", value: bs?.totalAssets, rule: true }),
@@ -286,13 +299,21 @@ export function statementHtml({
   <h3 class="sub">What the shop owes</h3>
   <table>${lines([
     line({ label: "Suppliers", value: bs?.liabilities?.suppliers, indent: true,
-           note: "Nowhere in the system records buying on credit yet, so this is zero rather than checked." }),
+           note: num(bs?.payables?.overdue) > 0
+             ? `${money(bs.payables.overdue)} of it is past its due date.`
+             : "Unpaid purchase invoices. The parts they bought are already counted on the shelf above, so they are not added again here." }),
     line({ label: "Total owed", value: bs?.totalLiabilities, rule: true }),
   ])}</table>
   <h3 class="sub">What it is worth</h3>
   <table>${lines([
-    line({ label: "Money the owner put in", value: bs?.capital, indent: true }),
-    line({ label: "Money the owner took out", value: -num(bs?.drawings), indent: true }),
+    line({ label: "Money the owner put in", value: bs?.capital, indent: true,
+           note: num(bs?.capitalSince) > 0
+             ? `${money(bs.capitalOpening)} at the start, ${money(bs.capitalSince)} since.`
+             : "" }),
+    line({ label: "Money the owner took out", value: -num(bs?.drawings), indent: true,
+           note: num(bs?.drawingsSince) > 0
+             ? `${money(bs.drawingsSince)} of it in this system's records.`
+             : "" }),
     line({ label: "Made by the business since", value: bs?.retainedEarnings, indent: true }),
     line({ label: "Net worth of the shop", value: bs?.equity, total: true }),
   ])}</table>

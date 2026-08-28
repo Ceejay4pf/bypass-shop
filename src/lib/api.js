@@ -1615,6 +1615,229 @@ export async function saveOpening({ asOf, cash, mpesa, bank, capital, drawings, 
   if (error) throw error;
 }
 
+/* ============================================================
+   THE REST OF THE BOOKS  (see supabase/finance_ledger.sql)
+
+   Suppliers, what is owed to them, what has been paid, money the owner puts in and
+   takes out, and stock written off.
+
+   NOT ONE FUNCTION IN THIS SECTION TOUCHES A STOCK COUNT. A purchase invoice is a
+   debt, not a delivery; parts still arrive through Add Stock, counted by the person
+   holding them. A stock adjustment moves the VALUATION and leaves the quantity to
+   the person who can see the shelf. This is the rule the SQL file is built around
+   and it is repeated here because this is where it would be easiest to break.
+   ============================================================ */
+
+const dateOnly = (v) => (v ? String(v).slice(0, 10) : new Date().toISOString().slice(0, 10));
+
+/* Every reader below swallows a missing table and returns an empty list, the same
+   way fetchMpesaPayments does. A shop that has not run finance_ledger.sql should
+   see empty screens that say so, not a page that will not load. */
+const softList = async (q, map) => {
+  const { data, error } = await q;
+  if (error) return [];
+  return (data || []).map(map);
+};
+
+export function rowToSupplier(r) {
+  return {
+    id: r.id, name: r.name || "", phone: r.phone || "", email: r.email || "",
+    kraPin: r.kra_pin || "", address: r.address || "", note: r.note || "",
+    isActive: r.is_active !== false, byName: r.by_name || "",
+  };
+}
+
+export async function fetchSuppliers() {
+  return softList(shopFrom("suppliers").select("*").order("name", { ascending: true }), rowToSupplier);
+}
+
+export async function addSupplier({ name, phone, email, kraPin, address, note }, byName) {
+  const { data, error } = await shopFrom("suppliers")
+    .insert({
+      name: String(name || "").trim(),
+      phone: phone || null, email: email || null, kra_pin: kraPin || null,
+      address: address || null, note: note || null, by_name: byName || null,
+    })
+    .select().single();
+  /* The unique index on (shop_id, name) is what stops two "Kirinyaga Motors"
+     rows splitting one debt across two lines. Named, not passed through: nobody
+     reads "duplicate key value violates unique constraint". */
+  if (error) {
+    if (String(error.message || "").includes("suppliers_shop_name_idx")) {
+      throw new Error(`${String(name).trim()} is already on the supplier list.`);
+    }
+    throw error;
+  }
+  return rowToSupplier(data);
+}
+
+export function rowToPurchaseInvoice(r) {
+  return {
+    id: r.id, supplierId: r.supplier_id || null, supplierName: r.supplier_name || "",
+    invoiceNo: r.invoice_no || "", invoicedOn: r.invoiced_on, dueOn: r.due_on || null,
+    amount: Number(r.amount) || 0, note: r.note || "", byName: r.by_name || "",
+    ts: r.created_at, voidedAt: r.voided_at || null, voidedBy: r.voided_by || "",
+    voidReason: r.void_reason || "",
+  };
+}
+
+export async function fetchPurchaseInvoices(limit = 2000) {
+  return softList(
+    shopFrom("purchase_invoices").select("*")
+      .order("invoiced_on", { ascending: false }).limit(limit),
+    rowToPurchaseInvoice);
+}
+
+export async function addPurchaseInvoice(
+  { supplierId, supplierName, invoiceNo, invoicedOn, dueOn, amount, note }, byName) {
+  const { data, error } = await shopFrom("purchase_invoices")
+    .insert({
+      supplier_id: supplierId || null,
+      supplier_name: supplierName || null,
+      invoice_no: invoiceNo || null,
+      invoiced_on: dateOnly(invoicedOn),
+      due_on: dueOn || null,
+      amount: Number(amount),
+      note: note || null,
+      by_name: byName || null,
+    })
+    .select().single();
+  if (error) {
+    if (String(error.message || "").includes("purchase_invoices_no_idx")) {
+      throw new Error(`Invoice ${invoiceNo} from that supplier is already entered.`);
+    }
+    throw error;
+  }
+  return rowToPurchaseInvoice(data);
+}
+
+export function rowToSupplierPayment(r) {
+  return {
+    id: r.id, supplierId: r.supplier_id || null, invoiceId: r.invoice_id || null,
+    supplierName: r.supplier_name || "", paidOn: r.paid_on,
+    amount: Number(r.amount) || 0, method: r.method || "Cash",
+    reference: r.reference || "", note: r.note || "", byName: r.by_name || "",
+    ts: r.created_at, voidedAt: r.voided_at || null, voidedBy: r.voided_by || "",
+    voidReason: r.void_reason || "",
+  };
+}
+
+export async function fetchSupplierPayments(limit = 2000) {
+  return softList(
+    shopFrom("supplier_payments").select("*")
+      .order("paid_on", { ascending: false }).limit(limit),
+    rowToSupplierPayment);
+}
+
+export async function addSupplierPayment(
+  { supplierId, invoiceId, paidOn, amount, method, reference, note }, byName) {
+  const { data, error } = await shopFrom("supplier_payments")
+    .insert({
+      supplier_id: supplierId || null,
+      invoice_id: invoiceId || null,
+      paid_on: dateOnly(paidOn),
+      amount: Number(amount),
+      method: method || "Cash",
+      reference: reference || null,
+      note: note || null,
+      by_name: byName || null,
+    })
+    .select().single();
+  if (error) throw error;
+  return rowToSupplierPayment(data);
+}
+
+export function rowToEquityMovement(r) {
+  return {
+    id: r.id, happenedOn: r.happened_on, kind: r.kind,
+    amount: Number(r.amount) || 0, method: r.method || null,
+    note: r.note || "", byName: r.by_name || "", ts: r.created_at,
+    voidedAt: r.voided_at || null, voidedBy: r.voided_by || "",
+    voidReason: r.void_reason || "",
+  };
+}
+
+export async function fetchEquityMovements(limit = 2000) {
+  return softList(
+    shopFrom("equity_movements").select("*")
+      .order("happened_on", { ascending: false }).limit(limit),
+    rowToEquityMovement);
+}
+
+export async function addEquityMovement({ happenedOn, kind, amount, method, note }, byName) {
+  const { data, error } = await shopFrom("equity_movements")
+    .insert({
+      happened_on: dateOnly(happenedOn),
+      kind,
+      amount: Number(amount),
+      /* Null on purpose where the owner used their own money and it never went
+         through a till. The cash book then leaves it alone and only the balance
+         sheet counts it — see moneyIn in src/lib/finance.js. */
+      method: method || null,
+      note: note || null,
+      by_name: byName || null,
+    })
+    .select().single();
+  if (error) throw error;
+  return rowToEquityMovement(data);
+}
+
+export function rowToStockAdjustment(r) {
+  return {
+    id: r.id, happenedOn: r.happened_on, code: r.code || "",
+    reason: r.reason || "", value: Number(r.value) || 0,
+    qty: r.qty == null ? null : Number(r.qty),
+    note: r.note || "", byName: r.by_name || "", ts: r.created_at,
+    voidedAt: r.voided_at || null, voidedBy: r.voided_by || "",
+    voidReason: r.void_reason || "",
+  };
+}
+
+export async function fetchStockAdjustments(limit = 2000) {
+  return softList(
+    shopFrom("stock_adjustments").select("*")
+      .order("happened_on", { ascending: false }).limit(limit),
+    rowToStockAdjustment);
+}
+
+/* `value` is stored signed. Written off is negative, so the caller is not trusted
+   to remember: `direction` says which way and the sign is applied here.
+
+   IT DOES NOT CHANGE A QUANTITY, and there is nothing in this function that
+   could. Whoever is holding the damaged part corrects the count in Add Stock. */
+export async function addStockAdjustment(
+  { happenedOn, code, reason, value, qty, note, direction = "off" }, byName) {
+  const magnitude = Math.abs(Number(value) || 0);
+  const { data, error } = await shopFrom("stock_adjustments")
+    .insert({
+      happened_on: dateOnly(happenedOn),
+      code: code || null,
+      reason: reason || "Other",
+      value: direction === "on" ? magnitude : -magnitude,
+      qty: qty == null || qty === "" ? null : Number(qty),
+      note: note || null,
+      by_name: byName || null,
+    })
+    .select().single();
+  if (error) throw error;
+  return rowToStockAdjustment(data);
+}
+
+/* Voided, never deleted, on all four. The tables have no delete policy at all, so
+   this is the only route — see the header of supabase/finance_ledger.sql. */
+export async function voidFinanceRow(table, id, byName, reason = "") {
+  const allowed = ["purchase_invoices", "supplier_payments", "equity_movements", "stock_adjustments"];
+  if (!allowed.includes(table)) throw new Error(`Nothing can be voided in ${table}.`);
+  const { error } = await shopFrom(table)
+    .update({
+      voided_at: new Date().toISOString(),
+      voided_by: byName || null,
+      void_reason: reason || null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 /* Everything the statements need, in one go. Fetched together so the figures
    on screen all describe the same moment - loading them separately would let
    a sale land between two reads and make the totals disagree.
@@ -1631,7 +1854,9 @@ export async function fetchFinanceData() {
       problems.push({ what: label, message: e?.message || String(e) });
       return fallback;
     });
-  const [sales, expenses, receipts, accounts, items, opening, categories] = await Promise.all([
+  const [sales, expenses, receipts, accounts, items, opening, categories,
+         suppliers, purchaseInvoices, supplierPayments, equityMovements,
+         stockAdjustments, mpesaPayments] = await Promise.all([
     safe("sales", fetchSales(5000), []),
     safe("expenses", fetchExpenses(5000), []),
     safe("receipts", fetchReceipts(2000), []),
@@ -1639,6 +1864,17 @@ export async function fetchFinanceData() {
     safe("stock", fetchInventory(), []),
     safe("opening balances", fetchOpening(), null),
     safe("expense categories", fetchExpenseCategories(), []),
+    safe("suppliers", fetchSuppliers(), []),
+    safe("purchase invoices", fetchPurchaseInvoices(), []),
+    safe("supplier payments", fetchSupplierPayments(), []),
+    safe("owner's money in and out", fetchEquityMovements(), []),
+    safe("stock adjustments", fetchStockAdjustments(), []),
+    /* THE ONLY REASON THIS TABLE IS READ HERE. supabase/mpesa.sql forbids counting
+       it as money received, because a prompt-paid sale already reaches the M-Pesa
+       pot through sales.method. A REFUND is the exception: there is no other record
+       of it anywhere, so leaving it out would mean money genuinely left the till
+       and no statement could see it. Filtered to refunds below, on purpose. */
+    safe("M-Pesa refunds", fetchMpesaPayments(2000), []),
   ]);
   /* Credit movements come per account, so they are gathered here - the cash
      book needs every payment, not one garage's. `byName` is added because the
@@ -1656,9 +1892,16 @@ export async function fetchFinanceData() {
     )
   );
   return {
+    /* `by` as well as `byName`: the cash book reads byName, the printed reports
+       read by, and one of them being blank on paper is the sort of thing nobody
+       notices until a month-end argument. `returnedAt` matters more — without it
+       finance.js cannot tell an undone sale from a real one, and would count both
+       the money and the part back on the shelf. */
     sales: (sales || []).map((s) => ({
-      ts: s.ts, code: s.code, name: s.name, qty: s.qty, buyer: s.buyer,
-      paid: s.paid, total: s.total, byName: s.by_name, method: s.method,
+      id: s.id, ts: s.ts, code: s.code, name: s.name, qty: s.qty, buyer: s.buyer,
+      phone: s.phone, paid: s.paid, total: s.total, method: s.method,
+      byName: s.by_name, by: s.by_name,
+      returnedAt: s.returned_at || null,
     })),
     expenses,
     receipts,
@@ -1667,6 +1910,18 @@ export async function fetchFinanceData() {
     items,
     opening,
     categories,
+    suppliers,
+    purchaseInvoices,
+    supplierPayments,
+    equityMovements,
+    stockAdjustments,
+    /* Refunded rows only. A refund that was asked for and never went through is
+       not money out, and a statement that counted it would show a drawer short of
+       cash that is still in it. */
+    mpesaRefunds: (mpesaPayments || []).filter(
+      (m) => m.refundStatus === "refunded" && Number(m.refundAmount) > 0),
+    /* Everything paid, refunded or not, for the refund screen itself. */
+    mpesaPayments: mpesaPayments || [],
     problems,
   };
 }
@@ -2000,7 +2255,12 @@ export async function checkMpesaPrompt(checkoutRequestId) {
    security has already decided which rows those are. */
 export async function fetchMpesaPayments(limit = 40) {
   const { data, error } = await shopFrom("mpesa_payments")
-    .select("checkout_request_id,phone,amount,status,result_desc,mpesa_receipt,paid_amount,paid_at,for_code,for_customer,requested_by,env,created_at")
+    /* Every column, not a hand-written list. The list used to be spelled out, and
+       the refund columns added by supabase/finance_ledger.sql would then have been
+       invisible on any database where that file had been run and silently broken the
+       query on one where it had not. There is nothing on this table that this shop's
+       own staff may not see — RLS has already decided which rows those are. */
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
   /* A missing table means supabase/mpesa.sql has not been pasted yet. Returns an
@@ -2023,7 +2283,68 @@ export async function fetchMpesaPayments(limit = 40) {
     by: r.requested_by || "",
     env: r.env || "sandbox",
     ts: r.created_at ? new Date(r.created_at).getTime() : 0,
+    /* Undefined until supabase/finance_ledger.sql has been run. Null rather than
+       "" for refundStatus, because "no refund" and "a refund that failed" must not
+       look the same to the screen. */
+    refundStatus: r.refund_status || null,
+    refundAmount: r.refund_amount == null ? null : Number(r.refund_amount),
+    refundReason: r.refund_reason || "",
+    refundRequestedAt: r.refund_requested_at ? new Date(r.refund_requested_at).getTime() : 0,
+    refundRequestedBy: r.refund_requested_by || "",
+    refundAt: r.refund_at ? new Date(r.refund_at).getTime() : 0,
+    refundRef: r.refund_ref || "",
+    refundResultDesc: r.refund_result_desc || "",
   }));
+}
+
+/* ---- SENDING MONEY BACK ----
+
+   Two halves, and the split is the whole security model. `askMpesaRefund` writes
+   'requested' through a database function that checks the prompt was actually paid
+   and belongs to this shop. `runMpesaRefund` asks the edge function to call
+   Safaricom, and only the edge function can record that the money went back.
+
+   A cashier can therefore ask for a refund and can never mark one as made. */
+export async function askMpesaRefund({ checkoutRequestId, amount, reason }, byName) {
+  const { data, error } = await supabase.rpc("mpesa_refund_ask", {
+    p_checkout_id: checkoutRequestId,
+    p_amount: Number(amount),
+    p_reason: reason || null,
+    p_by: byName || null,
+  });
+  /* A missing function means finance_ledger.sql has not been run. Said plainly:
+     "could not" and "not set up yet" send somebody to two different places. */
+  if (error) return { ok: false, setup: true, error: "Refunds are not set up on this system yet." };
+  const outcome = String(data || "");
+  const why = {
+    "not-allowed": "Only the shop owner can send money back.",
+    "unknown": "That prompt is not on this system.",
+    "not-paid": "That prompt was never paid, so there is nothing to send back.",
+    "already-refunded": "That one has already been sent back.",
+    "already-asked": "A refund has already been asked for on that one.",
+    "bad-amount": "The amount must be more than nothing and no more than was paid.",
+  }[outcome];
+  return why ? { ok: false, error: why } : { ok: true, outcome };
+}
+
+/* Actually reverse it at Safaricom. Returns a sentence fit for a counter screen. */
+export async function runMpesaRefund({ checkoutRequestId, amount, reason }, byName) {
+  try {
+    const { data, error } = await supabase.functions.invoke("mpesa-stk", {
+      body: {
+        action: "refund",
+        shopId: currentShopId() || null,
+        checkoutRequestId, amount, reason, by: byName || "",
+      },
+    });
+    if (error) {
+      return { ok: false, setup: true,
+               error: "The M-Pesa service is not answering. It may not be set up on this system yet." };
+    }
+    return data || { ok: false, error: "M-Pesa gave no answer." };
+  } catch {
+    return { ok: false, error: "No connection — nothing was sent back." };
+  }
 }
 
 export function subscribeCustomerOrders(onChange) {
