@@ -54,7 +54,10 @@ const NAV = [
      a shelf at a time instead of a part at a time. */
   { id: "prices", label: "Prices", icon: DollarSign, cap: "edit" },
   { id: "stock", label: "Add New Stock", icon: PackagePlus },
-  { id: "sell", label: "Sell Item", icon: ShoppingCart },
+  /* "Sales", not "Sell Item": the screen both records a sale and shows every
+     sale ever recorded, and a menu entry that names only half of that is a menu
+     entry nobody taps when they want the other half. */
+  { id: "sell", label: "Sales", icon: ShoppingCart },
   /* What came in off the public parts list. Above Quotation and Receipt
      because that is what an order turns into. */
   { id: "orders", label: "Customer Orders", icon: ClipboardList },
@@ -895,6 +898,12 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           /* Whose name goes against an M-Pesa prompt. A prompt is a request for
              money made in the shop's name, so it records who made it. */
           user={user}
+          /* Who may undo somebody else's sale on the All sales list. Staff can
+             undo their own; the owner can undo anyone's. */
+          admin={admin}
+          /* A return puts the part back on the shelf, so the shelf on every other
+             screen has to be told. Same callback the Notifications undo uses. */
+          onChanged={refreshAfterUndo}
         />
       )}
       {id === "orders" && (

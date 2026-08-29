@@ -85,23 +85,28 @@ export const HELP_TOPICS = [
     test: /\b(undo|reverse|cancel a sale|returned?|brought it back|came back|wrong sale|mistake)\b/,
     title: "A sale that came back",
     lines: [
-      "Notifications → find the sale → \"Undo — item was returned\". Admin only.",
-      "That puts the pieces back on the shelf and stops Reports counting the money, but it does not delete anything: the sale stays on the record marked as returned, and so does the undo.",
-      "It can only be done once per sale, and a sale already undone doesn't offer the button again.",
+      "Sales → All sales → find it → \"Returned\". One tap, and it asks you nothing.",
+      "That puts the pieces back on the shelf and stops the takings, Reports and the Financial Statements counting the money — but it does not delete anything: the sale stays on the record marked as returned, and so does the return, under the name of whoever tapped it.",
+      "Your own sales you can return yourself. The owner can return anybody's.",
+      "It can only be done once per sale, and a sale already returned doesn't offer the button again.",
+      "Notifications has the same undo with a reason box and a tick for \"this part came from another branch, don't put it back on our shelf\" — use that one for the rare sale where the goods were never ours.",
     ],
-    go: { tab: "notify", label: "Open Notifications" },
+    go: { tab: "sell", label: "Open Sales" },
   },
   {
     key: "sell",
-    test: /\b(sell|sale|sold|selling|serve a customer|customer buys)\b/,
+    /* "sales" as well as "sale": \bsale\b does not match it, and "show me all the
+       sales" was falling through to the do-you-mean list. */
+    test: /\b(sell|sales?|sold|selling|serve a customer|customer buys)\b/,
     title: "Recording a sale",
     lines: [
-      "Sell Item: find the part, put in how many, who bought it and how they paid. Cash, M-Pesa or on credit.",
+      "Sales: find the part, put in how many, who bought it and how they paid. Cash, M-Pesa or on credit.",
+      "The All sales button on that screen shows every sale on record — search it by part, customer or who sold it, pick a period, print the report, or mark one returned with a single tap.",
       "Saving it takes the pieces off the shelf, writes the movement into that part's ledger, and puts the sale in Reports and the activity feed at once — on every phone, not just yours.",
       "Mark it unpaid if the money hasn't come. It then shows in Credit Accounts and under \"still unpaid\" until somebody settles it.",
       "Quick Transaction does the same in fewer taps when you already know the part.",
     ],
-    go: { tab: "sell", label: "Open Sell Item" },
+    go: { tab: "sell", label: "Open Sales" },
     goAlt: { tab: "quick", label: "Quick Transaction" },
   },
   {
@@ -147,7 +152,7 @@ export const HELP_TOPICS = [
     title: "Changing a price, a detail or the count",
     lines: [
       "Edit Parts, for one part at a time — price, condition, colour, year, shelf, notes, photos, and the number on the shelf.",
-      "Changing the count there asks why, and files it as a correction under your name. Use it when the system disagrees with the shelf; stock arriving still belongs on Add New Stock and stock sold on Sell Item, because those are what the day's figures are built from.",
+      "Changing the count there asks why, and files it as a correction under your name. Use it when the system disagrees with the shelf; stock arriving still belongs on Add New Stock and stock sold on Sales, because those are what the day's figures are built from.",
       "For many at once, tell this box: \"set all Premio bumper prices to 9500\". It lists every part it would change, with the old price beside the new one, before anything happens.",
       "A price change is written into the part's ledger with who changed it. The section code in a part's code can never be changed — a part filed in the wrong section is moved by adding it again in the right one.",
     ],

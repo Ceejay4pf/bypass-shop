@@ -651,7 +651,7 @@ function readRemove(low, raw, items, categories) {
   if (/\b(sold|sell|sale|sales)\b/.test(low)) {
     return {
       kind: "unknown",
-      why: "If it was sold, put it through Sell Item — that keeps the money with the part and takes it off the shelf in the same breath. Removing it here would leave a gap on the shelf and no sale behind it.",
+      why: "If it was sold, put it through Sales — that keeps the money with the part and takes it off the shelf in the same breath. Removing it here would leave a gap on the shelf and no sale behind it.",
     };
   }
 
@@ -775,7 +775,7 @@ function readRemove(low, raw, items, categories) {
    half-attempted. Somebody who types "sell a bumper to Mwangi" should be sent
    to the screen that does it properly, not have a sale half-recorded. */
 const NOT_YET = [
-  { test: /\b(sell|sold|sale)\b/, say: "Recording a sale needs the customer and the payment, so it's on the Sell Item screen — this box doesn't do sales." },
+  { test: /\b(sell|sold|sale)\b/, say: "Recording a sale needs the customer and the payment, so it's on the Sales screen — this box doesn't do sales." },
   /* Removing a part used to be refused outright here. It is read now — see
      readRemove, which runs before this list — and every wording it cannot
      safely act on answers for itself, by name. */

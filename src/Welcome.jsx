@@ -14,7 +14,7 @@ import {
 const STEPS = [
   { icon: Search, title: "Find a part", body: "Use Search or open Inventory — tap a category, then the part. Every part has a unique code." },
   { icon: PackagePlus, title: "Receive new stock", body: "Add New Stock adds quantity to a part when it arrives from a supplier." },
-  { icon: ShoppingCart, title: "Sell a part", body: "Sell Item records who bought it, the price, and whether it's paid. Stock drops automatically." },
+  { icon: ShoppingCart, title: "Sell a part", body: "Sales records who bought it, the price, and whether it's paid. Stock drops automatically." },
   { icon: FileText, title: "Make a quotation", body: "Quotation lets you list parts with prices you type — the system adds up the total for the customer." },
   { icon: Bell, title: "Watch notifications", body: "Every sale, restock and low-stock alert is logged and shared with the main shop." },
   { icon: History, title: "Nothing is lost", body: "The Ledger shows the full history of any part: every add, sale and adjustment, with who did it." },

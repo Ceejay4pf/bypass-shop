@@ -54,6 +54,11 @@ import {
   PROMPT_LIFETIME_MS,
 } from "./lib/mpesa.js";
 import { publicLink } from "./lib/publicRoute.js";
+/* The printed sales report, on the same letterhead as the statements — one
+   builder, so a report taken to a bank cannot be missing the warning block that
+   every other page carries. See the note at the top of src/lib/ledgerPrint.js. */
+import { salesReportHtml } from "./lib/ledgerPrint.js";
+import { printDoc, printHtml } from "./financeUI.jsx";
 /* Which parts share a shelf, and what typing one price into that shelf would
    actually overwrite. Pure and node-testable on purpose — see the note at the top
    of src/lib/pricing.js. */
@@ -859,7 +864,7 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
           actions={[
             {
               label: "Sell this part",
-              desc: "Record a sale — opens Sell Item with this part ready.",
+              desc: "Record a sale — opens Sales with this part ready.",
               icon: ShoppingCart,
               color: "#15926A",
               disabled: held.qty === 0,
@@ -4499,7 +4504,7 @@ function EditPartForm({ item, categories, onCancel, onSave, canAdjust = false, f
               ) : (
                 <>
                   Change this only to make the system match what is actually there.
-                  Stock arriving belongs on Add New Stock, stock sold on Sell Item.
+                  Stock arriving belongs on Add New Stock, stock sold on Sales.
                 </>
               )}
             </div>
@@ -4650,8 +4655,283 @@ function EditPartForm({ item, categories, onCancel, onSave, canAdjust = false, f
   );
 }
 
-/* ======================= SELL ======================= */
-export function SellTab({ items, categories, onSell, onAddStock, initialCode = "", user = "" }) {
+/* ======================= EVERY SALE EVER MADE =======================
+   The owner's words: "i can view all eve made undo sold items as returned no
+   xplanation and also genert reports".
+
+   THE UNDO IS ONE TAP AND ASKS NOTHING. No sheet, no confirm, no reason box.
+   That is deliberate, and it is not carelessness:
+
+   - A required reason box gets "x" typed into it. An optional one that still
+     costs a screen gets the return recorded in the exercise book instead, which
+     is the outcome this whole app exists to prevent.
+   - A mis-tap is recoverable in the only way that matters at a counter: the part
+     is back on the shelf and can be sold again. Nothing is erased — the sale
+     stays on record, stamped as returned, and the return is its own movement
+     under the name of whoever tapped.
+   - It is therefore SAFER than the alternative, because the expensive mistake
+     here is a return that never got recorded, not one recorded twice.
+
+   The detailed version — with a reason, and the tick for "this came from another
+   branch, don't put it back on our shelf" — still exists in Staff Activity, for
+   the rare sale where the goods were never ours to restock. This screen always
+   restocks, because at a counter they almost always were.
+
+   WHO MAY TAP IT. Admins, any sale. Everybody else, only sales they recorded
+   themselves — you can undo your own mistake without fetching the owner, and
+   nobody quietly reverses somebody else's takings. The database enforces the
+   shop boundary on top of that (see undo_sale in supabase/undo_and_activity.sql);
+   it does not enforce this rule, which is a courtesy, not a lock. */
+
+/* Newest first, and capped. A shop that has been trading for years has more sales
+   than a phone should hold in memory at once, so the screen loads a page and says
+   so — see countSales in lib/api.js for why the cap is announced rather than hidden. */
+const SALES_PAGE = 2000;
+
+const SALES_WINDOWS = [
+  { id: "today", label: "Today" },
+  { id: "week", label: "Last 7 days" },
+  { id: "month", label: "This month" },
+  { id: "all", label: "Everything" },
+];
+
+/* The start of a window, from a clock read once by the caller. Not read in here:
+   a list that re-decides where "today" begins on every keystroke will drop a row
+   at midnight in the middle of somebody scrolling. */
+function salesWindowFrom(id, now) {
+  const d = new Date(now);
+  if (id === "today") return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (id === "week") return now - 7 * 86400000;
+  if (id === "month") return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  return 0;
+}
+
+function windowLabel(id, now) {
+  if (id === "all") return "Every sale on record";
+  if (id === "today") return new Date(now).toLocaleDateString("en-KE", { day: "2-digit", month: "long", year: "numeric" });
+  if (id === "week") return "The last seven days";
+  return new Date(now).toLocaleDateString("en-KE", { month: "long", year: "numeric" });
+}
+
+function SalesHistory({ user = "", admin = false, onChanged }) {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(null);   // how many there are altogether
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [win, setWin] = useState("today");
+  const [query, setQuery] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [rowErr, setRowErr] = useState({});   // id -> message
+  /* One clock reading per load, shared by the window maths and the labels, so
+     the chips, the list and the printed heading all mean the same "today". */
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      /* The count is a nicety and the rows are the point, so a count that fails
+         must not empty the screen. Hence the two awaits rather than Promise.all
+         with one rejection taking both down. */
+      const raw = await api.fetchSales(SALES_PAGE);
+      setRows(raw.map(api.rowToSale));
+      setNow(Date.now());
+      try { setTotal(await api.countSales()); } catch { setTotal(null); }
+    } catch (e) {
+      setErr(
+        /returned_at|column|function|does not exist/i.test(e.message || "")
+          ? "Run supabase/undo_and_activity.sql in the Supabase SQL editor to switch returns on."
+          : e.message || "Couldn't load the sales."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const from = salesWindowFrom(win, now);
+  const periodLabel = windowLabel(win, now);
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((s) => {
+      if (s.ts < from) return false;
+      if (!q) return true;
+      return [s.code, s.name, s.buyer, s.phone, s.by, s.method]
+        .some((v) => String(v || "").toLowerCase().includes(q));
+    });
+  }, [rows, from, query]);
+
+  /* Returns excluded from the money and the count, included in the list. The
+     same rule as everywhere else: the sale happened, it just stopped counting.
+     See isLiveSale in src/lib/finance.js — this screen and the statements must
+     agree about what a returned sale is worth, which is nothing. */
+  const live = shown.filter((s) => !s.returnedAt);
+  const returned = shown.filter((s) => s.returnedAt);
+  const takings = live.reduce((t, s) => t + Number(s.total || 0), 0);
+  const unpaid = live.reduce((t, s) => (s.paid === false ? t + Number(s.total || 0) : t), 0);
+  const units = live.reduce((t, s) => t + Number(s.qty || 0), 0);
+
+  const mayUndo = (s) => !s.returnedAt && (admin || (s.by && s.by === user));
+
+  /* One tap. It writes straight away and the row shows the outcome — see the
+     note at the top of this section for why nothing is asked first. */
+  const markReturned = async (s) => {
+    if (busyId) return;
+    setBusyId(s.id);
+    setRowErr((m) => ({ ...m, [s.id]: "" }));
+    try {
+      await api.undoSale(s.id, user || "", "", true);
+      /* Stamped locally as well as reloaded, so the row changes under the finger
+         that tapped it instead of a second later when the fetch lands. */
+      setRows((list) => list.map((r) =>
+        r.id === s.id ? { ...r, returnedAt: Date.now(), returnedBy: user || "" } : r));
+      onChanged?.();
+      load();
+    } catch (e) {
+      setRowErr((m) => ({ ...m, [s.id]: e.message || "Couldn't record that return." }));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const printReport = () =>
+    printHtml(salesReportHtml({ doc: printDoc(user), sales: shown, periodLabel }));
+
+  return (
+    <>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <StatCard icon={DollarSign} label="Takings" value={`KES ${takings.toLocaleString()}`} tone="gold" />
+        <StatCard icon={ShoppingCart} label="Items sold" value={units} tone="green" />
+        <StatCard icon={Clock} label="Not paid yet" value={`KES ${unpaid.toLocaleString()}`} tone="blue" />
+        <StatCard icon={RotateCcw} label="Returned" value={returned.length} tone="red" />
+      </div>
+
+      <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+        {SALES_WINDOWS.map((w) => (
+          <button
+            key={w.id}
+            onClick={() => setWin(w.id)}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap border ${
+              win === w.id ? "bg-[#2563EB] text-[#F3F5F8] border-[#2563EB]" : "border-[#DEE3E9] text-[#5A6472]"
+            }`}
+          >
+            {w.label}
+          </button>
+        ))}
+        <button
+          onClick={printReport}
+          disabled={shown.length === 0}
+          className="ml-auto shrink-0 px-3 py-1.5 rounded-md text-xs font-bold border border-[#DEE3E9] text-[#2563EB] flex items-center gap-1.5 disabled:opacity-40"
+        >
+          <Printer size={13} /> Print report
+        </button>
+      </div>
+
+      <Field label="Find a sale">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Part code, item, customer, or who sold it…"
+          className={inputCls}
+        />
+      </Field>
+
+      {loading && <div className="text-[#5A6472] text-sm py-8 text-center">Loading…</div>}
+      {err && (
+        <div className="bg-[#FBEAE8] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-3 text-sm mb-3 flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {err}
+        </div>
+      )}
+
+      {/* The cap, said out loud. "Everything" showing the most recent two thousand
+          looks identical to a shop that has made two thousand sales. */}
+      {!loading && total !== null && total > rows.length && (
+        <div className="bg-[#FEF6E7] border border-[#E0A400] text-[#8A6400] rounded-md p-2.5 text-xs mb-3">
+          Showing the most recent <b>{rows.length.toLocaleString()}</b> of{" "}
+          <b>{total.toLocaleString()}</b> sales. Older ones are still on record and still
+          in the Financial Statements — they are just not on this list.
+        </div>
+      )}
+
+      {!loading && !err && shown.length === 0 && (
+        <div className="text-[#5A6472] text-sm py-8 text-center italic">
+          {query.trim() ? "No sale matches that." : "No sales in this period."}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {shown.map((s) => (
+          <div
+            key={s.id}
+            className={`bg-white border rounded-md p-3 ${
+              s.returnedAt ? "border-[#7C5CD644] opacity-70" : "border-[#DEE3E9]"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-mono text-[11px] text-[#2563EB]">{s.code}</div>
+                <div className={`font-semibold text-[#1B2430] ${s.returnedAt ? "line-through" : ""}`}>
+                  {s.name} <span className="text-[#5A6472] font-normal">× {s.qty}</span>
+                </div>
+                <div className="text-[11px] text-[#5A6472] mt-0.5">
+                  {fmtDateTime(s.ts)}
+                  {s.buyer ? ` · ${s.buyer}` : ""}
+                  {s.method ? ` · ${s.method}` : ""}
+                  {s.by ? ` · sold by ${s.by}` : ""}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className={`font-extrabold tabular-nums text-[#1B2430] ${s.returnedAt ? "line-through" : ""}`}>
+                  KES {Number(s.total || 0).toLocaleString()}
+                </div>
+                {s.paid === false && !s.returnedAt && (
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#B45309]">Not paid</div>
+                )}
+              </div>
+            </div>
+
+            {s.returnedAt && (
+              <div className="mt-2 text-[11px] font-semibold text-[#7C5CD6] bg-[#7C5CD611] border border-[#7C5CD644] rounded px-2 py-1">
+                Returned {fmtDateTime(s.returnedAt)}
+                {s.returnedBy ? ` by ${s.returnedBy}` : ""} — back on the shelf, and out of the takings
+              </div>
+            )}
+
+            {rowErr[s.id] && (
+              <div className="mt-2 text-[11px] text-[#DC3B2E] flex items-start gap-1.5">
+                <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {rowErr[s.id]}
+              </div>
+            )}
+
+            {mayUndo(s) && (
+              <button
+                onClick={() => markReturned(s)}
+                disabled={busyId === s.id}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 border border-[#DEE3E9] rounded-md py-2 text-[11px] font-bold uppercase tracking-wide text-[#5A6472] hover:border-[#7C5CD6] hover:text-[#7C5CD6] disabled:opacity-50"
+              >
+                {busyId === s.id
+                  ? <><Loader2 size={13} className="animate-spin" /> Putting it back…</>
+                  : <><RotateCcw size={13} /> Returned</>}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* ======================= SALES ======================= */
+export function SellTab({ items, categories, onSell, onAddStock, initialCode = "",
+                          user = "", admin = false, onChanged }) {
+  /* Recording a sale and looking back at the ones already recorded are the same
+     job at the same counter — "did that go through?" is asked ten seconds after
+     the sale, not on a different screen in a different part of the menu. So they
+     share this tab, and the switch disappears mid-sale (below) because while a
+     customer is standing there the screen belongs to their part. */
+  const [mode, setMode] = useState("sell");
   const [query, setQuery] = useState("");
   // A part long-pressed in Search arrives already chosen.
   const [picked, setPicked] = useState(
@@ -4816,8 +5096,37 @@ export function SellTab({ items, categories, onSell, onAddStock, initialCode = "
 
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Record a sale" title="Sell Item" />
-      {!selected ? (
+      <SectionTitle
+        eyebrow={mode === "history" ? "Every sale on record" : "Record a sale"}
+        title="Sales"
+      />
+
+      {/* Only between sales. Mid-sale this would be a way to lose a half-typed
+          sale by tapping the wrong thing. */}
+      {!selected && (
+        <div className="flex gap-2 mb-4">
+          {[
+            { id: "sell", label: "Record a sale", icon: ShoppingCart },
+            { id: "history", label: "All sales", icon: Clock },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              className={`flex-1 rounded-md py-2.5 text-sm font-bold uppercase tracking-wide border flex items-center justify-center gap-2 ${
+                mode === m.id
+                  ? "bg-[#2563EB] border-[#2563EB] text-[#F3F5F8]"
+                  : "border-[#DEE3E9] text-[#5A6472]"
+              }`}
+            >
+              <m.icon size={15} /> {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "history" && !selected ? (
+        <SalesHistory user={user} admin={admin} onChanged={onChanged} />
+      ) : !selected ? (
         <>
           <Field label="Find the part sold">
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Code, name, or vehicle…" className={inputCls} autoFocus />

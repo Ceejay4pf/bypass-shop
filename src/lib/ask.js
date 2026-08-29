@@ -718,7 +718,12 @@ const DESTINATIONS = [
   { test: /\b(print(?:ing)? (?:the )?(?:list|stock)|stock list|catalogue|catalog)\b/, tab: "print", label: "Print Stock List" },
   { test: /\b(credit accounts?|debtors?|who owes)\b/, tab: "credit", label: "Credit Accounts" },
   { test: /\b(transfers?|another (?:shop|branch)|branch)\b/, tab: "transfers", label: "Branch Transfers" },
-  { test: /\b(sell|sale of a|record a sale)\b/, tab: "sell", label: "Sell Item" },
+  /* "returned" lands here rather than on Ledger because undoing a sale is done on
+     the All sales list — one tap, nothing to fill in. Ordered after Reports and
+     Financial Statements on purpose, so "sales report" still goes where the
+     printing is. */
+  { test: /\b(sell|sale of a|record a sale|sales|returned?)\b/, tab: "sell", label: "Sales",
+    say: "That screen does both halves: record a sale, or open All sales to look back at every one on record, print a report, or mark one returned with a single tap." },
   /* "upload", "excel", "csv" and the rest live here because the screen that takes a
      pasted list is the same screen that reads a file — there is one way in, not two. */
   {

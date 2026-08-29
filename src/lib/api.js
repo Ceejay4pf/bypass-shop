@@ -1184,6 +1184,19 @@ export async function fetchSales(limit = 500) {
   return data;
 }
 
+/* HOW MANY SALES THERE HAVE EVER BEEN — the number only, not the rows.
+   The history screen loads a capped page of sales, and a cap nobody is told
+   about is the worst kind: "all sales ever made" showing the most recent two
+   thousand looks exactly like a shop that has made two thousand sales. With
+   this the screen can say which it is. `head: true` asks Postgres for the
+   count and no data, so it costs nothing to be honest. */
+export async function countSales() {
+  const { count, error } = await shopFrom("sales")
+    .select("id", { count: "exact", head: true });
+  if (error) throw error;
+  return Number(count) || 0;
+}
+
 /* Every sale by one person, newest first. */
 export async function fetchSalesBy(person, limit = 500) {
   const { data, error } = await shopFrom("sales")

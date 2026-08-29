@@ -33,6 +33,20 @@ alter table public.notifications
 -- p_sale_id is the row in public.sales. If the sale was recorded from
 -- another branch's stock (never deducted here), pass p_restock => false
 -- so we don't invent stock we never had.
+--
+-- ONE SHOP AT A TIME. This file used to find the part with `where code =
+-- v_sale.code` and nothing else, which was right when there was one shop and
+-- silently wrong the moment there were two: inventory's key is (shop_id, code),
+-- so undoing a sale here put the part back on every shop's shelf that happened
+-- to stock the same code, and the two inserts at the bottom left out shop_id
+-- altogether. That column is NOT NULL with no default, so re-running the old
+-- version of this file over a live database did not merely misfile a return —
+-- it replaced a working function with one that raises on every undo.
+--
+-- The body below is the shop-scoped one, kept identical to the copy in
+-- multishop/04_functions_and_views.sql, so the header's promise that this file
+-- is safe to run again is true again. If the two ever drift, 04 is the one the
+-- database has; make them agree rather than picking a winner.
 create or replace function public.undo_sale(
   p_sale_id  uuid,
   p_by       text,
@@ -52,24 +66,30 @@ begin
   if not found then
     raise exception 'That sale no longer exists.';
   end if;
+
+  -- The membership check RLS would have done, done by hand because it cannot:
+  -- security definer runs as the owner, so the policies on sales and inventory
+  -- do not apply inside here.
+  if not exists (select 1 from public.user_shops
+                  where user_id = auth.uid() and shop_id = v_sale.shop_id) then
+    raise exception 'That sale belongs to another shop.';
+  end if;
+
   if v_sale.returned_at is not null then
     raise exception 'That sale was already undone on %.', to_char(v_sale.returned_at, 'DD Mon YYYY');
   end if;
 
-  -- Put the goods back on the shelf.
+  -- Put the goods back on the shelf. This shop's shelf.
   if p_restock then
     update public.inventory
        set qty = qty + coalesce(v_sale.qty, 0)
-     where code = v_sale.code
+     where shop_id = v_sale.shop_id and code = v_sale.code
     returning qty into v_new_qty;
-
-    -- The part may have been deleted since it was sold; that's not a
-    -- reason to refuse the undo, so just report no current stock.
-    if v_new_qty is null then
-      v_new_qty := null;
-    end if;
+    -- The part may have been deleted since it was sold; that is not a reason to
+    -- refuse the undo, so v_new_qty simply stays null.
   else
-    select qty into v_new_qty from public.inventory where code = v_sale.code;
+    select qty into v_new_qty from public.inventory
+     where shop_id = v_sale.shop_id and code = v_sale.code;
   end if;
 
   -- Stamp the original sale as returned. Kept, not deleted, so the
@@ -81,32 +101,28 @@ begin
   -- Stamp the matching notification too, so the activity log shows it.
   update public.notifications
      set returned_at = now(), returned_by = p_by
-   where type = 'sale'
+   where shop_id = v_sale.shop_id
+     and type = 'sale'
      and code = v_sale.code
      and returned_at is null
      and abs(extract(epoch from (ts - v_sale.ts))) < 120;
 
   -- A fresh movement, dated today - this is the return itself.
-  insert into public.stock_movements (code, type, qty, by_name, buyer, reason, remaining)
+  insert into public.stock_movements (shop_id, code, type, qty, by_name, buyer, reason, remaining)
   values (
-    v_sale.code,
-    'return',
-    coalesce(v_sale.qty, 0),
-    p_by,
-    v_sale.buyer,
-    coalesce(
-      nullif(p_reason, ''),
-      'Returned - sale of ' || to_char(v_sale.ts, 'DD Mon YYYY') || ' undone'
-    ),
+    v_sale.shop_id, v_sale.code, 'return', coalesce(v_sale.qty, 0), p_by, v_sale.buyer,
+    coalesce(nullif(p_reason, ''),
+             'Returned - sale of ' || to_char(v_sale.ts, 'DD Mon YYYY') || ' undone'),
     v_new_qty
   );
 
   -- And a notification, so the main shop sees the return.
-  insert into public.notifications (type, code, name, qty, by_name, buyer, remaining)
-  values ('return', v_sale.code, v_sale.name, coalesce(v_sale.qty, 0), p_by, v_sale.buyer, v_new_qty);
+  insert into public.notifications (shop_id, type, code, name, qty, by_name, buyer, remaining)
+  values (v_sale.shop_id, 'return', v_sale.code, v_sale.name,
+          coalesce(v_sale.qty, 0), p_by, v_sale.buyer, v_new_qty);
 
   return v_new_qty;
-end; $$;
+end $$;
 
 revoke all on function public.undo_sale(uuid, text, text, boolean) from public;
 grant execute on function public.undo_sale(uuid, text, text, boolean) to authenticated;
