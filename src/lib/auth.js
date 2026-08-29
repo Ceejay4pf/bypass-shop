@@ -5,6 +5,10 @@
 --------------------------------------------------------- */
 import { supabase, createIsolatedClient } from "./supabase.js";
 import { currentShopSlug } from "./shopScope.js";
+/* The starting password comes from there and is not rebuilt here — see the long note
+   over defaultRolePassword. A role whose password the owner set answers null, and
+   this file treats that as "this account cannot be created by guessing". */
+import { defaultRolePassword } from "./roleAccounts.js";
 import { shopName } from "./shopInfo.js";
 
 /* WHICH SHOP A NEW ACCOUNT BELONGS TO.
@@ -413,7 +417,10 @@ export async function signInRole(role, password, personName = "") {
     const msg = String(e.message || "");
     // First run: the role account doesn't exist yet. Create it, then sign in.
     if (/invalid login credentials/i.test(msg)) {
-      if (password !== `${role.key}123`) throw new Error("Wrong password for that role.");
+      const starting = defaultRolePassword(role.key);
+      if (!starting || password !== starting) {
+        throw new Error("Wrong password for that role.");
+      }
       const { error: upErr } = await supabase.auth.signUp({
         email,
         password,

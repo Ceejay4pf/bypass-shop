@@ -35,7 +35,7 @@ import {
 import * as rpt from "./lib/reports.js";
 import { estimatedProfit, PROFIT_VAT_MULTIPLE } from "./lib/finance.js";
 import { CAPABILITIES } from "./lib/roles.js";
-import { rolesFor, defaultRolePassword } from "./lib/roleAccounts.js";
+import { rolesFor, defaultRolePassword, rolePasswordHint } from "./lib/roleAccounts.js";
 import {
   changeRolePassword, deviceOtpStatus, setDeviceOtp, myDevices, forgetDevice,
   sendLoginCode, verifyLoginCode,
@@ -9032,7 +9032,11 @@ function RolePasswordsCard({ admin }) {
                 <span className="flex-1 min-w-0">
                   <span className="block font-semibold text-sm">{r.label}</span>
                   <span className="block text-[11px] text-[#5A6472]">
-                    Default: <span className="font-mono">{defaultRolePassword(r.key)}</span>
+                    {/* One sentence from lib/roleAccounts.js rather than "Default: x"
+                        built here, because for a login whose password the owner chose
+                        there is no x — and printing an empty space after "Default:"
+                        reads as a blank password. */}
+                    {rolePasswordHint(r.key)}
                   </span>
                 </span>
                 <ChevronRight size={16} className={`text-[#5A6472] shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
@@ -9045,7 +9049,7 @@ function RolePasswordsCard({ admin }) {
                       type="password"
                       value={current}
                       onChange={(e) => setCurrent(e.target.value)}
-                      placeholder={defaultRolePassword(r.key)}
+                      placeholder={defaultRolePassword(r.key) || "••••••••"}
                       className={inputCls}
                     />
                   </Field>

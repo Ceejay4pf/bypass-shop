@@ -839,10 +839,23 @@ export default function LoginGate({ onLeave, shop }) {
                   </button>
                   {showHelp && (
                     <div className="bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 text-[11px] text-[#5A6472] mb-3 leading-relaxed">
-                      Ask the admin — they can view and change every role password
-                      under <span className="font-semibold text-[#1B2430]">Settings → Role Passwords</span>.
-                      The starting password for each role is its name + 123
-                      (e.g. <span className="font-mono">{defaultRolePassword(chosenRole.key)}</span>).
+                      Ask the admin — they can change every role password under{" "}
+                      <span className="font-semibold text-[#1B2430]">Settings → Role Passwords</span>.
+                      {/* Only the four shared logins start as name+123. This screen used
+                          to state that as a fact about every role, which for the person
+                          who runs the shop was simply wrong — and wrong in the worst
+                          direction, since it invites them to keep trying a password that
+                          was never theirs. */}
+                      {defaultRolePassword(chosenRole.key) ? (
+                        <>
+                          {" "}The starting password for that one is its name + 123
+                          (<span className="font-mono">{defaultRolePassword(chosenRole.key)}</span>).
+                        </>
+                      ) : (
+                        <> This login's password was set by the owner, so it is not
+                        written down anywhere in the app — only they can tell you it or
+                        reset it.</>
+                      )}
                     </div>
                   )}
 

@@ -19,6 +19,7 @@ const ADMIN_EMAILS = [
   "admin@bypassshop.co",       // role login "Admin"
   "management@bypassshop.co",  // role login "Management"
   "keziah@bypassshop.co",      // role login "Keziah" — runs Sure Fit, unrestricted
+  "eunice@bypassshop.co",      // role login "Eunice Wangari" — runs Jeyden, unrestricted
   "addamsjmk@gmail.com",       // owner
 ];
 
@@ -35,6 +36,7 @@ const ROLE_EMAILS = [
   "sales@bypassshop.co",
   "staff@bypassshop.co",
   "keziah@bypassshop.co",
+  "eunice@bypassshop.co",
 ];
 
 export function isRoleAccount(session) {
