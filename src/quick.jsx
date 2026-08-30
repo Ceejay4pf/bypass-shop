@@ -14,7 +14,7 @@ import {
   CONDITIONS, sidesFor, BRANDS, VARIANTS, PAYMENT, generateCode, findMatch,
   formatLocation, LOW_STOCK_THRESHOLD,
 } from "./data.js";
-import { Field, inputCls, SectionTitle, ItemCard, StockBadge, fmtDateTime } from "./ui.jsx";
+import { Field, inputCls, SectionTitle, ItemCard, StockBadge, fmtDateTime, CategoryOptions } from "./ui.jsx";
 import { DeleteItemSheet } from "./tabs.jsx";
 import { fetchMovements, rowToMovement, disposalLabel } from "./lib/api.js";
 import { useThemeMode, readableOnDark } from "./lib/theme.js";
@@ -177,9 +177,7 @@ export function QuickTab({ items, categories, onQuick, onOpenLedger }) {
         <div className="text-xs font-bold uppercase tracking-wide text-[#5A6472] mb-3">Describe the part</div>
         <Field label="Category / part">
           <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
-            {categories.map((c) => (
-              <option key={c.key} value={c.key}>{c.label}</option>
-            ))}
+            <CategoryOptions categories={categories} />
           </select>
         </Field>
         <div className="flex gap-3">

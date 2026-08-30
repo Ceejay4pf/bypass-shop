@@ -33,7 +33,7 @@
    answer itself. "Today" written above the total is the difference between a
    number the owner can check and a number they have to trust.
 --------------------------------------------------------- */
-import { selectParts, readCommand } from "./command.js";
+import { selectParts, readCommand, readStockList } from "./command.js";
 import { periodRange, totals, topSelling, sellers, fmtDay, monthName } from "./reports.js";
 import { reorderLevel, isOutOfStock, isLowStock } from "../data.js";
 import { tidy } from "./parseParts.js";
@@ -928,6 +928,14 @@ export function askShop(
    question prints a figure and changes nothing. So questions go first, and
    looksLikeAsk() is kept to real interrogatives so an order can never trip it. */
 export function readInstruction(text, ctx = {}) {
+  /* A pasted LIST is looked for first, before either reader. Both of them work on
+     a sentence, and a thirty-line list will contain a sentence somewhere — a line
+     with "how many" in it, a line starting "new" — so whichever of them saw it
+     first would answer a question nobody asked and drop the other twenty-nine
+     lines on the floor. A list is unmistakable (two lines or more, most of them
+     naming a make or a model) and it is checked for as a whole. */
+  const list = readStockList(text, ctx);
+  if (list) return list;
   const asked = askShop(text, ctx);
   if (asked) return asked;
   return readCommand(text, ctx);

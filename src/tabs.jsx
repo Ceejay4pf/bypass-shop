@@ -87,10 +87,12 @@ import {
   LOW_STOCK_THRESHOLD, isLowStock, isOutOfStock, reorderLevel,
   categoryGroups, CATEGORY_COLORS,
   suggestCategoryKey, suggestShelf,
+  categoryTree, categoryOutline, categoryPath, categoryScope, childrenOf, topLevel,
 } from "./data.js";
 import {
   Field, inputCls, SectionTitle, ItemCard, StatCard, StockBadge,
   timeAgo, fmtDateTime, BarChart, TrendChart, DonutChart, Pills, SearchBox,
+  CategoryOptions,
 } from "./ui.jsx";
 
 // Read an image File and return a compressed JPEG data URL. Phone photos are
@@ -739,6 +741,27 @@ function ItemActionSheet({ item, categories, onClose, actions }) {
   );
 }
 
+/* A category tile on the picker. Drawn for a heading and for what is inside one,
+   so it is one piece — the count under a heading means something different from
+   the count under a section, and that difference belongs in one place. */
+function CategoryTile({ cat, count, inside = 0, onPick }) {
+  return (
+    <button
+      onClick={onPick}
+      className="flex items-center gap-2 bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 text-left hover:border-[#2563EB] transition"
+    >
+      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold text-[#1B2430] truncate">{cat.label}</span>
+        <span className="block text-[11px] text-[#5A6472]">
+          {count} item(s){inside ? ` · ${inside} inside` : ""}
+        </span>
+      </span>
+      {inside > 0 && <ChevronRight size={15} className="text-[#5A6472] shrink-0" />}
+    </button>
+  );
+}
+
 export function SearchTab({ items, categories, onDelete, onPick, canEdit = false, initialQuery = "" }) {
   // Step 1: pick a category (or "All"). Step 2: search within it.
   // null = nothing chosen yet (show the category picker first).
@@ -747,6 +770,12 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
      everything. Making them choose a category first would be asking them to
      narrow a search they haven't seen the results of yet. */
   const [cat, setCat] = useState(initialQuery ? "__all__" : null); // "__all__" | category key | null
+  /* A heading that has been opened, before anything inside it is chosen. This is
+     the one screen the two-level arrangement exists for: twenty-six tiles is two
+     screens of scrolling, and the parts somebody wants are three taps in either
+     way — so the first screen shows headings and the second shows what is under
+     the one they tapped. */
+  const [drill, setDrill] = useState("");
   const [query, setQuery] = useState(initialQuery);
   // The result being long-pressed, if any — drives the action sheet.
   const [held, setHeld] = useState(null);
@@ -760,9 +789,20 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
     return m;
   }, [items]);
 
+  /* A heading's own count plus everything inside it. A heading created purely to
+     group two others holds no parts of its own, and a tile reading "0 item(s)"
+     with thirty-eight parts one tap below it looks like an empty shelf. */
+  const totalFor = (key) =>
+    categoryScope(categories, key).reduce((n, k) => n + (counts[k] || 0), 0);
+
   const results = useMemo(() => {
     let base = items;
-    if (cat && cat !== "__all__") base = items.filter((i) => i.cat === cat);
+    if (cat && cat !== "__all__") {
+      // Itself and anything inside it: no part is ever coded with a heading's
+      // prefix, so filtering on the heading alone would show nothing.
+      const scope = categoryScope(categories, cat);
+      base = items.filter((i) => scope.includes(i.cat));
+    }
     const q = query.trim().toLowerCase();
     if (!q) return base;
     return base.filter((i) => matchesQuery(i, categories.find((c) => c.key === i.cat), q));
@@ -777,30 +817,65 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
           Choose a category to search in — or search across everything.
         </div>
 
-        <button
-          onClick={() => { setCat("__all__"); setQuery(""); }}
-          className="w-full flex items-center gap-3 bg-[#2563EB] text-white rounded-lg p-4 mb-3 font-semibold hover:brightness-110 transition"
-        >
-          <Search size={18} />
-          <span className="flex-1 text-left">Search all categories</span>
-          <span className="text-xs opacity-80">{items.length} item(s)</span>
-        </button>
-
-        <div className="grid grid-cols-2 gap-2">
-          {categories.map((c) => (
+        {drill ? (
+          <>
             <button
-              key={c.key}
-              onClick={() => { setCat(c.key); setQuery(""); }}
-              className="flex items-center gap-2 bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-3 text-left hover:border-[#2563EB] transition"
+              onClick={() => setDrill("")}
+              className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm hover:underline mb-3"
             >
-              <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-semibold text-[#1B2430] truncate">{c.label}</span>
-                <span className="block text-[11px] text-[#5A6472]">{counts[c.key] || 0} item(s)</span>
-              </span>
+              <ArrowLeft size={16} /> All categories
             </button>
-          ))}
-        </div>
+
+            <button
+              onClick={() => { setCat(drill); setQuery(""); }}
+              className="w-full flex items-center gap-3 bg-[#2563EB] text-white rounded-lg p-4 mb-3 font-semibold hover:brightness-110 transition"
+            >
+              <Search size={18} />
+              <span className="flex-1 text-left">
+                Everything in {categories.find((c) => c.key === drill)?.label || drill}
+              </span>
+              <span className="text-xs opacity-80">{totalFor(drill)} item(s)</span>
+            </button>
+
+            <div className="grid grid-cols-2 gap-2">
+              {childrenOf(categories, drill).map((c) => (
+                <CategoryTile
+                  key={c.key}
+                  cat={c}
+                  count={counts[c.key] || 0}
+                  onPick={() => { setCat(c.key); setQuery(""); }}
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => { setCat("__all__"); setQuery(""); }}
+              className="w-full flex items-center gap-3 bg-[#2563EB] text-white rounded-lg p-4 mb-3 font-semibold hover:brightness-110 transition"
+            >
+              <Search size={18} />
+              <span className="flex-1 text-left">Search all categories</span>
+              <span className="text-xs opacity-80">{items.length} item(s)</span>
+            </button>
+
+            <div className="grid grid-cols-2 gap-2">
+              {categoryTree(categories).map((c) => (
+                <CategoryTile
+                  key={c.key}
+                  cat={c}
+                  count={c.children.length ? totalFor(c.key) : counts[c.key] || 0}
+                  inside={c.children.length}
+                  onPick={() =>
+                    c.children.length
+                      ? setDrill(c.key)
+                      : (setCat(c.key), setQuery(""))
+                  }
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -809,10 +884,13 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
   const chosen = cat === "__all__" ? null : categories.find((c) => c.key === cat);
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Find a part" title={chosen ? chosen.label : "Search — all categories"} />
+      <SectionTitle
+        eyebrow="Find a part"
+        title={chosen ? categoryPath(categories, chosen.key) : "Search — all categories"}
+      />
 
       <button
-        onClick={() => { setCat(null); setQuery(""); }}
+        onClick={() => { setCat(null); setDrill(chosen?.parent || ""); setQuery(""); }}
         className="flex items-center gap-1 text-[#2563EB] font-semibold text-sm hover:underline mb-4"
       >
         <ArrowLeft size={16} /> Change category
@@ -1835,7 +1913,11 @@ ${stampOn ? watermarkHtml(stamp, WATERMARKS_PER_PAGE) : ""}
         )}
 
         <div className="border border-[#DEE3E9] rounded-md divide-y divide-[#EEF2F6] overflow-hidden">
-          {categories.map((c) => {
+          {/* In tree order, with what sits inside a heading indented under it. Each
+              one is still ticked on its own — a heading holds its own parts and the
+              sections under it hold theirs, so ticking the heading must not silently
+              tick three more than the person can see. */}
+          {categoryOutline(categories).map((c) => {
             const on = picked.has(c.key);
             const n = countFor(c.key);
             return (
@@ -1843,8 +1925,8 @@ ${stampOn ? watermarkHtml(stamp, WATERMARKS_PER_PAGE) : ""}
                 key={c.key}
                 onClick={() => toggleCat(c.key)}
                 className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors ${
-                  on ? "bg-[#2563EB0A]" : "bg-[#FFFFFF]"
-                }`}
+                  c.depth ? "pl-8" : ""
+                } ${on ? "bg-[#2563EB0A]" : "bg-[#FFFFFF]"}`}
               >
                 <span className={on ? "text-[#2563EB]" : "text-[#5A6472]"}>
                   {on ? <CheckSquare size={17} /> : <Square size={17} />}
@@ -2494,12 +2576,24 @@ export function MyPermissionsTab({ userId }) {
                            already exist, and half-building one somewhere else is
                            how two versions of the same paper start to disagree.
 
+     A WHOLE LIST         several lines of stock pasted in, however they were
+                           written. It says how many lines it read, which sections
+                           they already fall into, and which sections it would have
+                           to CREATE for the kinds of part this shop has none for
+                           yet — then makes those and opens the whole list for
+                           checking, on the screen built for it. Nothing about the
+                           stock is saved by this box; that is still a separate
+                           press, one screen along, with every line on show.
+
    src/lib/ask.js reads questions and journeys, src/lib/command.js reads orders,
-   and readInstruction() tries the question side FIRST. That order is a safety
-   rule, not a preference: "what is the price of a premio bumper" reads to the
-   order side as a price change, and the number it finds is the "a" in "a premio"
-   — so it would offer to reprice every Premio bumper to one shilling. Nobody
-   should be shown that button for having asked a question.
+   and readInstruction() looks for a LIST first, then tries the question side
+   before the order side. That order is a safety rule, not a preference:
+   "what is the price of a premio bumper" reads to the order side as a price
+   change, and the number it finds is the "a" in "a premio" — so it would offer to
+   reprice every Premio bumper to one shilling. Nobody should be shown that button
+   for having asked a question. A list goes ahead of both because a list of thirty
+   lines is bound to contain something that reads like a sentence, and whichever
+   of them saw it first would answer that one line and drop the other twenty-nine.
 
    Nothing an order describes happens until it is confirmed. The description
    lists every part and what each one changes from and to, because an
@@ -2623,7 +2717,7 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
   );
 
   const isAnswer = intent.kind === "answer";
-  const actionable = ["addSection", "renameSection", "setField", "removePart"].includes(intent.kind);
+  const actionable = ["addSection", "renameSection", "setField", "removePart", "stockList"].includes(intent.kind);
   /* Adding or renaming a section is an admin job — it changes the shape of the
      whole shop's stock list, and its 3-letter code can never be changed after
      the first part is filed under it. Bulk quantity and price only need edit
@@ -2633,7 +2727,18 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
      direction. Questions need neither: reading what is on the shelf changes
      nothing. */
   const allowed =
-    intent.kind === "setField" ? canEdit : intent.kind === "removePart" ? canDelete : admin;
+    intent.kind === "setField"
+      ? canEdit
+      : intent.kind === "removePart"
+      ? canDelete
+      /* A pasted list only needs admin when it would CREATE a section. Handing a
+         list over to the checking screen saves nothing and changes nothing — the
+         rights that matter are the ones that screen already asks for on its own
+         Save button, and asking for admin here would stop a storekeeper doing
+         the one thing this box was added for. */
+      : intent.kind === "stockList"
+      ? intent.newSections.length === 0 || admin
+      : admin;
   const blocked = actionable && !allowed;
 
   /* Disarmed the moment the wording moves. Typing another digit onto a code
@@ -2739,6 +2844,38 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
             } The ledger still has all of them.`;
           }
         }
+      } else if (intent.kind === "stockList") {
+        /* Make the missing sections, then hand the list over. Nothing about the
+           STOCK is saved here — that is the checking screen's Save button, one
+           screen along, with every line on show.
+
+           One at a time, and a failure stops nothing else. Whatever was created
+           is real; the box keeps the words, the section list refreshes below, and
+           pressing again offers only the ones still missing — because a section
+           that now exists stops being something to create. */
+        const made = [];
+        const failed = [];
+        for (const sec of intent.newSections) {
+          try {
+            await api.addPartCategory(
+              { key: sec.key, label: sec.label, shelf: sec.shelf, color: sec.color },
+              user
+            );
+            made.push(sec);
+          } catch (e) {
+            failed.push(`${sec.label} (${e?.message || "didn't save"})`);
+          }
+        }
+        if (failed.length) {
+          problem = `${made.length} of ${intent.newSections.length} sections created. These didn't: ${failed.join("; ")}. The list is still in the box — press again to try the rest.`;
+          setErr(problem);
+        } else {
+          told = made.length
+            ? `${made.length} section${made.length === 1 ? "" : "s"} created (${made
+                .map((m) => `${m.label} — ${m.key}`)
+                .join(", ")}). The list is open for checking — nothing is saved until you press Save there.`
+            : `${intent.count} line${intent.count === 1 ? "" : "s"} open for checking. Nothing is saved until you press Save there.`;
+        }
       } else if (intent.kind === "setField") {
         const reason = `Instruction: ${typed}`;
         /* One at a time, and the failures are counted rather than swallowed.
@@ -2816,6 +2953,12 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
       ]);
       // Keep what was typed when something failed, so it can be retried as-is.
       if (!problem) setText("");
+      /* Over to the checking screen, carrying the words exactly as they were
+         typed. The list is read again there, against the section list that has
+         just been refreshed by onChanged above — which is what puts the lines
+         into the sections this press created. Last, so a failure to create a
+         section leaves you here reading why instead of on another screen. */
+      if (intent.kind === "stockList" && !problem) onGo?.("bulk", { text: typed });
     } catch (e) {
       /* The message from the database is shown as it comes. api.js already
          turns the ones that matter into readable English (a duplicate code, a
@@ -2861,8 +3004,9 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
           Ask what sold, what is on the shelf or who owes money — or how any part of this app
           works. Tell it to add a section, set quantities and prices across many parts, take a
           part off the list by its code, or open the screen that makes a report, statement or
-          receipt. Anything that changes stock shows you the full list first, and removing
-          asks twice.
+          receipt. Or paste a whole list of stock, one part to a line: it files each line under
+          the right section and creates the sections it has none for. Anything that changes
+          stock shows you the full list first, and removing asks twice.
         </p>
       )}
 
@@ -3013,6 +3157,24 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
             </div>
           )}
 
+          {/* The sections a pasted list would create, with the code each one gets
+              and how many lines land in it. The code is the part that cannot be
+              taken back later — it is stamped into every part filed there — so it
+              is shown here rather than announced afterwards. */}
+          {intent.kind === "stockList" && intent.newSections.length > 0 && (
+            <div className="mt-2 border-t border-[#DEE3E9] pt-2 space-y-0.5">
+              {intent.newSections.map((sec) => (
+                <div key={sec.key} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-mono text-[#2563EB] shrink-0">{sec.key}</span>
+                  <span className="text-[#1B2430] truncate flex-1">{sec.label}</span>
+                  <span className="text-[#5A6472] shrink-0">
+                    Shelf {sec.shelf} · {sec.lines} line{sec.lines === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Every part it would change, named, with the old figure beside the
               new one. This is the list that makes a wrong reading obvious. */}
           {intent.kind === "setField" && (
@@ -3119,6 +3281,10 @@ function CommandBox({ items, categories, sales = [], salesReady = true, user, ad
               ? "Changing many parts at once needs edit rights. Ask an admin."
               : intent.kind === "removePart"
               ? "Taking a part off the stock list needs the same permission as Remove on the Inventory screen. Ask an admin — the database refuses it too, not just this button."
+              : intent.kind === "stockList"
+              ? `${intent.newSections.length} line${
+                  intent.newSections.length === 1 ? "" : "s"
+                } of this list need a section that doesn't exist yet, and only an admin can make one. Open Add a List of Parts and paste it there — the lines will save into the sections that do exist, and an admin can place the rest afterwards.`
               : "Only an admin can add or rename a section — its code is stamped into every part filed there."}
           </span>
         </div>
@@ -3299,11 +3465,7 @@ export function AddItemTab({ items, categories, sales = [], salesReady = true, o
 
       <Field label="Category / section">
         <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
-          {categories.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.label} — Shelf {c.shelf}
-            </option>
-          ))}
+          <CategoryOptions categories={categories} shelf />
         </select>
       </Field>
 
@@ -3484,10 +3646,24 @@ export function AddItemTab({ items, categories, sales = [], salesReady = true, o
    a row you can correct before anything is saved. Nothing is written
    to the inventory until the Save button is pressed.
 */
-export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo }) {
-  const [text, setText] = useState("");
-  const [rows, setRows] = useState(null); // null = still on the paste step
+/* `initialText` is a list handed over from the Ask-or-tell box, which has already
+   read it once and created whatever sections it needed. So this screen opens on
+   the CHECKING step with the lines already read, not on the empty paste step with
+   the words sitting there waiting for somebody to press Read — a person who has
+   just watched the app understand their list would reasonably read that second
+   screen as it having forgotten. */
+export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo, initialText = "" }) {
+  const [text, setText] = useState(initialText);
+  const [rows, setRows] = useState(() =>
+    String(initialText || "").trim() ? parsePartsList(initialText, categories) : null
+  ); // null = still on the paste step
   const [openId, setOpenId] = useState(null); // which row is expanded for editing
+  /* Which rows are ticked, for putting a section on several at once. A fifty-line
+     paste where forty lines are headlights was forty taps into forty separate
+     dropdowns — which is why lists were being typed into the new-section name box
+     instead. Ticking is by row id and not by position: a row can be dropped while
+     rows are ticked, and the ticks have to stay on the right lines. */
+  const [picked, setPicked] = useState(() => new Set());
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(null); // { added, failed }
   /* ---- uploading a document ----
@@ -3564,27 +3740,47 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
     const parsed = parsePartsList(text, categories);
     setRows(parsed);
     setOpenId(null);
+    setPicked(new Set());
     setDone(null);
   };
 
-  const patch = (id, changes) =>
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const next = { ...r, ...changes };
-        // Recalculate what is still missing as they fill things in.
-        const miss = [];
-        if (!next.cat) miss.push("category");
-        if (!next.brand) miss.push("brand");
-        if (!next.model) miss.push("model");
-        // No year is fine - see parsePartLine. It saves as unknown.
-        // One rule for the side, shared with the reader - see sideMissing.
-        miss.push(...sideMissing(next.cat, next.side));
-        return { ...next, missing: miss };
-      })
-    );
+  /* What a row is still missing, worked out in one place because two places would
+     eventually disagree — and a row that says it is ready when it is not gets
+     saved. Used by the one-row edit and by putting a section on many rows. */
+  const recount = (row) => {
+    const miss = [];
+    if (!row.cat) miss.push("category");
+    if (!row.brand) miss.push("brand");
+    if (!row.model) miss.push("model");
+    // No year is fine - see parsePartLine. It saves as unknown.
+    // One rule for the side, shared with the reader - see sideMissing.
+    miss.push(...sideMissing(row.cat, row.side));
+    return { ...row, missing: miss };
+  };
 
-  const drop = (id) => setRows((prev) => prev.filter((r) => r.id !== id));
+  const patch = (id, changes) =>
+    setRows((prev) => prev.map((r) => (r.id === id ? recount({ ...r, ...changes }) : r)));
+
+  /* The same change to a batch of rows, in one pass. Fifty calls to patch() would
+     each rebuild the whole list off the previous one, and a section put on forty
+     rows must be one thing that happened, not forty. */
+  const patchMany = (ids, changes) => {
+    const set = ids instanceof Set ? ids : new Set(ids);
+    if (!set.size) return;
+    setRows((prev) => prev.map((r) => (set.has(r.id) ? recount({ ...r, ...changes }) : r)));
+  };
+
+  /* A dropped row must lose its tick as well, or "the 3 ticked" counts a line
+     that is no longer on the screen. */
+  const drop = (id) => {
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setPicked((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
 
   const ready = (rows || []).filter((r) => r.missing.length === 0);
   const needsWork = (rows || []).filter((r) => r.missing.length > 0);
@@ -3623,6 +3819,8 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
     // Keep only the rows that still need attention, so the screen shows
     // exactly what is left to do.
     setRows(needsWork);
+    const left = new Set(needsWork.map((r) => r.id));
+    setPicked((prev) => new Set([...prev].filter((id) => left.has(id))));
   };
 
   /* ---------- step 1: paste ---------- */
@@ -3903,6 +4101,21 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
             )}
           </div>
 
+          {/* Putting a section on many rows at once. This is the answer to the
+              thing that made this screen hard: the list comes in with no sections
+              on it, and correcting them one dropdown at a time is not work anybody
+              finishes. */}
+          <BulkAssignBar
+            categories={categories}
+            rows={rows}
+            picked={picked}
+            setPicked={setPicked}
+            onApply={(ids, catKey) => patchMany(ids, { cat: catKey })}
+            admin={admin}
+            user={user}
+            onChanged={onChanged}
+          />
+
           {ready.length > 0 && (
             <div className="text-xs text-[#5A6472] mb-3 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 leading-relaxed">
               Each line below is saved as{" "}
@@ -3916,16 +4129,35 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
 
           <div className="space-y-2 mb-4">
             {rows.map((r) => (
-              <BulkRow
-                key={r.id}
-                row={r}
-                categories={categories}
-                items={items}
-                open={openId === r.id}
-                onToggle={() => setOpenId(openId === r.id ? null : r.id)}
-                onPatch={(c) => patch(r.id, c)}
-                onDrop={() => drop(r.id)}
-              />
+              /* The tick sits OUTSIDE the row, not inside it: the row's own header
+                 is a button, and a button inside a button is a tap that does two
+                 things or nothing depending on the phone. */
+              <div key={r.id} className="flex items-start gap-2">
+                <button
+                  onClick={() =>
+                    setPicked((prev) => {
+                      const next = new Set(prev);
+                      next.has(r.id) ? next.delete(r.id) : next.add(r.id);
+                      return next;
+                    })
+                  }
+                  className={`mt-2.5 shrink-0 ${picked.has(r.id) ? "text-[#2563EB]" : "text-[#5A6472]"}`}
+                  aria-label={picked.has(r.id) ? "Untick this line" : "Tick this line"}
+                >
+                  {picked.has(r.id) ? <CheckSquare size={18} /> : <Square size={18} />}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <BulkRow
+                    row={r}
+                    categories={categories}
+                    items={items}
+                    open={openId === r.id}
+                    onToggle={() => setOpenId(openId === r.id ? null : r.id)}
+                    onPatch={(c) => patch(r.id, c)}
+                    onDrop={() => drop(r.id)}
+                  />
+                </div>
+              </div>
             ))}
           </div>
 
@@ -3953,6 +4185,206 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
                 : "Nothing ready to save"}
           </button>
         </>
+      )}
+    </div>
+  );
+}
+
+/* ---- PUTTING A SECTION ON MANY ROWS AT ONCE ----
+   Three targets, and they are three separate buttons rather than one button and a
+   mode, because "apply" that quietly means something different depending on what
+   is ticked is how forty correct rows get overwritten:
+
+     all of them          — the usual case: one paste, one kind of part
+     the ones with none   — the second usual case: the reader got most of them
+     the ticked ones      — the awkward case: one list, several kinds
+
+   Nothing here saves anything. Every row still goes through the same checking
+   screen and the same Save button. */
+function BulkAssignBar({ categories, rows, picked, setPicked, onApply, admin, user, onChanged }) {
+  const [choice, setChoice] = useState("");
+  const [note, setNote] = useState("");
+  const [making, setMaking] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newInside, setNewInside] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const none = rows.filter((r) => !r.cat);
+  const chosen = categories.find((c) => c.key === choice);
+
+  const apply = (list) => {
+    if (!choice || !list.length) return;
+    onApply(list.map((r) => r.id), choice);
+    setNote(
+      `${list.length} line${list.length !== 1 ? "s" : ""} put in ${categoryPath(categories, choice)}.`
+    );
+    setPicked(new Set());
+  };
+
+  /* A section that does not exist yet, made from here. The reason this is on this
+     screen and not only in Settings: you find out a section is missing while you
+     are holding the list that needs it, and leaving to make one means coming back
+     to a screen you have to paste into again. */
+  const taken = categories.map((c) => c.key);
+  const newKey = suggestCategoryKey(newLabel, taken);
+  const makeIt = async () => {
+    if (!newLabel.trim()) { setErr("Give the section a name."); return; }
+    if (newKey.length !== 3) { setErr("No three-letter code left for that name — try another wording."); return; }
+    setBusy(true); setErr("");
+    try {
+      await api.addPartCategory(
+        { key: newKey, label: newLabel.trim(), shelf: suggestShelf(categories), color: CATEGORY_COLORS[categories.length % CATEGORY_COLORS.length], parent: newInside || null },
+        user
+      );
+      /* Chosen, not applied. Which lines go in it is the next decision and it is
+         the person's, not ours — a new section applied to all fifty rows because
+         somebody typed a name would be worse than the problem it solves. */
+      setChoice(newKey);
+      setNote(`${newLabel.trim()} created — now say which lines go in it.`);
+      setMaking(false); setNewLabel(""); setNewInside("");
+      onChanged?.();
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const btn = "text-[11px] font-bold uppercase tracking-wide rounded px-2.5 py-1.5 border disabled:opacity-40";
+
+  return (
+    <div className="mb-4 bg-[#FFFFFF] border border-[#DEE3E9] rounded-md p-3">
+      <div className="text-xs font-bold uppercase tracking-wide text-[#5A6472] mb-2">
+        Put a section on several lines at once
+      </div>
+
+      <select
+        value={choice}
+        onChange={(e) => { setChoice(e.target.value); setNote(""); }}
+        className={inputCls + " mb-2"}
+      >
+        <option value="">Choose the section…</option>
+        <CategoryOptions categories={categories} shelf />
+      </select>
+
+      <div className="flex flex-wrap gap-2 mb-2">
+        <button
+          onClick={() => apply(rows)}
+          disabled={!choice}
+          className={btn + " border-[#2563EB] text-[#2563EB]"}
+        >
+          All {rows.length} line{rows.length !== 1 ? "s" : ""}
+        </button>
+        {none.length > 0 && none.length !== rows.length && (
+          <button
+            onClick={() => apply(none)}
+            disabled={!choice}
+            className={btn + " border-[#2563EB] text-[#2563EB]"}
+          >
+            The {none.length} with no section
+          </button>
+        )}
+        <button
+          onClick={() => apply(rows.filter((r) => picked.has(r.id)))}
+          disabled={!choice || picked.size === 0}
+          className={btn + " border-[#DEE3E9] text-[#5A6472]"}
+        >
+          The {picked.size} ticked
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5A6472]">
+        <span className="font-semibold">Tick:</span>
+        <button onClick={() => setPicked(new Set(rows.map((r) => r.id)))} className="text-[#2563EB] font-semibold">
+          all
+        </button>
+        {none.length > 0 && (
+          <button onClick={() => setPicked(new Set(none.map((r) => r.id)))} className="text-[#2563EB] font-semibold">
+            the {none.length} with no section
+          </button>
+        )}
+        <button onClick={() => setPicked(new Set())} className="text-[#2563EB] font-semibold">
+          none
+        </button>
+        {admin && !making && (
+          <button
+            onClick={() => { setMaking(true); setErr(""); }}
+            className="text-[#2563EB] font-semibold flex items-center gap-1 ml-auto"
+          >
+            <Plus size={12} /> A section that doesn't exist yet
+          </button>
+        )}
+      </div>
+
+      {making && (
+        <div className="mt-3 border-t border-[#DEE3E9] pt-3">
+          <div className="flex flex-wrap gap-2 items-end">
+            <div className="flex-1 min-w-[10rem]">
+              <label className="block text-[11px] font-bold uppercase tracking-wide text-[#5A6472] mb-1">
+                What is it called?
+              </label>
+              <input
+                value={newLabel}
+                onChange={(e) => { setNewLabel(e.target.value); setErr(""); }}
+                placeholder="Main Switches"
+                className={inputCls}
+                autoFocus
+              />
+            </div>
+            <div className="flex-1 min-w-[10rem]">
+              <label className="block text-[11px] font-bold uppercase tracking-wide text-[#5A6472] mb-1">
+                Inside
+              </label>
+              <select value={newInside} onChange={(e) => setNewInside(e.target.value)} className={inputCls}>
+                <option value="">Its own section</option>
+                {topLevel(categories).map((p) => (
+                  <option key={p.key} value={p.key}>{p.label} ({p.key})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="text-[11px] text-[#5A6472] mt-2">
+            {newLabel.trim() && newKey
+              ? <>Parts filed here will be coded <span className="font-mono text-[#2563EB]">{newKey}-…</span>, and the code cannot be changed afterwards.</>
+              : "It behaves like any other section afterwards — its own code prefix, its own shelf."}
+          </div>
+          {err && (
+            <div className="text-[11px] text-[#DC3B2E] mt-2 flex items-start gap-1.5">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {err}
+            </div>
+          )}
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={makeIt}
+              disabled={busy || !newLabel.trim()}
+              className={btn + " border-[#2563EB] bg-[#2563EB] text-[#F3F5F8] flex items-center gap-1"}
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {busy ? "Making it…" : "Make the section"}
+            </button>
+            <button
+              onClick={() => { setMaking(false); setErr(""); }}
+              className={btn + " border-[#DEE3E9] text-[#5A6472]"}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {note && (
+        <div className="mt-2 text-[11px] text-[#15926A] font-semibold flex items-start gap-1.5">
+          <Check size={12} className="mt-0.5 shrink-0" /> {note}
+        </div>
+      )}
+
+      {chosen && (
+        <div className="mt-2 text-[11px] text-[#5A6472]">
+          Codes in {chosen.label} read{" "}
+          <span className="font-mono text-[#2563EB]">{chosen.key}-TOY-PRE-16-0042</span>. A line that
+          already names its own section keeps it unless you include it above.
+        </div>
       )}
     </div>
   );
@@ -4046,9 +4478,7 @@ function BulkRow({ row, categories, items, open, onToggle, onPatch, onDrop }) {
           <Field label="Category / section">
             <select value={row.cat} onChange={(e) => onPatch({ cat: e.target.value })} className={inputCls}>
               <option value="">— choose —</option>
-              {categories.map((c) => (
-                <option key={c.key} value={c.key}>{c.label} — Shelf {c.shelf}</option>
-              ))}
+              <CategoryOptions categories={categories} shelf />
             </select>
           </Field>
 
@@ -4533,9 +4963,7 @@ function EditPartForm({ item, categories, onCancel, onSave, canAdjust = false, f
 
       <Field label="Category / section">
         <select value={cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
-          {categories.map((c) => (
-            <option key={c.key} value={c.key}>{c.label}</option>
-          ))}
+          <CategoryOptions categories={categories} />
         </select>
       </Field>
 
@@ -9106,7 +9534,17 @@ function RolePasswordsCard({ admin }) {
 /* ---- Categories, including the ones the shop adds itself ----
    The built-in thirteen never covered everything: boot lights, hinges, bulbs,
    headlight computers. A part with nowhere to go was getting filed under
-   something it isn't, which then hid it from whoever went looking. */
+   something it isn't, which then hid it from whoever went looking.
+
+   Then the opposite problem arrived. Twenty-six built-in sections plus
+   everything three shops added is a list nobody scrolls to the bottom of, so
+   sections got created in a hurry and half of them were mistakes — one shop had
+   nine whose names are unfinished sentences typed into the wrong box. Two things
+   fix that and both are here now: a section can sit INSIDE another one, so the
+   list is short at the top, and a section can be REMOVED when it holds nothing.
+
+   Two levels only, and the reason is the counter. Somebody holding a bumper in
+   one hand does not open three levels of menu with the other. */
 function CategoriesCard({ categories, admin, user, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
@@ -9116,9 +9554,19 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
   const [keyEdited, setKeyEdited] = useState(false);
   const [shelf, setShelf] = useState("");
   const [color, setColor] = useState(CATEGORY_COLORS[0]);
+  const [inside, setInside] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
+
+  /* Which parents are open, which row has its controls showing, and which one
+     has been asked to confirm a removal. Nothing is expanded to begin with —
+     the short list is the point of the whole thing. */
+  const [openKeys, setOpenKeys] = useState(() => new Set());
+  const [acting, setActing] = useState("");
+  const [confirming, setConfirming] = useState("");
+  const [rowBusy, setRowBusy] = useState("");
+  const [rowErr, setRowErr] = useState("");
 
   const taken = categories.map((c) => c.key);
   const autoKey = suggestCategoryKey(label, taken);
@@ -9128,11 +9576,12 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
     (c) => c.label.trim().toLowerCase() === label.trim().toLowerCase()
   );
 
-  const open = () => {
+  const open = (parentKey = "") => {
     setAdding(true);
     setLabel(""); setKey(""); setKeyEdited(false);
     setShelf(suggestShelf(categories));
     setColor(CATEGORY_COLORS[categories.length % CATEGORY_COLORS.length]);
+    setInside(parentKey);
     setErr(""); setOk("");
   };
 
@@ -9143,10 +9592,12 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
     setBusy(true); setErr("");
     try {
       await api.addPartCategory(
-        { key: finalKey, label: label.trim(), shelf: shelf.trim(), color },
+        { key: finalKey, label: label.trim(), shelf: shelf.trim(), color, parent: inside || null },
         user
       );
-      setOk(`${label.trim()} added — parts filed here will be coded ${finalKey}-…`);
+      const home = inside ? ` inside ${byKey.get(inside)?.label || inside}` : "";
+      setOk(`${label.trim()} added${home} — parts filed here will be coded ${finalKey}-…`);
+      if (inside) setOpenKeys((prev) => new Set(prev).add(inside));
       setAdding(false);
       onChanged?.();
     } catch (e) {
@@ -9156,7 +9607,64 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
     }
   };
 
+  /* ---- the tree ----
+     A section that already holds others cannot itself be put inside one, which is
+     the two-level rule, and it is checked here as well as in the database so the
+     screen never offers a move it would then refuse. */
+  const byKey = new Map(categories.map((c) => [c.key, c]));
+  const tree = categoryTree(categories);
+  const parents = topLevel(categories);
+  const canMove = (c) => childrenOf(categories, c.key).length === 0;
+  const targetsFor = (c) => parents.filter((p) => p.key !== c.key);
+
+  const toggle = (k) =>
+    setOpenKeys((prev) => {
+      const next = new Set(prev);
+      next.has(k) ? next.delete(k) : next.add(k);
+      return next;
+    });
+
+  const move = async (c, to) => {
+    setRowBusy(c.key); setRowErr(""); setOk("");
+    try {
+      await api.setCategoryParent(c, to || null, user);
+      setOk(
+        to
+          ? `${c.label} is now inside ${byKey.get(to)?.label || to}.`
+          : `${c.label} is back at the top of the list.`
+      );
+      if (to) setOpenKeys((prev) => new Set(prev).add(to));
+      setActing("");
+      onChanged?.();
+    } catch (e) {
+      // The database's own sentence, unchanged: it knows exactly which rule was hit.
+      setRowErr(e.message || String(e));
+    } finally {
+      setRowBusy("");
+    }
+  };
+
+  /* Removing one. The two refusals — it holds other sections, or real stock is
+     still filed under it — come back from the database as a sentence naming what
+     is in the way, and that sentence is shown as it is. "It cannot be deleted"
+     would send somebody through the whole catalogue looking for the reason. */
+  const remove = async (c) => {
+    setRowBusy(c.key); setRowErr(""); setOk("");
+    try {
+      const msg = await api.deletePartCategory(c.key);
+      setOk(msg);
+      setConfirming(""); setActing("");
+      onChanged?.();
+    } catch (e) {
+      setRowErr(e.message || String(e));
+      setConfirming("");
+    } finally {
+      setRowBusy("");
+    }
+  };
+
   const custom = categories.filter((c) => c.custom);
+  const inCount = categories.filter((c) => c.parent).length;
 
   return (
     <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
@@ -9164,7 +9672,7 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
         <div className="text-sm font-bold uppercase tracking-wide">Categories</div>
         {admin && !adding && (
           <button
-            onClick={open}
+            onClick={() => open("")}
             className="text-xs font-bold uppercase tracking-wide text-[#2563EB] border border-[#DEE3E9] rounded-md px-3 py-1.5 flex items-center gap-1.5 hover:border-[#2563EB]"
           >
             <Plus size={13} /> Add a category
@@ -9249,10 +9757,33 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
             </div>
           </Field>
 
+          {/* Where it is LISTED, which is not where its parts are filed. A part
+              always belongs to the section whose prefix is in its code, so this
+              only changes what the picker looks like. */}
+          <Field
+            label="Inside another section?"
+            hint="Leave this as its own section unless it belongs under a heading — Front Bumpers inside Bumpers, Plain inside Side Mirrors."
+          >
+            <select value={inside} onChange={(e) => setInside(e.target.value)} className={inputCls}>
+              <option value="">Its own section, at the top</option>
+              {parents.map((p) => (
+                <option key={p.key} value={p.key}>
+                  Inside {p.label} ({p.key})
+                </option>
+              ))}
+            </select>
+          </Field>
+
           {label.trim() && finalKey.length === 3 && (
             <div className="text-xs text-[#5A6472] mb-3">
               Codes will read{" "}
               <span className="font-mono text-[#2563EB]">{finalKey}-TOY-PRE-16-0042</span>
+              {inside && (
+                <>
+                  , listed under{" "}
+                  <span className="font-semibold">{byKey.get(inside)?.label || inside}</span>
+                </>
+              )}
             </div>
           )}
 
@@ -9281,31 +9812,200 @@ function CategoriesCard({ categories, admin, user, onChanged }) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {categories.map((c) => (
-          <span
-            key={c.key}
-            className="flex items-center gap-1.5 text-xs bg-[#EEF2F6] border border-[#DEE3E9] rounded px-2 py-1"
-          >
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-            <span className="font-mono">{c.key}</span> {c.label}
-            {c.custom && (
-              <span className="text-[9px] font-bold uppercase tracking-wide text-[#15926A]">added</span>
-            )}
-          </span>
-        ))}
+      {rowErr && (
+        <div className="text-xs bg-[#FDECEA] border border-[#DC3B2E] text-[#DC3B2E] rounded-md p-2.5 mb-3 flex items-start gap-1.5">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {rowErr}
+        </div>
+      )}
+
+      <div className="border border-[#DEE3E9] rounded-md divide-y divide-[#DEE3E9]">
+        {tree.map((c) => {
+          const kids = c.children;
+          const isOpen = openKeys.has(c.key);
+          return (
+            <div key={c.key}>
+              <CategoryRow
+                cat={c}
+                kids={kids.length}
+                isOpen={isOpen}
+                onToggle={kids.length ? () => toggle(c.key) : null}
+                admin={admin}
+                acting={acting === c.key}
+                onAct={() => { setActing(acting === c.key ? "" : c.key); setConfirming(""); setRowErr(""); }}
+                busy={rowBusy === c.key}
+                canMove={canMove(c)}
+                targets={targetsFor(c)}
+                onMove={(to) => move(c, to)}
+                onAddInside={() => open(c.key)}
+                confirming={confirming === c.key}
+                onAskRemove={() => setConfirming(c.key)}
+                onCancelRemove={() => setConfirming("")}
+                onRemove={() => remove(c)}
+              />
+              {isOpen &&
+                kids.map((k) => (
+                  <CategoryRow
+                    key={k.key}
+                    cat={k}
+                    inside
+                    admin={admin}
+                    acting={acting === k.key}
+                    onAct={() => { setActing(acting === k.key ? "" : k.key); setConfirming(""); setRowErr(""); }}
+                    busy={rowBusy === k.key}
+                    canMove
+                    targets={targetsFor(k)}
+                    onMove={(to) => move(k, to)}
+                    confirming={confirming === k.key}
+                    onAskRemove={() => setConfirming(k.key)}
+                    onCancelRemove={() => setConfirming("")}
+                    onRemove={() => remove(k)}
+                  />
+                ))}
+            </div>
+          );
+        })}
       </div>
 
       <p className="text-[11px] text-[#5A6472] mt-3 leading-relaxed">
         {custom.length > 0 && (
           <>
-            {custom.length} section{custom.length !== 1 ? "s" : ""} added by the shop.{" "}
+            {custom.length} section{custom.length !== 1 ? "s" : ""} added by the shop
+            {inCount > 0 && <>, {inCount} of them tucked inside another</>}.{" "}
           </>
         )}
-        A section can’t be removed once parts are filed under it — their codes start with
-        its prefix, so deleting it would leave real stock with no section to belong to.
-        {!admin && " Only an admin can add one."}
+        A section only goes when it is empty: not while other sections sit inside it,
+        and not while any part is still filed under it — their codes start with its
+        prefix, so removing it would leave real stock with no section to belong to.
+        Putting a section inside another changes nothing about the parts in it.
+        {!admin && " Only an admin can add, move or remove one."}
       </p>
+    </div>
+  );
+}
+
+/* One line of the list above. Split out because it is drawn twice — once for a
+   heading and once for what is inside it — and two copies of a row with a
+   Remove button on it is exactly the kind of thing that drifts apart. */
+function CategoryRow({
+  cat, kids = 0, isOpen, onToggle, inside = false, admin,
+  acting, onAct, busy, canMove, targets = [], onMove, onAddInside,
+  confirming, onAskRemove, onCancelRemove, onRemove,
+}) {
+  return (
+    <div className={inside ? "bg-[#F7F9FB]" : ""}>
+      <div className={`flex items-center gap-2 px-2.5 py-2 ${inside ? "pl-8" : ""}`}>
+        {onToggle ? (
+          <button
+            onClick={onToggle}
+            className="text-[#5A6472] shrink-0"
+            aria-label={isOpen ? `Close ${cat.label}` : `Open ${cat.label}`}
+          >
+            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        ) : (
+          <span className="w-[14px] shrink-0" />
+        )}
+
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+        <span className="font-mono text-xs text-[#5A6472] shrink-0">{cat.key}</span>
+        <span className="text-sm truncate">{cat.label}</span>
+
+        {kids > 0 && (
+          <span className="text-[10px] font-bold uppercase tracking-wide text-[#2563EB] shrink-0">
+            {kids} inside
+          </span>
+        )}
+        {cat.custom && (
+          <span className="text-[9px] font-bold uppercase tracking-wide text-[#15926A] shrink-0">
+            added
+          </span>
+        )}
+        <span className="ml-auto text-[11px] text-[#8A929E] shrink-0">{cat.shelf}</span>
+
+        {admin && (
+          <button
+            onClick={onAct}
+            disabled={busy}
+            className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472] border border-[#DEE3E9] rounded px-2 py-1 shrink-0 disabled:opacity-40"
+          >
+            {busy ? <Loader2 size={12} className="animate-spin" /> : acting ? "Close" : "Change"}
+          </button>
+        )}
+      </div>
+
+      {admin && acting && (
+        <div className={`px-2.5 pb-3 ${inside ? "pl-8" : ""} space-y-2`}>
+          {canMove ? (
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472]">
+                Put it inside
+              </span>
+              <select
+                value={cat.parent || ""}
+                onChange={(e) => onMove(e.target.value)}
+                disabled={busy}
+                className={inputCls + " mt-1"}
+              >
+                <option value="">Nothing — keep it at the top</option>
+                {targets.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label} ({p.key})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="text-[11px] text-[#5A6472]">
+              This one has sections inside it, so it stays at the top — a section can be
+              a heading or sit under one, not both.
+            </p>
+          )}
+
+          {onAddInside && (
+            <button
+              onClick={onAddInside}
+              className="text-[11px] font-bold uppercase tracking-wide text-[#2563EB] border border-[#DEE3E9] rounded px-2 py-1 flex items-center gap-1"
+            >
+              <Plus size={12} /> Add a section inside {cat.label}
+            </button>
+          )}
+
+          {/* Only a section the shop added itself. The built-in ones are in the
+              code, not the table: "removing" one would take away the row that
+              remembers where it was filed and the section itself would simply
+              reappear at the top, which looks like the button not working. */}
+          {cat.custom ? (
+            confirming ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onRemove}
+                  disabled={busy}
+                  className="text-[11px] font-bold uppercase tracking-wide bg-[#DC3B2E] text-[#F3F5F8] rounded px-2.5 py-1.5 flex items-center gap-1 disabled:opacity-40"
+                >
+                  <Trash2 size={12} /> Yes, remove {cat.key}
+                </button>
+                <button
+                  onClick={onCancelRemove}
+                  className="text-[11px] font-bold uppercase tracking-wide text-[#5A6472] border border-[#DEE3E9] rounded px-2.5 py-1.5"
+                >
+                  Keep it
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onAskRemove}
+                className="text-[11px] font-bold uppercase tracking-wide text-[#DC3B2E] border border-[#DEE3E9] rounded px-2 py-1 flex items-center gap-1"
+              >
+                <Trash2 size={12} /> Remove this section
+              </button>
+            )
+          ) : (
+            <p className="text-[11px] text-[#8A929E]">
+              Built in, so it cannot be removed — but it can be tucked inside a heading.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

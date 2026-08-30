@@ -242,25 +242,42 @@ function findPhrase(hay, needle) {
 }
 const has = (hay, needle) => findPhrase(hay, needle) !== -1;
 
+/* Every way a shop might write one name. Only ever used as a search phrase, and
+   findPhrase above matches whole words, so a form that isn't a real English word
+   ("boxe", "brak") costs nothing - it simply never matches anything.
+
+   The "-es" forms carry more weight than they look. A section named from a line
+   that said "main switch" has to be found again by the line further down the
+   same list that said "main switches", or that line comes back onto the checking
+   screen still asking which section it belongs to - and the person who just
+   watched the app create the section for it would be right to wonder what
+   happened. */
+function wordForms(label) {
+  const forms = new Set([label]);
+  if (/ies$/.test(label)) forms.add(label.slice(0, -3) + "y");
+  if (/es$/.test(label)) forms.add(label.slice(0, -2));
+  if (/s$/.test(label)) forms.add(label.slice(0, -1));
+  else {
+    forms.add(label + "s");
+    if (/(?:s|x|z|ch|sh)$/.test(label)) forms.add(label + "es");
+    if (/[^aeiou]y$/.test(label)) forms.add(label.slice(0, -1) + "ies");
+  }
+  return forms;
+}
+
 /* Search phrases for the categories the shop added itself. Their names are the
-   only thing we know about them, so match the name, its singular, and the name
-   with any "X - Y" qualifier dropped: "Boot Lights" also answers to "boot
-   light" and "Side Mirrors - Tinted" to "side mirrors". */
+   only thing we know about them, so match the name, its singular and plural, and
+   the name with any "X - Y" qualifier dropped: "Boot Lights" also answers to
+   "boot light" and "Side Mirrors - Tinted" to "side mirrors". */
 function categoryPhrases(categories = []) {
   const out = [];
   for (const c of categories) {
     if (!c?.custom || !c.key) continue;
     const label = String(c.label || "").trim().toLowerCase();
     if (!label) continue;
-    const forms = new Set([label]);
-    if (label.endsWith("s")) forms.add(label.slice(0, -1));
-    else forms.add(label + "s");
+    const forms = wordForms(label);
     const head = label.split(/\s+[—–-]\s+/)[0].trim();
-    if (head && head !== label) {
-      forms.add(head);
-      if (head.endsWith("s")) forms.add(head.slice(0, -1));
-      else forms.add(head + "s");
-    }
+    if (head && head !== label) for (const w of wordForms(head)) forms.add(w);
     for (const w of forms) if (w.length >= 3) out.push({ key: c.key, w });
   }
   return out;

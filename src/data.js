@@ -180,10 +180,22 @@ export const CATEGORY_COLORS = [
 
 /* The starting categories plus whatever the shop has added, in one list.
    Added ones come last so the built-in order (and every shelf label printed
-   on it) stays exactly where staff expect it. A saved category whose key
-   collides with a built-in one is dropped: the built-in wins, because parts
-   are already coded under it. */
+   on it) stays exactly where staff expect it.
+
+   A saved row whose key collides with a built-in one no longer disappears
+   whole. The built-in still wins on label, shelf and colour — parts are already
+   coded under it and its shelf label is already printed — but the row is allowed
+   to say which section it now sits INSIDE. Without that exception "put Front
+   Bumpers inside Bumpers" could never work: FBM is built in, it has no row of
+   its own to carry a parent, and it never will. */
 export function mergeCategories(extra = [], base = DEFAULT_CATEGORIES) {
+  const parentOf = new Map();
+  for (const c of extra) {
+    const key = String(c?.key || "").toUpperCase();
+    const parent = String(c?.parent || "").toUpperCase();
+    if (key && parent && key !== parent) parentOf.set(key, parent);
+  }
+
   const seen = new Set(base.map((c) => c.key));
   const added = [];
   for (const c of extra) {
@@ -198,7 +210,92 @@ export function mergeCategories(extra = [], base = DEFAULT_CATEGORIES) {
       custom: true,
     });
   }
-  return [...base, ...added];
+
+  const all = [...base, ...added].map((c) => ({
+    ...c,
+    parent: parentOf.get(c.key) || null,
+  }));
+
+  /* Two guards, both about a heading nobody can see.
+
+     A parent that is not in the list would hide its children completely — they
+     would be filed under a section the screen never draws. A parent that is
+     itself inside something else would make a third level, which the database
+     refuses on the way in but an older row could still be carrying.
+
+     Either way the section stays and only the pointer goes: losing a pointer
+     costs one tidy arrangement, losing the section loses the stock. */
+  const byKey = new Map(all.map((c) => [c.key, c]));
+  return all.map((c) => {
+    if (!c.parent) return c;
+    const p = byKey.get(c.parent);
+    return !p || p.parent ? { ...c, parent: null } : c;
+  });
+}
+
+/* ---- SECTIONS INSIDE SECTIONS ----
+   Twenty-four built-in sections plus everything three shops have added is a
+   long flat list to scroll one-handed at a counter. The answer was never fewer
+   sections — it was fewer at the TOP. So a section can name another as its
+   parent: Side Mirrors holds With Indicator and Plain, Bumpers holds front and
+   rear, and the picker shows one heading instead of six lines.
+
+   Two levels, not three. A part still belongs to exactly one section — the one
+   whose prefix is in its code — so a parent is a heading and not a second home.
+   Nothing about a part changes when its section moves inside another one, which
+   is the whole reason this is safe to rearrange whenever the shop likes. */
+
+export const topLevel = (categories = DEFAULT_CATEGORIES) =>
+  categories.filter((c) => !c.parent);
+
+export const childrenOf = (categories = DEFAULT_CATEGORIES, key) => {
+  const k = String(key || "").toUpperCase();
+  return k ? categories.filter((c) => c.parent === k) : [];
+};
+
+/* The list as it is drawn: each top-level section with the ones inside it. */
+export function categoryTree(categories = DEFAULT_CATEGORIES) {
+  return topLevel(categories).map((c) => ({
+    ...c,
+    children: childrenOf(categories, c.key),
+  }));
+}
+
+/* One flat list in tree order — a parent, the sections inside it, then the next
+   parent — each carrying its depth, for a <select> or a chip list that has to
+   stay one dimension deep. Anything mergeCategories could not place is added at
+   the end rather than left out: an invisible section is unfindable stock. */
+export function categoryOutline(categories = DEFAULT_CATEGORIES) {
+  const out = [];
+  for (const c of categoryTree(categories)) {
+    const { children, ...bare } = c;
+    out.push({ ...bare, depth: 0, hasChildren: children.length > 0 });
+    for (const kid of children) out.push({ ...kid, depth: 1, hasChildren: false });
+  }
+  const shown = new Set(out.map((c) => c.key));
+  for (const c of categories) {
+    if (!shown.has(c.key)) out.push({ ...c, depth: 0, hasChildren: false });
+  }
+  return out;
+}
+
+/* "Side Mirrors › Plain" — for a heading or a confirmation sentence, where a
+   bare "Plain" would leave somebody guessing what of. */
+export function categoryPath(categories = DEFAULT_CATEGORIES, key) {
+  const k = String(key || "").toUpperCase();
+  const c = categories.find((x) => x.key === k);
+  if (!c) return k;
+  const p = c.parent ? categories.find((x) => x.key === c.parent) : null;
+  return p ? `${p.label} › ${c.label}` : c.label;
+}
+
+/* Which sections a chosen one covers when it is used as a filter: itself, plus
+   anything inside it. Clicking Bumpers has to show the front and rear bumpers,
+   not an empty shelf — no part is ever coded with a parent's prefix. */
+export function categoryScope(categories = DEFAULT_CATEGORIES, key) {
+  const k = String(key || "").toUpperCase();
+  if (!k) return [];
+  return [k, ...childrenOf(categories, k).map((c) => c.key)];
 }
 
 export const CONDITIONS = ["Brand New", "Genuine Used", "Aftermarket", "Refurbished"];

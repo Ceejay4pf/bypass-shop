@@ -121,6 +121,7 @@ export const HELP_TOPICS = [
       "Or upload the file somebody sent: Excel, Word, CSV, a text file or a PDF. It is read on this screen and the lines appear in the box for checking. A photograph of a written list can't be read — there is no text in a picture.",
       "Nothing is saved until you press Save. Every row can be corrected first, and a row it couldn't read says so instead of being dropped quietly.",
       "A part already on the list is offered as added stock rather than a second copy of the same part.",
+      "Or paste the list straight into the Ask-or-tell box on this screen. It reads it, tells you which lines already have a section, and offers to create one for the kinds of part the shop has no section for yet — then opens the whole list for checking.",
     ],
     go: { tab: "bulk", label: "Open Add a List of Parts" },
   },

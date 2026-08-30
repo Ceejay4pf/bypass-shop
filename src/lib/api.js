@@ -662,28 +662,42 @@ async function itemName(code) {
    See supabase/part_categories.sql. */
 
 export async function fetchPartCategories() {
-  const { data, error } = await shopFrom("part_categories")
-    .select("key,label,shelf,color,sort,created_by,created_at")
-    .order("sort", { ascending: true })
-    .order("created_at", { ascending: true });
+  const cols = "key,label,shelf,color,sort,created_by,created_at";
+  const run = (c) =>
+    shopFrom("part_categories")
+      .select(c)
+      .order("sort", { ascending: true })
+      .order("created_at", { ascending: true });
+
+  let { data, error } = await run(`${cols},parent`);
+  /* 42703 is "column does not exist". `parent` arrived with
+     supabase/subcategories_and_per_shop_admins.sql, so a database built from the
+     older part_categories.sql alone has not got it. Asking again without it
+     costs one round trip on that database only, and the alternative is every
+     section in the shop disappearing because of a feature about headings. */
+  if (error && (error.code === "42703" || /parent/i.test(error.message || ""))) {
+    ({ data, error } = await run(cols));
+  }
   if (error) throw error;
   return (data || []).map((c) => ({
     key: c.key,
     label: c.label,
     shelf: c.shelf || "",
     color: c.color || "#6B7480",
+    parent: c.parent ? String(c.parent).toUpperCase() : null,
     createdBy: c.created_by || "",
     custom: true,
   }));
 }
 
-export async function addPartCategory({ key, label, shelf, color }, byName) {
+export async function addPartCategory({ key, label, shelf, color, parent }, byName) {
   const { data, error } = await shopFrom("part_categories")
     .insert({
       key: String(key || "").toUpperCase(),
       label: String(label || "").trim(),
       shelf: shelf || null,
       color: color || null,
+      parent: parent ? String(parent).toUpperCase() : null,
       created_by: byName || null,
     })
     .select()
@@ -697,21 +711,80 @@ export async function addPartCategory({ key, label, shelf, color }, byName) {
     }
     throw error;
   }
-  return { key: data.key, label: data.label, shelf: data.shelf || "", color: data.color || "#6B7480", custom: true };
+  return {
+    key: data.key,
+    label: data.label,
+    shelf: data.shelf || "",
+    color: data.color || "#6B7480",
+    parent: data.parent || null,
+    custom: true,
+  };
 }
 
-/* Rename a section, or recolour it. The KEY is deliberately not editable:
-   it is stamped into every code that category has ever issued, so changing it
-   would leave the existing parts pointing at a category that no longer
-   exists. The label is only what it's called, so that can change freely. */
-export async function updatePartCategory(key, { label, shelf, color }) {
+/* Rename a section, recolour it, or move it inside another one. The KEY is
+   deliberately not editable: it is stamped into every code that category has
+   ever issued, so changing it would leave the existing parts pointing at a
+   category that no longer exists. The label is only what it's called, and the
+   parent is only where it is listed, so both can change freely.
+
+   Pass parent: null to bring a section back out to the top. */
+export async function updatePartCategory(key, { label, shelf, color, parent }) {
   const patch = {};
   if (label !== undefined) patch.label = String(label).trim();
   if (shelf !== undefined) patch.shelf = shelf || null;
   if (color !== undefined) patch.color = color || null;
+  if (parent !== undefined) patch.parent = parent ? String(parent).toUpperCase() : null;
   if (!Object.keys(patch).length) return;
   const { error } = await shopFrom("part_categories").update(patch).eq("key", key);
   if (error) throw error;
+}
+
+/* Put a section inside another one, or take it back out.
+   `cat` is the whole category object, not just its key, and that is the point:
+   the built-in sections in data.js have never had a row in this table, so there
+   may be nothing to update. When there isn't, one is written — carrying the
+   built-in's own label, shelf and colour, because the table needs a label and
+   mergeCategories ignores all three in favour of the built-in anyway. The row
+   exists for exactly one purpose: to remember where the shop filed it. */
+export async function setCategoryParent(cat, parent, byName) {
+  const key = String(cat?.key || "").toUpperCase();
+  if (!key) throw new Error("Which section?");
+  const p = parent ? String(parent).toUpperCase() : null;
+  if (p === key) throw new Error("A section cannot be inside itself.");
+
+  const { data, error } = await shopFrom("part_categories")
+    .update({ parent: p })
+    .eq("key", key)
+    .select("key");
+  if (error) throw error;
+  if (data && data.length) return p;
+
+  // Nothing to update, and nothing to write either: taking a built-in out of a
+  // section it was never in is already true.
+  if (!p) return null;
+
+  const { error: insErr } = await shopFrom("part_categories").insert({
+    key,
+    label: String(cat.label || key).trim(),
+    shelf: cat.shelf || null,
+    color: cat.color || null,
+    parent: p,
+    created_by: byName || null,
+  });
+  if (insErr) throw insErr;
+  return p;
+}
+
+/* Remove a section. The database refuses two cases and says which — it holds
+   other sections, or real stock is still filed under it — so the sentence it
+   returns or throws is the whole value of the call, and it is shown as-is.
+   See section 8 of supabase/subcategories_and_per_shop_admins.sql. */
+export async function deletePartCategory(key) {
+  const { data, error } = await shopRpc("delete_part_category", {
+    p_key: String(key || "").toUpperCase(),
+  });
+  if (error) throw new Error(error.message || "That section could not be removed.");
+  return data || "Section removed.";
 }
 
 /* Live-subscribe to added/renamed categories. A section created on the counter
@@ -1270,7 +1343,16 @@ export async function getMyPermissions(userId) {
   };
 }
 
-// Admin: list all staff profiles with their approval state + permissions.
+/* Admin: the staff profiles, with their approval state and permissions.
+
+   `supabase.from` on purpose, not `shopFrom` — profiles has no shop_id and never
+   will. A person is one person whichever shop they work at, so who you may read
+   is settled by the profiles_read policy (see
+   supabase/subcategories_and_per_shop_admins.sql), which returns yourself plus
+   whoever shares a shop with you. That is what makes this screen work for Keziah
+   and Eunice without showing either of them the other shop's team: the narrowing
+   happens in the database, where it holds, rather than in a filter here that a
+   later call site could forget. */
 export async function fetchProfiles() {
   const BASE = "id, full_name, approved, permissions, pending_permissions, created_at";
   /* email_verified only exists once email_verification.sql has been run. Naming

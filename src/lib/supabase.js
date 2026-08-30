@@ -102,6 +102,7 @@ const SHOP_ARG_FUNCTIONS = new Set([
   "sell_item",
   "set_qty",
   "staff_activity_summary",  // per-shop overload; see multishop/11
+  "delete_part_category",    // removing a section; see subcategories_and_per_shop_admins
 ]);
 
 /* Not "function not found" in general — specifically PostgREST failing to resolve

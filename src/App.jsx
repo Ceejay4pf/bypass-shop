@@ -842,6 +842,11 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
       )}
       {id === "bulk" && can("additem") && (
         <BulkAddTab
+          /* Remounted on each handoff so a list sent over from the Ask-or-tell box
+             replaces whatever was on this screen. Without the key, React keeps the
+             old state and the new list never appears. */
+          key={`bulk-${handoff?.seq || 0}`}
+          initialText={handoffFor("bulk")?.text || ""}
           items={items}
           categories={CATEGORIES}
           sales={salesRegister}

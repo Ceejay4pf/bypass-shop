@@ -1,5 +1,13 @@
 -- BYPASS SHOP - Categories the shop adds itself
--- Run once in Supabase -> SQL Editor -> New query -> Run. Safe to re-run.
+-- Run once in Supabase -> SQL Editor -> New query -> Run.
+--
+-- ALREADY RUN? DO NOT RUN IT AGAIN. It is safe to re-run in the sense that it
+-- creates nothing twice, but it REPLACES this table's policies with the
+-- one-shop versions - which put adding and renaming back behind the three
+-- hardcoded owner addresses (locking out Keziah and Eunice), and remove the
+-- delete policy and the `parent` column's rules altogether. Everything about
+-- this table after the first run lives in
+-- supabase/subcategories_and_per_shop_admins.sql. Run THAT one.
 --
 -- The app already has sections for everything the shop said it stocks - boot
 -- lights, fog lights, indicators, bulbs, headlight computers, hinges, grilles,

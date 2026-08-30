@@ -29,7 +29,7 @@
    than an honest "I didn't follow that" — the person retypes and moves on.
 --------------------------------------------------------- */
 import { suggestCategoryKey, suggestShelf, CATEGORY_COLORS, reorderLevel, POSITIONED_CATS } from "../data.js";
-import { tidy, CAT_PHRASES, AMBIGUOUS, findPhrase, has, categoryPhrases, BRAND_KEYS, BRAND_ALIASES, MODEL_KEYS, MODEL_TO_BRAND } from "./parseParts.js";
+import { tidy, CAT_PHRASES, AMBIGUOUS, findPhrase, has, categoryPhrases, BRAND_KEYS, BRAND_ALIASES, MODEL_KEYS, MODEL_TO_BRAND, parsePartsList } from "./parseParts.js";
 
 /* Words that mean "everything", so "put all quantities as one" and "put every
    quantity as one" are the same instruction. */
@@ -432,6 +432,204 @@ function readSection(low, raw, categories) {
     /* Stated because it is the one thing that stops this working, and the
        error the database gives back on its own is unreadable. */
     needsMigration: true,
+  };
+}
+
+/* ---------- A WHOLE LIST FED INTO THE BOX ----------
+   Somebody with a list in their hand does not think in screens. They paste it
+   into whatever box is in front of them, and the box in front of them on the
+   adding screen is this one. Refusing it with "adding a part needs its vehicle
+   and year" was technically true and useless: the app can read that list, one
+   screen along, and the person had no way of knowing.
+
+   So a list is recognised as a list, read with the same reader the bulk screen
+   uses, and handed over to it — with one thing done first. Every line that lands
+   with NO section gets one MADE for it, named from the words the line used for
+   the part itself. That is what turns a paste into filed stock instead of thirty
+   rows all asking the same question.
+
+   Two things make this safe to guess at:
+
+   1. Nothing is saved. The list opens on the checking screen, where every line
+      is shown and can be corrected, and the Save button is still a separate
+      press. The worst case is a section created that nobody wanted, and a
+      section with no parts in it can now be removed.
+
+   2. The sections are named from the leftover words, and the leftovers are
+      capped: four words, twenty-eight characters. A shop typing a whole
+      instruction into a box (which is how nine sections came to be called
+      things like "Label It Front Doors And Rear Doors Makebsure") produces
+      leftovers far longer than that, and they are left for a person instead.
+
+   The name is used EXACTLY as it was written, singular and all — not tidied into
+   a plural. categoryPhrases() in parseParts.js matches a section's own label, so
+   a section called "Main Switch" is found by the very line that named it. Made
+   "Main Switches" it would look neater and match nothing, and the line it came
+   from would come back asking for a section again. */
+
+const LIST_ORDER_OPENER =
+  /^\s*(?:add|create|make|new|put|set|change|update|remove|delete|rename|sell|show|generate|write|open|what|how|who|when|which|why|where|do|does|did|is|are|can|could|should)\b/i;
+
+/* Singular, plural and punctuation all reduced to the same thing, so "main
+   switch", "Main Switches" and "main-switch" are one section and not three. */
+const listNorm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.replace(/(?:es|s)$/, ""))
+    .join(" ");
+
+const titleWords = (s) => String(s || "").trim().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+
+/* Words that start a note rather than name a part. "with bracket" is a remark
+   about a part; a section called "With Bracket" is somebody's afternoon gone. */
+const LIST_FILLER =
+  /^(?:with|and|the|for|of|a|an|new|used|plus|extra|its|it|is|are|but|also|no|non|only|each)$/i;
+
+/* The name a line suggests for its section: the LETTERS at the front of the
+   leftover words, stopping dead at the first number.
+
+   Stopping at the number matters more than it looks. A line reading
+   "main switch toyota premio 2015 2 pcs 3500" hands back "Main switch 3500" as
+   its leftovers when the price is written bare, and taking that whole thing
+   would make a section called "Main Switch 3500" — then the next line, priced
+   3200, would make a second one, and a shop would end up with one section per
+   price. The name of a part never has a price in it. */
+function listSectionName(extra) {
+  const first = String(extra || "").split(/\s*;\s*/)[0];
+  const words = [];
+  for (const w of first.split(/\s+/)) {
+    const clean = w.replace(/[^A-Za-z]/g, "");
+    if (!clean) break;                          // a bare number: the name ended here
+    if (/\d/.test(w)) break;                    // "2pcs", "R15": not part of a name
+    if (!words.length && LIST_FILLER.test(clean)) continue;
+    words.push(clean);
+  }
+  return words.join(" ");
+}
+
+export function readStockList(text, { categories = [] } = {}) {
+  const raw = String(text || "");
+  const written = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  /* One line is a sentence, and every other reader in this file wants first
+     refusal on a sentence. A list is two lines or more. */
+  if (written.length < 2) return null;
+
+  /* Two orders typed one under the other are not stock. Counted rather than
+     tested on the first line, because a real list can easily start with a word
+     like "New". */
+  const orders = written.filter((l) => LIST_ORDER_OPENER.test(l)).length;
+  if (orders * 2 > written.length) return null;
+
+  const rows = parsePartsList(raw, categories);
+  if (rows.length < 2) return null;
+
+  /* A line reads as stock when it names a section or a make. NOT a model:
+     the model reader falls back to "whatever words are left", so it hands one
+     back for absolutely anything — "the shop closes at six today" becomes a
+     Shop Closes model — and counting that made a paragraph of prose look like
+     a perfectly good stock list. A known make (written, or implied by a known
+     model like Harrier) is the honest signal. */
+  const solid = rows.filter((r) => r.cat || r.brand).length;
+  if (solid * 5 < rows.length * 3) return null;
+
+  const placed = rows.filter((r) => r.cat);
+  const noCat = rows.filter((r) => !r.cat);
+
+  /* What the shop already has, matched loosely. A line whose leftover words name
+     a section that exists under a wording the reader doesn't know must not create
+     a second one — two sections for one shelf split it across two code prefixes,
+     and nothing puts that back together afterwards. */
+  const already = new Map();
+  for (const c of categories) already.set(listNorm(c.label), c);
+
+  const groups = new Map();
+  const stuck = [];
+  for (const r of noCat) {
+    // The first note is what the line called the part; anything after a
+    // semicolon is a remark about it ("with bracket", "small crack").
+    const words = listSectionName(r.extra);
+    const count = words ? words.split(/\s+/).length : 0;
+    if (!words || count > 4 || words.length > 28 || !/[a-z]{3}/i.test(words)) {
+      stuck.push(r);
+      continue;
+    }
+    const n = listNorm(words);
+    if (!n || already.has(n)) { stuck.push(r); continue; }
+    if (!groups.has(n)) groups.set(n, { variants: new Map(), lines: 0 });
+    const g = groups.get(n);
+    g.lines += 1;
+    g.variants.set(words.toLowerCase(), (g.variants.get(words.toLowerCase()) || 0) + 1);
+  }
+
+  /* The busiest wording wins the name, because the lines that share it are the
+     ones that will find the section again by name on the next reading. */
+  const taken = categories.map((c) => c.key);
+  const proposals = [...groups.values()]
+    .map((g) => {
+      const best = [...g.variants.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+      return { label: titleWords(best[0]), lines: g.lines };
+    })
+    .sort((a, b) => b.lines - a.lines || a.label.localeCompare(b.label));
+
+  /* Eight is a lot of new sections for one paste, and a list that wants twenty
+     is not a list. The rest are not lost — those lines arrive on the checking
+     screen with no section, where they can be ticked and given one in a tap. */
+  const CAP = 8;
+  const newSections = [];
+  for (const p of proposals.slice(0, CAP)) {
+    const key = suggestCategoryKey(p.label, taken);
+    if (!key) continue;
+    taken.push(key);
+    newSections.push({
+      key,
+      label: p.label,
+      lines: p.lines,
+      shelf: suggestShelf([...categories, ...newSections]),
+      color: CATEGORY_COLORS[(categories.length + newSections.length) % CATEGORY_COLORS.length],
+    });
+  }
+  const overCap = proposals.slice(CAP).reduce((n, p) => n + p.lines, 0);
+  const byHand = stuck.length + overCap;
+
+  const names = [...new Set(placed.map((r) => categories.find((c) => c.key === r.cat)?.label).filter(Boolean))];
+  const lines = [
+    `Read ${rows.length} line${rows.length !== 1 ? "s" : ""} as ${rows.length} part${rows.length !== 1 ? "s" : ""}`,
+  ];
+  if (placed.length) {
+    lines.push(
+      `${placed.length} already ${placed.length === 1 ? "goes" : "go"} into ${
+        names.length <= 4 ? names.join(" · ") : `${names.length} sections the shop already has`
+      }`
+    );
+  }
+  for (const sec of newSections) {
+    lines.push(
+      `Create “${sec.label}” (code ${sec.key}, shelf ${sec.shelf}) — ${sec.lines} line${sec.lines !== 1 ? "s" : ""} filed there`
+    );
+  }
+  if (byHand) {
+    lines.push(
+      `${byHand} line${byHand !== 1 ? "s" : ""} still ${byHand === 1 ? "needs" : "need"} a section chosen — tick them on the next screen and set them all at once`
+    );
+  }
+  lines.push("Nothing is saved yet. The whole list opens for checking, line by line, with its own Save button");
+
+  return {
+    kind: "stockList",
+    text: raw,
+    count: rows.length,
+    placed: placed.length,
+    byHand,
+    newSections,
+    lines,
+    confirm: newSections.length
+      ? `Create ${newSections.length} section${newSections.length !== 1 ? "s" : ""} and open the list`
+      : `Open the list — ${rows.length} part${rows.length !== 1 ? "s" : ""}`,
+    // Only when it would write a section — see needsMigration in readSection.
+    needsMigration: newSections.length > 0,
   };
 }
 

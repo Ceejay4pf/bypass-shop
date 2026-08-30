@@ -3,7 +3,7 @@
 --------------------------------------------------------- */
 import React, { useState } from "react";
 import { MapPin, Trash2, ImagePlus, X, Search, CheckSquare, Square } from "lucide-react";
-import { condColor, reorderLevel, isOutOfStock, splitSide } from "./data.js";
+import { condColor, reorderLevel, isOutOfStock, splitSide, categoryTree } from "./data.js";
 import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 export const inputCls =
@@ -428,5 +428,34 @@ export function TrendChart({ points }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/* ---- THE OPTIONS INSIDE A CATEGORY <select> ----
+   Four screens ask which section a part belongs to, and each of them used to
+   print the whole flat list. Twenty-six built-in sections plus everything the
+   shop has added is a list nobody reaches the bottom of on a phone, so a section
+   that sits inside another one is printed under it as a group heading.
+
+   Written once and shared, because the whole point of putting Front Bumpers
+   inside Bumpers is that it looks that way EVERYWHERE. A picker that still shows
+   the flat list is a picker where the tidying appears not to have worked.
+
+   A heading is offered as a choice as well as a heading: a section that holds
+   others can still hold parts of its own, and quietly refusing to let anybody
+   file a part under it would be a rule nobody was told about. */
+export function CategoryOptions({ categories, shelf = false }) {
+  const text = (c) => (shelf && c.shelf && c.shelf !== "—" ? `${c.label} — Shelf ${c.shelf}` : c.label);
+  return categoryTree(categories).map((c) =>
+    c.children.length === 0 ? (
+      <option key={c.key} value={c.key}>{text(c)}</option>
+    ) : (
+      <optgroup key={c.key} label={c.label}>
+        <option value={c.key}>{text(c)}</option>
+        {c.children.map((k) => (
+          <option key={k.key} value={k.key}>{text(k)}</option>
+        ))}
+      </optgroup>
+    )
   );
 }
