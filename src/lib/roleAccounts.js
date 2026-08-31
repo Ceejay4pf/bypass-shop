@@ -11,7 +11,8 @@
 
    THE LIST IS NOT THE SAME AT EVERY SHOP. Jaspare has the four roles it
    has always had. Sure Fit has two: Keziah and Admin. Jeyden has two:
-   Eunice and Admin — and the four are NOT copied across. A team of three
+   Eunice and Admin. Quick Jet has two: its own login and Admin. The four
+   are NOT copied across. A team of three
    does not need four shared logins, and a login on the screen that nobody
    is meant to use is a login somebody eventually uses. The next person at
    either shop gets their own account, created for them by the person who
@@ -90,10 +91,30 @@ const EUNICE = {
   color: "#0D9488",
 };
 
+/* QUICK JET AUTO SPARES — the shop's own login.
+
+   The owner named it themselves: "login to this shop are either admin or quickjet1,
+   password quickjet123". So the key is quickjet1 exactly as given, and the password
+   is quickjet123 exactly as given — which is NOT key+123 and is the reason
+   START_PASSWORD below exists.
+
+   Named after the shop rather than after a person because nobody has said who stands
+   behind the counter. When somebody does, they get their own tile the way Keziah and
+   Eunice have theirs, and this one can go.
+
+   Magenta, from lib/shopSkin.js, so the tile matches the screen it sits on. */
+const QUICKJET = {
+  key: "quickjet1",
+  label: "Quick Jet",
+  desc: "Runs the shop — full control.",
+  email: "quickjet1@bypassshop.co",
+  color: "#DB2777",
+};
+
 /* Every role that exists anywhere, for looking one up by key or by email. A role
    removed from a shop's screen still has to be recognisable, or somebody already
    signed in with it would stop being identified after a deploy. */
-const ALL_ROLES = [...ROLE_ACCOUNTS, KEZIAH, EUNICE];
+const ALL_ROLES = [...ROLE_ACCOUNTS, KEZIAH, EUNICE, QUICKJET];
 
 /* Which logins a shop offers, in the order they appear. Keziah first, as asked. A
    shop with no entry here gets ROLE_ACCOUNTS. */
@@ -111,6 +132,11 @@ const ROLE_KEYS_BY_SLUG = {
      created. This used to say "names go here when there are names". There is a
      name. */
   "jeyden-autospares": ["eunice", "admin"],
+  /* QUICK JET — its own login, then Admin. Two, for the same reason the other two
+     shops have two: the four shared passwords are Jaspare's people's, and a door
+     that opens onto an empty shop reads as a broken system rather than as "you do
+     not work here". */
+  "quickjet-autospares": ["quickjet1", "admin"],
 };
 
 export function rolesFor(slug) {
@@ -145,8 +171,22 @@ export function rolesFor(slug) {
    Fit's screen is true, and blanking a true hint helps nobody. */
 const OWNER_SET_PASSWORD = new Set(["eunice"]);
 
+/* THE ONE ROLE WHOSE PASSWORD IS NOT ITS KEY PLUS 123.
+
+   The owner gave the pair as "quickjet1 / quickjet123", and quickjet1 + 123 is
+   quickjet1123, which is not it. Written down rather than quietly corrected to fit
+   the pattern, because the alternative is a shop handed a password that the sign-in
+   screen then contradicts and auth.js then refuses on first use.
+
+   It is in the file for the same reason admin123 effectively is: it is the documented
+   starting password, the sign-in screen prints it on the screen under "Forgot the
+   password?", and the shop is told to change it in Settings. That is a default, not a
+   secret. A password somebody CHOSE for themselves is a different thing and does not
+   go here — see Eunice above, whose password this file deliberately does not know. */
+const START_PASSWORD = { quickjet1: "quickjet123" };
+
 export const defaultRolePassword = (key) =>
-  OWNER_SET_PASSWORD.has(key) ? null : `${key}123`;
+  OWNER_SET_PASSWORD.has(key) ? null : START_PASSWORD[key] || `${key}123`;
 
 /* The one sentence both screens show about it, so the sign-in note and the Settings
    panel cannot end up telling a person two different things. */
@@ -162,7 +202,7 @@ export const roleByEmail = (email) =>
 /* Which roles count as admin-level (see everything, manage staff). The two shop-owner
    keys are here because each runs a shop; what that lets them see is still fenced by
    shop_id, so "admin" means full control of THEIR shop and no sight of the others. */
-export const ADMIN_ROLE_KEYS = ["admin", "management", "keziah", "eunice"];
+export const ADMIN_ROLE_KEYS = ["admin", "management", "keziah", "eunice", "quickjet1"];
 
 /* Remember the human name typed at role login, so actions are attributed
    to the person and not just "Sales". Stored per device. */

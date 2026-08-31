@@ -20,6 +20,7 @@ import { useInventory, useNotifications, useAuth, usePartCategories, useSales } 
 import { getProfileName, signOut } from "./lib/auth.js";
 import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
 import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
+import { screenAllowed, firstScreenFor } from "./lib/shopModules.js";
 import * as api from "./lib/api.js";
 import { generateCode, isLowStock } from "./data.js";
 import { cacheAge } from "./lib/stockCache.js";
@@ -387,7 +388,9 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
   // authorisation, so they never sit in the approval queue.
   const roleLogin = isRoleAccount(session);
   const [user, setUser] = useState(session.user.user_metadata?.full_name || "Staff");
-  const [tab, setTab] = useState("dashboard");
+  /* Where a sign-in lands. Not always the dashboard: Quick Jet has no dashboard, so
+     it opens on its parts list. See src/lib/shopModules.js. */
+  const [tab, setTab] = useState(() => firstScreenFor(shop?.slug));
   const [history, setHistory] = useState([]); // screens visited, for the Back button
   const [toast, setToast] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -438,12 +441,30 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
     (cap) => hasCap(cap, { admin, permissions: myPerms }),
     [admin, myPerms]
   );
+  /* TWO DIFFERENT QUESTIONS, BOTH ASKED.
+
+     Does this SHOP have the screen (shopModules.js — Quick Jet does not buy on
+     credit, so it has no Credit Accounts at all), and is it open to this PERSON
+     (NAV's own cap / admin rules). A Quick Jet admin passes the second and still
+     does not see Financial Statements, because being allowed to do everything is not
+     the same as having everywhere to do it. */
+  const shopSlug = shop?.slug || "";
   const navItems = NAV.filter((n) => {
+    if (!screenAllowed(shopSlug, n.id)) return false;
     if (n.admin) return admin;
     if (n.staffOnly) return !admin;
     if (n.cap) return can(n.cap);
     return true;
   });
+
+  /* A screen the shop does not have can still be ASKED for — a tab remembered from
+     a bigger shop on the same phone, a long-press that offers to sell a part, a
+     handoff from the ask-or-tell box. The menu filter above hides them; this is what
+     makes the hiding true. Sent to the shop's own first screen rather than to the
+     dashboard, because at Quick Jet there isn't one. */
+  useEffect(() => {
+    if (!screenAllowed(shopSlug, tab)) setTab(firstScreenFor(shopSlug));
+  }, [shopSlug, tab]);
 
   /* ---- two screens at once ----
      So a list can be read against another list — what to reorder beside what is
@@ -565,6 +586,12 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
   const handlePick = (action, item) => {
     if (action === "ledger") { openLedger(item.code); return; }
     const target = action === "info" ? "edit" : action;
+    /* Said out loud rather than silently bounced by the guard above: a tap that
+       appears to do nothing is a tap somebody makes four more times. */
+    if (!navItems.some((n) => n.id === target)) {
+      showToast(`${labelFor(target)} isn't on this shop's menu.`, "warn");
+      return;
+    }
     setPicked({ code: item.code, action, tab: target });
     go(target);
   };

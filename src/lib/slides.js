@@ -129,9 +129,22 @@ const JEYDEN_OPENERS = [
   "/ads/headlights.jpg",
 ];
 
+/* Quick Jet opens on the LC300 and leads with lights — a fourth five and a fourth
+   order, so that a person who works at two shops can tell which sign-in screen is in
+   front of them before reading a word of it. Same eleven photographs again, for the
+   reason in the header: only what somebody reaches is ever downloaded. */
+const QUICKJET_OPENERS = [
+  "/ads/lc300-front.jpg",
+  "/ads/taillights.jpg",
+  "/ads/mazda-cx5-front.jpg",
+  "/ads/grilles.jpg",
+  "/ads/mirrors-indicator.jpg",
+];
+
 const OPENERS_BY_SLUG = {
   "surefit-autoparts": SUREFIT_OPENERS,
   "jeyden-autospares": JEYDEN_OPENERS,
+  "quickjet-autospares": QUICKJET_OPENERS,
 };
 
 export function slidesFor(slug) {

@@ -144,12 +144,17 @@ const DEFAULT_BY_SLUG = {
      asked for a colour, so this is a starting point rather than a decision: the slug
      is in CHOOSABLE below, so the shop can change it itself. */
   "jeyden-autospares": "teal",
+  /* Quick Jet in magenta — the fourth sign-in screen, and the fourth that has to be
+     told apart at arm's length by somebody who works at two of them. Blue, orange and
+     teal were taken; magenta is the one left that nothing in the app uses to mean
+     anything. Not a decision, a starting point: the slug is in CHOOSABLE below. */
+  "quickjet-autospares": "magenta",
 };
 
 /* Which shops may change it. See the header for why this is not every shop: Jaspare
    is the blue the whole system has always been, and repainting the main shop is a
    different conversation from letting a new shop pick its own look. */
-const CHOOSABLE = ["surefit-autoparts", "jeyden-autospares"];
+const CHOOSABLE = ["surefit-autoparts", "jeyden-autospares", "quickjet-autospares"];
 
 export function canChooseSkin(slug) {
   return CHOOSABLE.includes(String(slug || "").toLowerCase());

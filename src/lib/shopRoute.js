@@ -85,6 +85,27 @@ export const KNOWN_SHOPS = [
        that shows it, so a fourth shop names its own file instead of Jeyden's. */
     setupFile: "supabase/multishop/12_jeyden_third_shop.sql",
   },
+  {
+    /* THE FOURTH SHOP — and the first one that is not a copy of the others.
+       Quick Jet keeps the parts list, the search, the list-paste and the staff feed,
+       and none of the rest: no quotations, no receipts, no credit, no books. The
+       owner asked for it that way and the list lives in src/lib/shopModules.js.
+
+       No address and no phone number, on purpose. Nobody has given them, a blank
+       column prints nothing, and nothing here invents a number for a customer to
+       ring off a receipt. Both are one update on the shops row when they are known —
+       the database wins over this file, so no deploy is needed for either.
+
+       `ready: false` until supabase/multishop/14 is pasted, the same as Jeyden's
+       was: mergeShops turns it true by itself the moment the row exists, so the tile
+       says "Not on the system yet" and then quietly stops saying it. */
+    slug: "quickjet-autospares",
+    name: "Quick Jet Auto Spares",
+    phone: "",
+    tagline: "Parts list, stock and the staff feed",
+    ready: false,
+    setupFile: "supabase/multishop/14_quickjet_fourth_shop.sql",
+  },
 ];
 
 /* NOT A LIST OF ALL THE SHOPS THERE WILL BE. Jaspare Auto — the main shop above
