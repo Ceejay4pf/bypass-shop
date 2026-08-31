@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import Shopfront from "./shopfront.jsx";
 import FrontDoor from "./FrontDoor.jsx";
 import ShopPicker from "./ShopPicker.jsx";
+import OwnerConsole from "./OwnerConsole.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
 import { forgetDoor } from "./lib/publicRoute.js";
 import {
@@ -26,6 +27,12 @@ import "./index.css";
      /jaspare-auto/login        that shop's sign-in
      /jaspare-auto/shop         that shop's parts list
      /jaspare, /shop, /system   the old links, unchanged, still Jaspare
+     /owner                     the owner's console — all the shops, and no shop
+
+   THE CONSOLE IS THE ONE VIEW WITH NO SHOP, and it is above this whole question
+   rather than inside it. Every screen below asks "which shop?" first and narrows
+   everything to the answer; that one is for the person who needs to see across them,
+   and the account that opens it is a member of none of them. See OwnerConsole.jsx.
 
    THE OLD LINKS DO NOT MOVE and they skip both questions, exactly as they always
    have. They are written on paper, forwarded on WhatsApp and saved on counter
@@ -142,6 +149,7 @@ function Root() {
      Somebody who answered wrongly got the shop right; making them choose it again
      would be a second question they have already answered. */
   const toDoor = useCallback(() => goto("door", route.slug), [goto, route.slug]);
+  const toOwner = useCallback(() => goto("owner"), [goto]);
 
   /* Offer "choose a different shop" only where there is a choice to make. With one
      shop on the system the picker is a question with one answer, and a link to it
@@ -176,8 +184,17 @@ function Root() {
     }
     return <NotOnTheSystemYet shop={route.shop} shops={shops} onPick={pickShop} />;
   }
+  /* Before the picker, and it does not go through the "is this shop ready?" check
+     above, because it has no shop to be ready. It is also the one screen that stays
+     reachable when every shop is having a bad day — which is exactly when the person
+     who can fix it needs to look at all four of them at once. */
+  if (route.view === "owner") {
+    return <OwnerConsole onLeave={toPicker} />;
+  }
   if (route.view === "picker") {
-    return <ShopPicker shops={shops} onPick={pickShop} loading={loadingShops} />;
+    return (
+      <ShopPicker shops={shops} onPick={pickShop} loading={loadingShops} onOwner={toOwner} />
+    );
   }
   if (route.view === "door") {
     return <FrontDoor onPick={pickDoor} shop={route.shop} onChooseShop={chooseShop} />;

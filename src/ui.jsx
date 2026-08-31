@@ -3,7 +3,7 @@
 --------------------------------------------------------- */
 import React, { useState } from "react";
 import { MapPin, Trash2, ImagePlus, X, Search, CheckSquare, Square } from "lucide-react";
-import { condColor, reorderLevel, isOutOfStock, splitSide, categoryTree } from "./data.js";
+import { condColor, reorderLevel, isOutOfStock, splitSide, categoryTree, extraDetails } from "./data.js";
 import { useThemeMode, readableOnDark } from "./lib/theme.js";
 
 export const inputCls =
@@ -270,6 +270,22 @@ export function ItemCard({ item, categories, onDelete }) {
           <span className="mx-1">·</span>
           <span className="text-[#2563EB] font-semibold">KES {Number(item.price).toLocaleString()}</span>
         </div>
+        {/* The typed-in details, and who it came from. Clamped to two lines with the
+            whole thing on hover, because a card that grows to five lines for one part
+            makes a list of six hundred unreadable — and these are details you read
+            about the part you have already found, not while scrolling past it. */}
+        {extraDetails(item) || item.supplier ? (
+          <div className="mt-1.5 pt-1.5 border-t border-[#EEF2F6] text-xs">
+            {extraDetails(item) ? (
+              <p className="text-[#5A6472] leading-snug line-clamp-2" title={extraDetails(item)}>
+                {extraDetails(item)}
+              </p>
+            ) : null}
+            {item.supplier ? (
+              <p className="text-[#8A93A0] mt-0.5 truncate">From {item.supplier}</p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -335,6 +335,27 @@ export function sidesFor(cat, current = "") {
   return !current || list.includes(current) ? list : [...list, current];
 }
 
+/* THE THINGS SOMEBODY TYPED THAT HAVE NO FIELD OF THEIR OWN.
+
+   Every part has a make, a model, a year and a condition, and none of those is where
+   "slight crack on the lower lip" or "off a 2015 facelift" goes. That goes in the
+   notes, and until now the notes were written, saved, and shown nowhere — so the one
+   fact about a part that could not be worked out from any other field was the one
+   fact nobody could see. Asked for in these words: "extra details of parts that I
+   write should be visible when you are searching the part, even though they aren't
+   either brand, year or what they are".
+
+   The prefix is dropped and nothing else is. "From bulk entry:" is written by the
+   list-paste, not by a person, and it is the same eleven characters on several
+   hundred parts; what follows it is the line somebody actually pasted, which is worth
+   reading. Judging any further than that — deciding a note merely repeats the name
+   and hiding it — is how a real detail gets swallowed, so it is not attempted. */
+export function extraDetails(item) {
+  const s = String(item?.notes || "").trim();
+  if (!s) return "";
+  return s.replace(/^from bulk entry:\s*/i, "").trim();
+}
+
 /* The two halves of a side, back apart again: "Front Left" -> Front, and Left.
    Only for the sections that have two ends — a tail light reading "Left" has no
    end to pull off, and a bumper's section already is the end.

@@ -20,7 +20,9 @@ import { useInventory, useNotifications, useAuth, usePartCategories, useSales } 
 import { getProfileName, signOut } from "./lib/auth.js";
 import { getRolePersonName, clearRoleSession } from "./lib/roleAccounts.js";
 import { isAdmin, hasCap, isRoleAccount, rolePermissions } from "./lib/roles.js";
-import { screenAllowed, firstScreenFor } from "./lib/shopModules.js";
+import {
+  screenAllowed, firstScreenFor, moduleLabel, orderScreens, moduleScreen,
+} from "./lib/shopModules.js";
 import * as api from "./lib/api.js";
 import { generateCode, isLowStock } from "./data.js";
 import { cacheAge } from "./lib/stockCache.js";
@@ -290,7 +292,12 @@ function ShopGate({ session, shop, onChooseShop, children }) {
   return <>{children}</>;
 }
 
-const labelFor = (id) => NAV.find((n) => n.id === id)?.label || "Screen";
+/* What to call a screen when it is being talked about rather than tapped: a Back
+   button, a pane heading, a toast. The shop's own name for it, because a warning
+   that says "Add a List of Parts" about a menu entry reading "Book In a Delivery" is
+   a warning about some other shop's app. */
+const labelFor = (id, slug = "") =>
+  moduleLabel(slug, id, NAV.find((n) => n.id === id)?.label || "") || "Screen";
 
 /* One half of a split screen.
 
@@ -449,13 +456,27 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
      does not see Financial Statements, because being allowed to do everything is not
      the same as having everywhere to do it. */
   const shopSlug = shop?.slug || "";
-  const navItems = NAV.filter((n) => {
-    if (!screenAllowed(shopSlug, n.id)) return false;
-    if (n.admin) return admin;
-    if (n.staffOnly) return !admin;
-    if (n.cap) return can(n.cap);
-    return true;
+  /* Then the shop's own order and its own words for what is left — see
+     shopModules.js. Both are no-ops at a shop that has not asked for either, so this
+     is the whole menu for every shop and there is no second path to keep in step. */
+  const navItems = orderScreens(
+    shopSlug,
+    NAV.filter((n) => {
+      if (!screenAllowed(shopSlug, n.id)) return false;
+      if (n.admin) return admin;
+      if (n.staffOnly) return !admin;
+      if (n.cap) return can(n.cap);
+      return true;
+    })
+  ).map((n) => {
+    const label = moduleLabel(shopSlug, n.id, n.label);
+    return label === n.label ? n : { ...n, label };
   });
+
+  /* Handed to the screens that have their own name here, so the heading on the page
+     matches the entry in the menu. Null everywhere else, and a screen given null keeps
+     the words written inside it. */
+  const screenName = (id) => moduleScreen(shopSlug, id);
 
   /* A screen the shop does not have can still be ASKED for — a tab remembered from
      a bigger shop on the same phone, a long-press that offers to sell a part, a
@@ -589,7 +610,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
     /* Said out loud rather than silently bounced by the guard above: a tap that
        appears to do nothing is a tap somebody makes four more times. */
     if (!navItems.some((n) => n.id === target)) {
-      showToast(`${labelFor(target)} isn't on this shop's menu.`, "warn");
+      showToast(`${labelFor(target, shopSlug)} isn't on this shop's menu.`, "warn");
       return;
     }
     setPicked({ code: item.code, action, tab: target });
@@ -639,7 +660,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
       /* Every screen the menu can reach is in NAV, so the name comes from there and
          cannot drift from the menu. A screen that is not in it (there is none today)
          gets the plain word rather than a made-up name. */
-      const label = NAV.find((n) => n.id === id)?.label || "";
+      const label = moduleLabel(shopSlug, id, NAV.find((n) => n.id === id)?.label || "");
       return { label: label || "Back", title: `Back to ${label || "the last screen"}`, act: goBack };
     }
     if (onLeave) {
@@ -652,7 +673,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
     /* Neither a screen behind nor a door out: one shop, opened at a bare address.
        Nothing to offer, and an arrow that goes nowhere is worse than no arrow. */
     return null;
-  }, [history, goBack, onLeave, shop?.name]);
+  }, [history, goBack, onLeave, shop?.name, shopSlug]);
   const showToast = (msg, tone = "ok") => {
     setToast({ msg, tone });
     setTimeout(() => setToast(null), 2800);
@@ -816,7 +837,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
        one. The rules live in NAV, so this can never drift from the menu. */
     const nav = NAV.find((n) => n.id === id);
     if (nav && !navItems.some((n) => n.id === id)) {
-      showToast(`${nav.label} isn't open to your account — ask an admin.`, "warn");
+      showToast(`${labelFor(id, shopSlug)} isn't open to your account — ask an admin.`, "warn");
       return;
     }
     if (id === "ledger" && options.code) { setHandoff(null); openLedger(options.code); return; }
@@ -887,6 +908,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           onPick={handlePick}
           canEdit={can("edit")}
           initialQuery={handoffFor("search")?.q || ""}
+          screen={screenName("search")}
         />
       )}
       {id === "inventory" && (
@@ -898,6 +920,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           canEdit={can("edit")}
           onBulkDelete={can("delete") ? handleBulkDelete : undefined}
           onBulkAddStock={handleBulkAddStock}
+          screen={screenName("inventory")}
         />
       )}
       {id === "lowstock" && <LowStockTab items={items} categories={CATEGORIES} onOpenLedger={openLedger} />}
@@ -928,6 +951,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
              old state and the new list never appears. */
           key={`bulk-${handoff?.seq || 0}`}
           initialText={handoffFor("bulk")?.text || ""}
+          screen={screenName("bulk")}
           items={items}
           categories={CATEGORIES}
           sales={salesRegister}
@@ -1028,6 +1052,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           userId={session.user.id}
           user={user}
           admin={admin}
+          screen={screenName("feed")}
           /* The assistant pane's half. The register, not the activity feed,
              so "what did we sell this month" counts every sale rather than
              the last 200 things that happened — and registerReady so an
@@ -1080,6 +1105,7 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
           email={session.user.email}
           admin={admin}
           onCategoriesChanged={reloadCategories}
+          screen={screenName("settings")}
         />
       )}
     </>
@@ -1261,12 +1287,12 @@ function BypassShop({ session, shop, onLeave, onChooseShop }) {
             /* Side by side from lg up, one under the other below it — two
                half-width lists on a phone are two lists nobody can read. */
             <div className="grid lg:grid-cols-2 gap-4 items-start">
-              <Pane side="This screen" title={labelFor(tab)}>
+              <Pane side="This screen" title={labelFor(tab, shopSlug)}>
                 {screenFor(tab)}
               </Pane>
               <Pane
                 side="Second screen"
-                title={labelFor(rightTab)}
+                title={labelFor(rightTab, shopSlug)}
                 value={rightTab}
                 /* Not the screen already on the left: two of the same screen
                    would be two halves of one form pulling against each other. */

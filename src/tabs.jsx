@@ -145,9 +145,16 @@ const matchesQuery = (i, cat, q) => {
   const yearText = i.yearFrom
     ? [i.yearFrom, i.yearTo].filter(Boolean).join(" ")
     : "no year unknown year";
+  /* The extra details somebody typed by hand, and they are searchable for the same
+     reason they were typed: they are the facts that did not fit anywhere else. A part
+     described as "slight crack on the lower lip" or "off a 2015 facelift" cannot be
+     found by make, model or year, because none of those is what makes it that part.
+     Asked for in these words: "extra details of parts that I write should be visible
+     when you are searching the part, even though they aren't either brand, year or
+     what they are". */
   const haystack = [
     i.code, i.name, i.brand, i.model, i.series, i.condition, i.color,
-    i.side, i.variant, i.supplier, i.location, cat?.label, ledgerText, yearText,
+    i.side, i.variant, i.supplier, i.location, i.notes, cat?.label, ledgerText, yearText,
   ]
     .filter(Boolean)
     .join(" ")
@@ -762,7 +769,12 @@ function CategoryTile({ cat, count, inside = 0, onPick }) {
   );
 }
 
-export function SearchTab({ items, categories, onDelete, onPick, canEdit = false, initialQuery = "" }) {
+/* `screen` is what THIS shop calls this screen — { name, eyebrow } — or null at a
+   shop that has not renamed it, which is all of them but Quick Jet. See
+   src/lib/shopModules.js. The heading has to agree with the menu entry that got you
+   here; a page calling itself something the menu does not is how somebody decides
+   they have tapped the wrong thing. */
+export function SearchTab({ items, categories, onDelete, onPick, canEdit = false, initialQuery = "", screen = null }) {
   // Step 1: pick a category (or "All"). Step 2: search within it.
   // null = nothing chosen yet (show the category picker first).
   /* Arriving with words already typed — the assistant sending somebody here
@@ -812,7 +824,7 @@ export function SearchTab({ items, categories, onDelete, onPick, canEdit = false
   if (cat === null) {
     return (
       <div className="bp-fade-up">
-        <SectionTitle eyebrow="Find a part" title="Search Inventory" />
+        <SectionTitle eyebrow={screen?.eyebrow || "Find a part"} title={screen?.name || "Search Inventory"} />
         <div className="text-[#5A6472] text-sm mb-4">
           Choose a category to search in — or search across everything.
         </div>
@@ -1015,7 +1027,7 @@ function SearchResultRow({ item, categories, onDelete, onHold }) {
 }
 
 /* ======================= INVENTORY ======================= */
-export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdit = false, onBulkDelete, onBulkAddStock }) {
+export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdit = false, onBulkDelete, onBulkAddStock, screen = null }) {
   // Two-level view: pick a category first, then see that section's list.
   const [openCat, setOpenCat] = useState(null);
   // Multi-select mode: a Set of selected item codes within the open section.
@@ -1109,7 +1121,10 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
 
     return (
       <div className="bp-fade-up">
-        <SectionTitle eyebrow="Inventory · section" title={cat.label || "Section"} />
+        <SectionTitle
+          eyebrow={`${screen?.name || "Inventory"} · section`}
+          title={cat.label || "Section"}
+        />
         <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
           <button
             onClick={() => openSection(null)}
@@ -1248,7 +1263,10 @@ export function InventoryTab({ items, categories, onDelete, onOpenLedger, canEdi
   /* ---------- Level 1: the category tiles ---------- */
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="Tap a section to view its parts" title="Inventory" />
+      <SectionTitle
+        eyebrow={screen?.eyebrow || "Tap a section to view its parts"}
+        title={screen?.name || "Inventory"}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {sections.map((cat) => {
           const list = grouped[cat.key] || [];
@@ -3652,7 +3670,7 @@ export function AddItemTab({ items, categories, sales = [], salesReady = true, o
    the words sitting there waiting for somebody to press Read — a person who has
    just watched the app understand their list would reasonably read that second
    screen as it having forgotten. */
-export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo, initialText = "" }) {
+export function BulkAddTab({ items, categories, sales = [], salesReady = true, onAddMany, user, admin = false, canEdit = false, canDelete = false, onChanged, onGo, initialText = "", screen = null }) {
   const [text, setText] = useState(initialText);
   const [rows, setRows] = useState(() =>
     String(initialText || "").trim() ? parsePartsList(initialText, categories) : null
@@ -3827,7 +3845,7 @@ export function BulkAddTab({ items, categories, sales = [], salesReady = true, o
   if (rows === null) {
     return (
       <div className="bp-fade-up">
-        <SectionTitle eyebrow="Bulk entry" title="Add a List of Parts" />
+        <SectionTitle eyebrow={screen?.eyebrow || "Bulk entry"} title={screen?.name || "Add a List of Parts"} />
 
         <div className="text-[#5A6472] text-xs mb-4 bg-[#EEF2F6] border border-[#DEE3E9] rounded-md p-3 leading-relaxed">
           Write or paste the parts the way you normally say them — one per line,{" "}
@@ -8129,6 +8147,7 @@ export function StaffFeedTab({
   userId,
   user,
   admin,
+  screen = null,
   /* Everything below this line belongs to the assistant pane, and is handed
       straight to CommandBox. salesReady matters: an unreadable sales register
       and an empty one look identical, and it must say it cannot see rather than
@@ -8207,7 +8226,10 @@ export function StaffFeedTab({
 
   return (
     <div className="bp-fade-up flex flex-col" style={{ height: "calc(100vh - 8.5rem)" }}>
-      <SectionTitle eyebrow="Everyone, at both shops" title="Staff Feed" />
+      <SectionTitle
+        eyebrow={screen?.eyebrow || "Everyone, at both shops"}
+        title={screen?.name || "Staff Feed"}
+      />
 
       {/* Two pills, not a menu. Which chat you are in has to be readable at a
           glance, and switching has to cost one tap — anything deeper and the
@@ -10010,11 +10032,11 @@ function CategoryRow({
   );
 }
 
-export function SettingsTab({ categories, user, email, admin, onCategoriesChanged }) {
+export function SettingsTab({ categories, user, email, admin, onCategoriesChanged, screen = null }) {
   const shops = useDirectory();
   return (
     <div className="bp-fade-up">
-      <SectionTitle eyebrow="System" title="Settings" />
+      <SectionTitle eyebrow={screen?.eyebrow || "System"} title={screen?.name || "Settings"} />
 
       <div className="bg-[#FFFFFF] border border-[#DEE3E9] rounded-lg p-4 mb-4">
         <div className="text-sm font-bold uppercase tracking-wide mb-3">Signed-in Staff</div>

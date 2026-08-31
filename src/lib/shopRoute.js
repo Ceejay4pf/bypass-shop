@@ -15,6 +15,7 @@
      /jaspare-auto/shop         that shop's parts list, no sign-in
      /jaspare, /spares, /shop   the old customer links, still Jaspare's parts list
      /system, /staff, /office   the old staff link, still Jaspare's sign-in
+     /owner                     the owner's console, which belongs to no shop
 
    THE OLD LINKS DO NOT MOVE. They are written on paper, forwarded on WhatsApp and
    saved as shortcuts on counter phones. A shop that renames its own front door
@@ -126,6 +127,15 @@ export const LEGACY_SLUG = "jaspare-auto";
 const STAFF_SEGMENTS = ["login", "system", "staff", "office", "signin", "sign-in"];
 const CUSTOMER_SEGMENTS = ["shop", "parts", "spares", "catalogue", "store", "jaspare"];
 
+/* THE ONE ADDRESS THAT IS NOT A SHOP. The owner's console sits above all of them, so
+   it has no slug — /owner and nothing after it.
+
+   It is not hidden and there would be no point pretending otherwise: anybody can type
+   it, and what they get is a password box that no shop's password opens. A secret
+   address is not a lock. The lock is is_cross_shop_owner() in the database, which is
+   two email addresses long. */
+const OWNER_SEGMENTS = ["owner", "console", "ceejay"];
+
 const clean = (s) => String(s || "").toLowerCase().trim();
 
 const cleanHost = (h) =>
@@ -182,6 +192,13 @@ export function resolveRoute({ host = "", path = "", publicHost = "", shops = KN
     return { view: "customer", slug: shop?.slug || "", shop };
   }
 
+  /* The console, before anything is treated as a shop name — "owner" is not a slug
+     and never will be, and without this line it would resolve to "unknown" and show
+     "no shop called owner", which is true and useless. */
+  if (seg.length === 1 && OWNER_SEGMENTS.includes(seg[0])) {
+    return { view: "owner", slug: "", shop: null };
+  }
+
   /* The old links, before anything is treated as a shop name. Checked first
      because "/shop" and "/parts" are both old customer links AND words that could
      look like a slug; no shop is called either, and this keeps it that way. */
@@ -221,6 +238,9 @@ export function resolveRoute({ host = "", path = "", publicHost = "", shops = KN
 --------------------------------------------------------- */
 export function pathFor(view, slug = "") {
   const s = clean(slug);
+  // Before the !s test below, because the console having no shop is the point of it
+  // rather than a missing argument.
+  if (view === "owner") return "/owner";
   if (view === "picker" || !s) return "/";
   if (view === "staff") return `/${s}/login`;
   if (view === "customer") return `/${s}/shop`;

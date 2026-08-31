@@ -1,5 +1,5 @@
 import React from "react";
-import { Store, ArrowRight, Phone, Clock } from "lucide-react";
+import { Store, ArrowRight, Phone, Clock, ShieldCheck } from "lucide-react";
 import { SlidePictures, useSlideshow } from "./PartsShow.jsx";
 import { SLIDES } from "./lib/slides.js";
 
@@ -23,7 +23,7 @@ import { SLIDES } from "./lib/slides.js";
    words rather than by being greyed out and mute.
 --------------------------------------------------------- */
 
-export default function ShopPicker({ shops = [], onPick, loading = false }) {
+export default function ShopPicker({ shops = [], onPick, loading = false, onOwner = null }) {
   const show = useSlideshow(SLIDES.length);
   const onShow = SLIDES[show.at] || SLIDES[0];
 
@@ -131,6 +131,36 @@ export default function ShopPicker({ shops = [], onPick, loading = false }) {
             </div>
           );
         })}
+
+        {/* ---------- THE ONE ENTRANCE THAT IS NOT A SHOP ----------
+
+            The owner asked for it here: "the module will be located where the lists of
+            shops before you login". Which is the right place, because it is the only
+            page in the app that has not yet narrowed itself to one shop — everything
+            after this point is one business, and the console is all of them.
+
+            It looks nothing like a shop tile on purpose. Deliberately quiet and
+            deliberately not hidden: a customer reading this page should be able to see
+            it and have no reason to care, and pretending an address is secret is not a
+            lock. The lock is the password, and behind that a two-name list in the
+            database. */}
+        {onOwner ? (
+          <button
+            onClick={onOwner}
+            className="w-full mt-1 rounded-2xl bg-[#0A101C] ring-1 ring-white/[0.08] px-4 py-3 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
+          >
+            <span className="w-8 h-8 rounded-lg bg-white/[0.04] ring-1 ring-white/10 flex items-center justify-center shrink-0">
+              <ShieldCheck size={15} className="text-[#67E8F9]" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[#C7D6E8] text-[13px] font-bold">Owner&apos;s console</span>
+              <span className="block text-[#6F8299] text-[11px] leading-snug">
+                All the shops at once — stock, comparisons and who can sign in
+              </span>
+            </span>
+            <ArrowRight size={16} className="shrink-0 text-[#4A5C74]" />
+          </button>
+        ) : null}
 
         <p className="text-[#6F8299] text-[11px] text-center mt-4 leading-relaxed">
           Nothing is saved and nothing is remembered — you&apos;ll be asked again
