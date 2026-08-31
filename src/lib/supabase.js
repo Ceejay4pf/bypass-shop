@@ -8,6 +8,7 @@ import {
   scopeActive,
   currentShopId,
   stampShop,
+  scopeUnknownShop,
 } from "./shopScope.js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -52,9 +53,39 @@ export const supabase = isConfigured
    the only ones the app uses; a sixth would fail loudly here, which is the right
    place to find out.
 --------------------------------------------------------- */
+/* A shop id that cannot match a row. Used to read NOTHING from a shop's table when
+   the shop is unknown — an empty screen with a spinner that resolves is a bad
+   minute, and one shop's stock listed under another shop's name is a bad year. */
+const NO_SHOP = "00000000-0000-0000-0000-000000000000";
+
+/* Reading is emptied; writing is refused out loud. Refused rather than emptied
+   because the shop_id column still carries the temporary default from the
+   migration (see multishop/06), so an insert with no shop on it does not fail —
+   it quietly lands in whichever shop that default names. A part saved into
+   another business's stock list is not something the person who typed it would
+   ever find again. */
+const noShopQuery = (q) => {
+  const refuse = () => {
+    throw new Error(
+      "This screen doesn't know which shop it is showing, so nothing was saved. " +
+        "Open your shop's own link again and sign in."
+    );
+  };
+  return {
+    select: (...a) => q.select(...a).eq("shop_id", NO_SHOP),
+    insert: refuse,
+    upsert: refuse,
+    update: refuse,
+    delete: refuse,
+  };
+};
+
 export function shopFrom(table) {
   const q = supabase.from(table);
-  if (!isScopedTable(table) || !scopeActive()) return q;
+  if (!isScopedTable(table)) return q;
+  // The column exists and the shop does not: see scopeUnknownShop in shopScope.js.
+  if (scopeUnknownShop()) return noShopQuery(q);
+  if (!scopeActive()) return q;
   const id = currentShopId();
   return {
     select: (...a) => q.select(...a).eq("shop_id", id),

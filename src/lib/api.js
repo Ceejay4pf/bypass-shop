@@ -111,11 +111,18 @@ export async function activateShop({ slug = "", id = "", name = "" } = {}) {
     return { scoped: false, reason: "not migrated" };
   }
   /* Any other error — offline, a bad key, RLS refusing outright — is not an answer
-     about the column, so it must not be read as one. Leave scoping off and let the
-     screen that actually needed the data report its own failure. */
+     about the column. It used to leave scoping OFF, which reads as "one shop, no
+     filter needed" and is how a bad moment on the network turned into three shops'
+     stock on one screen.
+
+     Scoping goes ON instead, because the id is itself the proof: it arrived with a
+     membership, memberships live in user_shops, and user_shops and inventory.shop_id
+     were added by the same migration. So the column is there. If it somehow is not,
+     the filter makes the next query fail out loud, which is a screen somebody
+     reports — unlike a list that is quietly too long. */
   if (error) {
-    setScopeReady(false);
-    return { scoped: false, reason: error.message || "unavailable" };
+    setScopeReady(true);
+    return { scoped: true, reason: error.message || "unavailable" };
   }
 
   setScopeReady(true);
@@ -132,7 +139,17 @@ export async function checkShopMembership(slug) {
   const want = String(slug || "").toLowerCase();
   if (!want) return { answer: "unknown", shop: null };
 
-  const mine = await fetchMyShops();
+  /* "The table is not there yet" and "the question could not be asked" used to
+     come back as the same answer, and the caller lets the first one straight in
+     with no shop filter at all — which is right before the migration and very
+     wrong after it. A dropped connection at sign-in was enough to merge three
+     shops into one screen. So a failure is its own answer now. */
+  let mine;
+  try {
+    mine = await fetchMyShops();
+  } catch (e) {
+    return { answer: "unavailable", shop: null, why: e?.message || "" };
+  }
   if (mine === null) return { answer: "unknown", shop: null };
 
   const hit = mine.find((m) => String(m.slug).toLowerCase() === want);

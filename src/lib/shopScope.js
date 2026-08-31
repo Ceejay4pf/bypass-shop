@@ -113,15 +113,36 @@ export const currentShopId = () => active.id;
 export const currentShopSlug = () => active.slug;
 
 /* True only when BOTH halves are true: the database has the column, and this
-   screen knows which shop it is. Either missing means no filter — and in both
-   cases no filter is the honest behaviour, because a filter on nothing would
-   either error or silently return an empty shop. */
+   screen knows which shop it is.
+
+   THE TWO HALVES ARE NOT THE SAME KIND OF MISSING, and treating them as one thing
+   is what mixed the shops. The original note here said no filter was "the honest
+   behaviour" in both cases. That is true of one of them and badly false of the
+   other:
+
+     no column   — this database has one shop's data in it, so no filter is exactly
+                   right. A filter on a column that is not there empties the parts
+                   list for whoever is standing at the counter.
+
+     no shop id  — the column IS there, so there is more than one shop's data in
+                   reach, and "no filter" means EVERY shop's rows. For the owner's
+                   logins, which belong to all three shops, row level security does
+                   not narrow that either. One failed membership lookup at sign-in
+                   and three shops arrived merged into whichever one was opened.
+
+   So they are separate questions now. scopeUnknownShop() is the second one, and
+   shopFrom() answers it by returning nothing rather than everything. */
 export function setScopeReady(v) {
   ready = Boolean(v);
   return ready;
 }
 export const scopeReady = () => ready;
 export const scopeActive = () => ready && Boolean(active.id);
+
+/* The database can tell shops apart, and this screen cannot say which one it is.
+   Never a normal state — it means a membership lookup failed — and the only safe
+   reading of a shop's table in it is no rows at all. */
+export const scopeUnknownShop = () => ready && !active.id;
 
 /* Put the shop on a row, or on every row of a batch, without overwriting one that
    already says something. A caller that has deliberately named a shop is more

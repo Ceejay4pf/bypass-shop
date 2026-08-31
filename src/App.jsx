@@ -127,15 +127,29 @@ export default function App({ onLeave, onChooseShop, shop }) {
    and carries a name, a slug and a phone, nothing more. The id arrives with the
    membership, which needs a session by definition.
 
-   "UNKNOWN" IS TREATED AS YES. Until supabase/multishop/ has been pasted there is
-   no user_shops table, so nobody has a membership and refusing everybody would lock
-   the whole shop out of its own system over a migration that has not happened.
-   Unscoped is also correct in that state: with no shop_id there is one shop's data.
+   "UNKNOWN" IS TREATED AS YES, AND "COULDN'T ASK" IS NOT. Until supabase/multishop/
+   has been pasted there is no user_shops table, so nobody has a membership and
+   refusing everybody would lock the whole shop out of its own system over a
+   migration that has not happened. Unscoped is also correct in that state: with no
+   shop_id there is one shop's data.
+
+   The two used to be the same answer, and that is what mixed the shops. A lookup
+   that FAILED — a dropped connection, a request that timed out on a shop phone in a
+   dead spot — came back as "unknown" too, and unknown let the person in with no shop
+   on the screen and therefore no filter on any query. For the owner's own logins,
+   which belong to every shop, that is every shop's stock in one list. So a failure
+   is its own answer now and it stops here, with a Try again, rather than opening a
+   system that is showing somebody else's business.
+
+   It is a worse minute for whoever is standing at the counter and a much better
+   year: an unreachable database is a screen you retry, a merged one is a stock take
+   you cannot trust.
 --------------------------------------------------------- */
 function ShopGate({ session, shop, onChooseShop, children }) {
   const slug = shop?.slug || "";
-  const [state, setState] = useState("checking"); // checking | ok | wrong
+  const [state, setState] = useState("checking"); // checking | ok | wrong | unavailable
   const [mine, setMine] = useState([]);
+  const [tries, setTries] = useState(0);   // Try again re-runs the check below
 
   useEffect(() => {
     let alive = true;
@@ -150,16 +164,23 @@ function ShopGate({ session, shop, onChooseShop, children }) {
         hit = r.shop;
         all = r.all || [];
       } catch {
-        /* A failed check must not become a locked door. The database is the thing
-           that actually refuses a shop you don't belong to; this is only here to
-           say so in words instead of showing an empty system. */
-        answer = "unknown";
+        /* checkShopMembership catches its own failures and answers "unavailable";
+           anything still thrown from here is the same kind of thing, so it is read
+           the same way rather than waved through. */
+        answer = "unavailable";
       }
       if (!alive) return;
 
       if (answer === "no") {
         setMine(all);
         setState("wrong");
+        return;
+      }
+      /* A yes with no id would activate the shop with an empty one, which is the
+         same open door by another route. There is no id to be had here — the public
+         shop list deliberately doesn't carry one — so this is a retry too. */
+      if (answer === "unavailable" || (answer === "yes" && !hit?.id)) {
+        setState("unavailable");
         return;
       }
       await api.activateShop({
@@ -170,12 +191,45 @@ function ShopGate({ session, shop, onChooseShop, children }) {
       if (alive) setState("ok");
     })();
     return () => { alive = false; };
-  }, [slug, session.user.id, shop?.name]);
+  }, [slug, session.user.id, shop?.name, tries]);
 
   if (state === "checking") {
     return (
       <div className="min-h-screen bg-[#F3F5F8] flex items-center justify-center text-[#5A6472]">
         <Loader2 className="animate-spin" />
+      </div>
+    );
+  }
+
+  /* Not "wrong shop" and not a blank system: the shop could not be confirmed, so
+     nothing is shown yet. Worded as a connection problem because that is what it
+     nearly always is, and it names the one thing that fixes it. */
+  if (state === "unavailable") {
+    return (
+      <div className="min-h-screen bg-[#070B12] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-[#0C1424] ring-1 ring-white/10 rounded-2xl p-6 text-center">
+          <AlertTriangle size={28} className="text-[#E0A93B] mx-auto" />
+          <h1 className="text-white text-lg font-extrabold uppercase tracking-wide mt-3">
+            Couldn't reach the shop
+          </h1>
+          <p className="text-[#9FB3CC] text-sm mt-2 leading-relaxed">
+            You're signed in, but this device couldn't check which shop it's opening.
+            The stock list is kept shut until it can, so that no shop's parts show up
+            under another shop's name. Check the connection and try again.
+          </p>
+          <button
+            onClick={() => setTries((n) => n + 1)}
+            className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#2563EB] to-[#06B6D4] text-white font-bold py-2.5"
+          >
+            Try again
+          </button>
+          <button
+            onClick={async () => { clearRoleSession(); forgetEntry(); await signOut(); }}
+            className="mt-2 w-full rounded-xl bg-[#101A2E] ring-1 ring-white/15 text-[#C7D6E8] font-semibold py-2.5"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
     );
   }
